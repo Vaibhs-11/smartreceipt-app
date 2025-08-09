@@ -1,0 +1,15 @@
+{
+  "name": "SmartReceipt - Flutter",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash"
+  },
+  "extensions": [
+    "Dart-Code.dart-code",
+    "Dart-Code.flutter"
+  ],
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "vscode"
+}
