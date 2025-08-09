@@ -1,11 +1,20 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-# Ensure flutter is on PATH for the vscode user session
-echo 'export PATH="/usr/local/flutter/bin:/usr/local/flutter/bin/cache/dart-sdk/bin:$PATH"' >> /home/vscode/.bashrc
+# Accept Android SDK licenses
+yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses
 
-# Precache common artifacts (web)
-/usr/local/flutter/bin/flutter precache --web || true
+# Install required Android SDK components
+sdkmanager --sdk_root=$ANDROID_SDK_ROOT \
+    "platform-tools" \
+    "platforms;android-34" \
+    "build-tools;34.0.0"
 
-# run flutter doctor to show issues
-/usr/local/flutter/bin/flutter doctor -v || true
+# Pre-cache Flutter dependencies
+flutter precache
+
+# Configure Flutter to use the installed SDK
+flutter config --android-sdk $ANDROID_SDK_ROOT
+
+# Run doctor to verify setup
+flutter doctor
