@@ -1,0 +1,44 @@
+name: smartreceipt
+description: Mobile-first receipt scanning and organisation app (Flutter + Riverpod + Firebase-ready)
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.5.1
+  flutter_dotenv: ^5.1.0
+  dio: ^5.5.0+1
+  intl: ^0.19.0
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  equatable: ^2.0.5
+  uuid: ^4.4.2
+  # Local encrypted storage (used later for MVP). Placeholder integration ready.
+  sqflite_sqlcipher: ^2.3.3
+  # Firebase (premium tier - optional at runtime)
+  firebase_core: ^3.4.0
+  firebase_auth: ^5.2.0
+  cloud_firestore: ^5.4.0
+  firebase_storage: ^12.2.0
+  firebase_messaging: ^15.1.2
+  # Media pickers for uploads/scans
+  image_picker: ^1.1.2
+  file_picker: ^8.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  mocktail: ^1.0.3
+
+flutter:
+  uses-material-design: true
+
+
+
