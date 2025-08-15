@@ -28,7 +28,7 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_ios_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
+  use_frameworks! :linkage => :static
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
@@ -36,10 +36,63 @@ target 'Runner' do
   end
 end
 
+
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-  target.build_configurations.each do |config|
+    # First, normalize build settings across all configurations
+    target.build_configurations.each do |config|
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      # Ensure modern C++ standard for pods that use gRPC/abseil code
+      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
+      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+      # Allow non-modular headers in framework modules to fix Firebase plugin include errors
+      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      # Ensure Firebase modular headers are discoverable for plugin code
+      header_search = config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
+      firebase_headers = [
+        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseCore/FirebaseCore.framework/Headers"',
+        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseMessaging/FirebaseMessaging.framework/Headers"',
+        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseStorage/FirebaseStorage.framework/Headers"',
+        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseAuth/FirebaseAuth.framework/Headers"'
+      ]
+      config.build_settings['HEADER_SEARCH_PATHS'] = ([header_search] + firebase_headers).join(' ')
+    end
+
+    # Workaround: Some pods (e.g., BoringSSL-GRPC) inject an invalid flag
+    # "-GCC_WARN_INHIBIT_ALL_WARNINGS" which causes clang to error with
+    # "unsupported option '-G'" on iOS simulator targets. Strip it.
+    if target.name == 'BoringSSL-GRPC'
+      target.build_phases.each do |phase|
+        next unless phase.respond_to?(:files)
+        phase.files.each do |build_file|
+          settings = build_file.settings
+          next unless settings && settings['COMPILER_FLAGS']
+          flags = settings['COMPILER_FLAGS']
+          # Remove the exact bad token and any accidental variants starting with -GCC_WARN_INHIBIT_ALL_WARNINGS
+          flags = flags.gsub(/\s-?GCC_WARN_INHIBIT_ALL_WARNINGS\b/, '')
+          # Also defensively remove any stray -G<word> tokens which are invalid for clang here
+          flags = flags.gsub(/\s-G\w+\b/, '')
+          build_file.settings['COMPILER_FLAGS'] = flags.strip
+        end
+      end
+    end
+
+    # Then apply Flutter additional settings once per target
     flutter_additional_ios_build_settings(target)
-    config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386'
+  end
+
+  # Hotfix: Patch gRPC headers to avoid Clang missing-template-arg parse issue on Xcode 16+
+  grpc_headers = [
+    File.join(__dir__, 'Pods', 'gRPC-Core', 'src', 'core', 'lib', 'promise', 'detail', 'basic_seq.h'),
+    File.join(__dir__, 'Pods', 'gRPC-C++', 'src', 'core', 'lib', 'promise', 'detail', 'basic_seq.h')
+  ]
+  grpc_headers.each do |hdr|
+    next unless File.exist?(hdr)
+    contents = File.read(hdr)
+    fixed = contents.gsub('Traits::template CallSeqFactory', 'Traits::CallSeqFactory')
+    if fixed != contents
+      File.open(hdr, 'w') { |f| f.write(fixed) }
+    end
   end
 end
