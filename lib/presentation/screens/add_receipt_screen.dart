@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
@@ -23,6 +24,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   String _currency = AppConstants.supportedCurrencies.first;
   DateTime _date = DateTime.now();
   DateTime? _expiry;
+  String? _imagePath;
+  String? _extractedText;
 
   @override
   void dispose() {
@@ -64,11 +67,34 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       total: total,
       currency: _currency,
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      imagePath: _imagePath,
+      extractedText: _extractedText,
       expiryDate: _expiry,
     );
     final add = ref.read(addReceiptUseCaseProviderOverride);
     await add(receipt);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _pickImage({required bool fromCamera}) async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? file = await (fromCamera
+        ? picker.pickImage(source: ImageSource.camera)
+        : picker.pickImage(source: ImageSource.gallery));
+    if (file == null) return;
+    // Run stub OCR
+    final ocr = ref.read(ocrServiceProvider);
+    final result = await ocr.parseImage(file.path);
+    setState(() {
+      _imagePath = file.path;
+      if (result.storeName != null) _storeCtrl.text = result.storeName!;
+      if (result.total != null) _totalCtrl.text = result.total!.toStringAsFixed(2);
+      if (result.date != null) {
+        _date = result.date!;
+        _dateCtrl.text = DateFormat.yMMMd().format(_date);
+      }
+      _extractedText = 'Store: ${result.storeName ?? '-'}\nDate: ${result.date != null ? DateFormat.yMMMd().format(result.date!) : '-'}\nTotal: ${result.total?.toStringAsFixed(2) ?? '-'}';
+    });
   }
 
   @override
@@ -80,6 +106,16 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: <Widget>[
+            if (_imagePath != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'Selected image: ${_imagePath}',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             TextFormField(
               controller: _storeCtrl,
               decoration: const InputDecoration(labelText: 'Store name'),
@@ -91,6 +127,26 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
               readOnly: true,
               decoration: const InputDecoration(labelText: 'Date'),
               onTap: () => _pickDate(_dateCtrl),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickImage(fromCamera: true),
+                    icon: const Icon(Icons.photo_camera_outlined),
+                    label: const Text('Capture'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickImage(fromCamera: false),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Upload'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Row(

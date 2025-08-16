@@ -1,6 +1,7 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:smartreceipt/domain/usecases/add_receipt.dart' show receiptRepositoryProvider;
 
 class GetReceiptsUseCase {
   const GetReceiptsUseCase(this._repository);

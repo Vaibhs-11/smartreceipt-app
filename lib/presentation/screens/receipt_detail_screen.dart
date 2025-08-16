@@ -10,7 +10,7 @@ class ReceiptDetailScreen extends StatelessWidget {
     final Object? args = ModalRoute.of(context)?.settings.arguments;
     final Receipt receipt = (args is Receipt)
         ? args
-        : const Receipt(
+        : Receipt(
             id: 'unknown', storeName: 'Unknown', date: DateTime.now(), total: 0, currency: 'USD');
 
     return Scaffold(

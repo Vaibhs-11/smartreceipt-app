@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 class Receipt extends Equatable {
-  const Receipt({
+  Receipt({
     required this.id,
     required this.storeName,
     required this.date,
@@ -10,6 +10,7 @@ class Receipt extends Equatable {
     this.notes,
     this.tags = const <String>[],
     this.imagePath,
+    this.extractedText,
     this.expiryDate,
   });
 
@@ -21,6 +22,7 @@ class Receipt extends Equatable {
   final String? notes;
   final List<String> tags;
   final String? imagePath;
+  final String? extractedText;
   final DateTime? expiryDate;
 
   Receipt copyWith({
@@ -32,6 +34,7 @@ class Receipt extends Equatable {
     String? notes,
     List<String>? tags,
     String? imagePath,
+    String? extractedText,
     DateTime? expiryDate,
   }) {
     return Receipt(
@@ -43,6 +46,7 @@ class Receipt extends Equatable {
       notes: notes ?? this.notes,
       tags: tags ?? this.tags,
       imagePath: imagePath ?? this.imagePath,
+      extractedText: extractedText ?? this.extractedText,
       expiryDate: expiryDate ?? this.expiryDate,
     );
   }
@@ -57,6 +61,7 @@ class Receipt extends Equatable {
       'notes': notes,
       'tags': tags,
       'imagePath': imagePath,
+      'extractedText': extractedText,
       'expiryDate': expiryDate?.toIso8601String(),
     };
   }
@@ -71,6 +76,7 @@ class Receipt extends Equatable {
       notes: map['notes'] as String?,
       tags: (map['tags'] as List<Object?>?)?.cast<String>() ?? const <String>[],
       imagePath: map['imagePath'] as String?,
+      extractedText: map['extractedText'] as String?,
       expiryDate: (map['expiryDate'] as String?) != null
           ? DateTime.parse(map['expiryDate']! as String)
           : null,
@@ -78,7 +84,7 @@ class Receipt extends Equatable {
   }
 
   @override
-  List<Object?> get props => <Object?>[id, storeName, date, total, currency, notes, tags, imagePath, expiryDate];
+  List<Object?> get props => <Object?>[id, storeName, date, total, currency, notes, tags, imagePath, extractedText, expiryDate];
 }
 
 

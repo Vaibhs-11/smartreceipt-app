@@ -23,7 +23,7 @@ class SmartReceiptApp extends ConsumerWidget {
         AppRoutes.home: (BuildContext context) => const HomeScreen(),
         AppRoutes.addReceipt: (BuildContext context) => const AddReceiptScreen(),
         AppRoutes.scanReceipt: (BuildContext context) => const ScanReceiptScreen(),
-        AppRoutes.receiptDetail: (BuildContext context) => const ReceiptDetailScreen(),
+        AppRoutes.receiptDetail: (BuildContext context) => ReceiptDetailScreen(),
       },
     );
   }
