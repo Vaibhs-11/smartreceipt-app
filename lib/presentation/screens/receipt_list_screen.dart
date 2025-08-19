@@ -16,19 +16,17 @@ class ReceiptListScreen extends ConsumerWidget {
         title: const Text("My Receipts"),
       ),
       body: receipts.when(
-        data: (List<dynamic> data) {
-          final List<Receipt> items = data.cast<Receipt>();
-          if (items.isEmpty) {
-            return const _EmptyState();
-          }
-          // ✅ Use our new ReceiptList widget
-          return ReceiptList(receipts: items);
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (Object e, StackTrace st) =>
-            Center(child: Text('Error: $e')),
-      ),
-    );
+          data: (data) {
+          final items = data.cast<Receipt>();
+      return items.isEmpty
+          ? const _EmptyState()
+          : ReceiptList(receipts: items);
+    },
+    loading: () => const Center(child: CircularProgressIndicator()),
+    error: (e, st) => Center(child: Text('Error: $e')),
+    ),
+  );
+
   }
 }
 

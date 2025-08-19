@@ -56,12 +56,14 @@ class ReceiptList extends StatelessWidget {
                   context,
                   AppRoutes.receiptDetail,
                   arguments: r,
-                );
-              },
-            ),
-          );
-        },
-      );
-    });
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
+
+

@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+
+// Public model
 class AppUser {
   const AppUser({required this.uid, this.email});
   final String uid;
@@ -10,24 +14,26 @@ abstract class AuthService {
   Future<void> signOut();
 }
 
-class AuthServiceStub implements AuthService {
-  AppUser? _current;
+class FirebaseAuthService implements AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   @override
-  Stream<AppUser?> authStateChanges() async* {
-    yield _current;
+  Stream<AppUser?> authStateChanges() {
+    return _auth.authStateChanges().map((user) {
+      if (user == null) return null;
+      return AppUser(uid: user.uid, email: user.email);
+    });
   }
 
   @override
   Future<AppUser?> signInAnonymously() async {
-    _current = const AppUser(uid: 'local-user');
-    return _current;
+    final cred = await _auth.signInAnonymously();
+    final u = cred.user;
+    if (u == null) return null;
+    return AppUser(uid: u.uid, email: u.email);
+    // Any errors will throw; optionally wrap in try/catch and surface a toast/snackbar
   }
 
   @override
-  Future<void> signOut() async {
-    _current = null;
-  }
+  Future<void> signOut() => _auth.signOut();
 }
-
-

@@ -49,3 +49,20 @@ class FirestoreService {
         .snapshots();
   }
 }
+class FirebaseAuthService implements AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  @override
+  Future<User?> signInAnonymously() async {
+    final userCredential = await _auth.signInAnonymously();
+    return userCredential.user;
+  }
+
+  @override
+  Future<void> signOut() async {
+    await _auth.signOut();
+  }
+
+  @override
+  Stream<User?> get onAuthStateChanged => _auth.authStateChanges();
+}
