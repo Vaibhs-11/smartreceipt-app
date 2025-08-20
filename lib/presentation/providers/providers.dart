@@ -5,7 +5,7 @@ import 'package:smartreceipt/data/repositories/firebase/firebase_receipt_reposit
 import 'package:smartreceipt/data/services/ai/ai_tagging_service.dart';
 import 'package:smartreceipt/data/services/ai/openai_tagger_stub.dart';
 import 'package:smartreceipt/data/services/auth/auth_service.dart';
-import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart' as firebase_auth;
+import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart';
 import 'package:smartreceipt/core/config/app_config.dart';
 import 'package:smartreceipt/data/services/notifications/notifications_service.dart';
 import 'package:smartreceipt/data/services/ocr/google_vision_ocr_stub.dart';
@@ -18,7 +18,7 @@ import 'package:smartreceipt/domain/usecases/get_receipts.dart';
 final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
   final AppConfig config = ref.read(appConfigProvider);
   //if (config.useStubs) return AuthServiceStub();
-  return firebase_auth.FirebaseAuthService();
+  return FirebaseAuthService();
 });
 
 final Provider<OcrService> ocrServiceProvider = Provider<OcrService>((ref) {

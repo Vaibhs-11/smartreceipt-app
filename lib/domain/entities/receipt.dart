@@ -1,7 +1,10 @@
 import 'package:equatable/equatable.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:meta/meta.dart';
 
+@immutable
 class Receipt extends Equatable {
-  Receipt({
+  const Receipt({
     required this.id,
     required this.storeName,
     required this.date,
@@ -12,6 +15,7 @@ class Receipt extends Equatable {
     this.imagePath,
     this.extractedText,
     this.expiryDate,
+    this.fileUrl,
   });
 
   final String id;
@@ -24,6 +28,7 @@ class Receipt extends Equatable {
   final String? imagePath;
   final String? extractedText;
   final DateTime? expiryDate;
+  final String? fileUrl; // ✅ Added missing field
 
   Receipt copyWith({
     String? id,
@@ -36,6 +41,7 @@ class Receipt extends Equatable {
     String? imagePath,
     String? extractedText,
     DateTime? expiryDate,
+    String? fileUrl, // ✅ Include in copyWith
   }) {
     return Receipt(
       id: id ?? this.id,
@@ -48,6 +54,7 @@ class Receipt extends Equatable {
       imagePath: imagePath ?? this.imagePath,
       extractedText: extractedText ?? this.extractedText,
       expiryDate: expiryDate ?? this.expiryDate,
+      fileUrl: fileUrl ?? this.fileUrl,
     );
   }
 
@@ -55,14 +62,15 @@ class Receipt extends Equatable {
     return <String, Object?>{
       'id': id,
       'storeName': storeName,
-      'date': date.toIso8601String(),
+      'date': Timestamp.fromDate(date),
       'total': total,
       'currency': currency,
       'notes': notes,
       'tags': tags,
       'imagePath': imagePath,
       'extractedText': extractedText,
-      'expiryDate': expiryDate?.toIso8601String(),
+      'expiryDate': expiryDate != null ? Timestamp.fromDate(expiryDate!) : null,
+      'fileUrl': fileUrl,
     };
   }
 
@@ -70,21 +78,72 @@ class Receipt extends Equatable {
     return Receipt(
       id: map['id']! as String,
       storeName: map['storeName']! as String,
-      date: DateTime.parse(map['date']! as String),
+      date: (map['date'] as Timestamp).toDate(),
       total: (map['total']! as num).toDouble(),
       currency: map['currency']! as String,
       notes: map['notes'] as String?,
       tags: (map['tags'] as List<Object?>?)?.cast<String>() ?? const <String>[],
       imagePath: map['imagePath'] as String?,
       extractedText: map['extractedText'] as String?,
-      expiryDate: (map['expiryDate'] as String?) != null
-          ? DateTime.parse(map['expiryDate']! as String)
+      expiryDate: map['expiryDate'] != null
+          ? (map['expiryDate'] as Timestamp).toDate()
           : null,
+      fileUrl: map['fileUrl'] as String?,
     );
   }
 
+  factory Receipt.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data()!;
+    return Receipt.fromMap({
+      'id': doc.id,
+      'storeName': data['storeName'],
+      'date': data['date'],
+      'total': data['total'],
+      'currency': data['currency'],
+      'notes': data['notes'],
+      'tags': data['tags'],
+      'imagePath': data['imagePath'],
+      'extractedText': data['extractedText'],
+      'expiryDate': data['expiryDate'],
+      'fileUrl': data['fileUrl'],
+    });
+  }
+
   @override
-  List<Object?> get props => <Object?>[id, storeName, date, total, currency, notes, tags, imagePath, extractedText, expiryDate];
+  List<Object?> get props => [
+        id,
+        storeName,
+        date,
+        total,
+        currency,
+        notes,
+        tags,
+        imagePath,
+        extractedText,
+        expiryDate,
+        fileUrl,
+      ];
+factory Receipt.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data();
+  if (data == null) {
+    throw StateError("Missing data for receipt ID: ${doc.id}");
+  }
+
+  return Receipt(
+    id: doc.id,
+    storeName: data['storeName'] as String? ?? "Unknown Store",
+    date: data['date'] != null
+        ? DateTime.tryParse(data['date'].toString()) ?? DateTime.now()
+        : DateTime.now(),
+    total: (data['amount'] as num?)?.toDouble() ?? 0.0,
+    currency: data['currency'] as String? ?? "USD",
+    notes: data['notes'] as String?,
+    tags: (data['tags'] as List<dynamic>?)?.cast<String>() ?? const [],
+    imagePath: data['fileUrl'] as String?, // matches addReceipt()
+    extractedText: data['extractedText'] as String?,
+    expiryDate: data['expiryDate'] != null
+        ? DateTime.tryParse(data['expiryDate'].toString())
+        : null,
+  );
 }
-
-
+}

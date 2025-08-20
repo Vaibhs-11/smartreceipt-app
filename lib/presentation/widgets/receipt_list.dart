@@ -13,27 +13,27 @@ class ReceiptList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    return StreamBuilder<List<Receipt>>(
       stream: _firestoreService.getReceipts(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Center(
             child: Text("No receipts found."),
           );
         }
 
-        final receipts = snapshot.data!.docs;
+        final receipts = snapshot.data!;
 
         return ListView.separated(
           padding: const EdgeInsets.all(12),
           itemCount: receipts.length,
           separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (BuildContext context, int index) {
-            final Receipt r = Receipt.fromMap(receipts[index].data());
+            final Receipt r = receipts[index];
             return Card(
               elevation: 3,
               shape: RoundedRectangleBorder(

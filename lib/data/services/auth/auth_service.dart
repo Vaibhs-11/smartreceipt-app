@@ -14,26 +14,27 @@ abstract class AuthService {
   Future<void> signOut();
 }
 
-class FirebaseAuthService implements AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  @override
-  Stream<AppUser?> authStateChanges() {
-    return _auth.authStateChanges().map((user) {
-      if (user == null) return null;
-      return AppUser(uid: user.uid, email: user.email);
-    });
-  }
+//class FirebaseAuthService implements AuthService {
+//  final FirebaseAuth _auth = FirebaseAuth.instance;
+//
+//  @override
+//  Stream<AppUser?> authStateChanges() {
+//    return _auth.authStateChanges().map((user) {
+//      if (user == null) return null;
+//      return AppUser(uid: user.uid, email: user.email);
+//    });
+//  }
 
-  @override
-  Future<AppUser?> signInAnonymously() async {
-    final cred = await _auth.signInAnonymously();
-    final u = cred.user;
-    if (u == null) return null;
-    return AppUser(uid: u.uid, email: u.email);
-    // Any errors will throw; optionally wrap in try/catch and surface a toast/snackbar
-  }
+//  @override
+//  Future<AppUser?> signInAnonymously() async {
+//    final cred = await _auth.signInAnonymously();
+//    final u = cred.user;
+//    if (u == null) return null;
+//    return AppUser(uid: u.uid, email: u.email);
+//    // Any errors will throw; optionally wrap in try/catch and surface a toast/snackbar
+//  }
 
-  @override
-  Future<void> signOut() => _auth.signOut();
-}
+//  @override
+//  Future<void> signOut() => _auth.signOut();
+//}

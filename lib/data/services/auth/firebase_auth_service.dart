@@ -4,11 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:smartreceipt/data/services/auth/auth_service.dart';
 
 class FirebaseAuthService implements AuthService {
-  FirebaseAuthService({fb_auth.FirebaseAuth? instance}) : _auth = instance ?? fb_auth.FirebaseAuth.instance;
+  FirebaseAuthService({fb_auth.FirebaseAuth? instance})
+      : _auth = instance ?? fb_auth.FirebaseAuth.instance;
 
   final fb_auth.FirebaseAuth _auth;
 
-  AppUser? _mapUser(fb_auth.User? user) => user == null ? null : AppUser(uid: user.uid, email: user.email);
+  AppUser? _mapUser(fb_auth.User? user) =>
+      user == null ? null : AppUser(uid: user.uid, email: user.email);
 
   @override
   Stream<AppUser?> authStateChanges() {
@@ -22,9 +24,6 @@ class FirebaseAuthService implements AuthService {
   }
 
   @override
-  Future<void> signOut() {
-    return _auth.signOut();
-  }
+  Future<void> signOut() => _auth.signOut();
 }
-
 
