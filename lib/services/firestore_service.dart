@@ -53,12 +53,13 @@ class FirestoreService {
 
   /// Stream of receipts for the current user
   Stream<List<Receipt>> getReceipts() {
+    debugPrint("📡 FirestoreService.getReceipts() CALLED");
     final user = _auth.currentUser;
     if (user == null) {
       debugPrint("⚠️ No user signed in, returning empty receipt stream.");
       return const Stream.empty();
     }
-
+    debugPrint("📜 Fetching receipts for user: ${user.uid}");
     return _db
         .collection("users")
         .doc(user.uid)
@@ -66,10 +67,12 @@ class FirestoreService {
         .orderBy("date", descending: true)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => Receipt.fromFirestore(doc))
-              .toList();
-        });
+          debugPrint("📸 Snapshot received: ${snapshot.docs.length} docs");
+          for (var doc in snapshot.docs) {
+            debugPrint("📝 Doc: ${doc.id} => ${doc.data()}");
+         }
+         return snapshot.docs.map((doc) => Receipt.fromFirestore(doc)).toList();
+      });
   }
 
   /// Deletes a receipt by document ID
@@ -79,7 +82,7 @@ class FirestoreService {
       debugPrint("⚠️ No user signed in, cannot delete receipt.");
       return;
     }
-
+    
     try {
       await _db
           .collection("users")
