@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:firebase_auth/firebase_auth.dart';
+//import 'package:firebase_auth/firebase_auth.dart';
 
 // Public model
 class AppUser {
@@ -11,6 +11,8 @@ class AppUser {
 abstract class AuthService {
   Stream<AppUser?> authStateChanges();
   Future<AppUser?> signInAnonymously();
+  Future<AppUser?> signInWithEmailAndPassword(String email, String password);
+  Future<AppUser?> createUserWithEmailAndPassword(String email, String password);
   Future<void> signOut();
 }
 

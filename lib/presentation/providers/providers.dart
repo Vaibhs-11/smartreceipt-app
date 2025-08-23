@@ -5,7 +5,8 @@ import 'package:smartreceipt/data/repositories/firebase/firebase_receipt_reposit
 import 'package:smartreceipt/data/services/ai/ai_tagging_service.dart';
 import 'package:smartreceipt/data/services/ai/openai_tagger_stub.dart';
 import 'package:smartreceipt/data/services/auth/auth_service.dart';
-import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart';
+import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart' as fb_impl;
+import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 import 'package:smartreceipt/core/config/app_config.dart';
 import 'package:smartreceipt/data/services/notifications/notifications_service.dart';
 import 'package:smartreceipt/data/services/ocr/google_vision_ocr_stub.dart';
@@ -18,7 +19,24 @@ import 'package:smartreceipt/domain/usecases/get_receipts.dart';
 final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
   final AppConfig config = ref.read(appConfigProvider);
   //if (config.useStubs) return AuthServiceStub();
-  return FirebaseAuthService();
+  return fb_impl.FirebaseAuthService();
+});
+
+// Stream of the current user (null when logged out)
+final authStateProvider = StreamProvider<AppUser?>((ref) {
+  return ref.watch(authServiceProvider).authStateChanges();
+});
+
+final authControllerProvider =
+    StateNotifierProvider<AuthController, AuthState>((ref) {
+  final authService = ref.watch(authServiceProvider);
+  return AuthController(authService);
+});
+
+// Convenience: expose current uid (null if signed out)
+final currentUidProvider = Provider<String?>((ref) {
+  final auth = ref.watch(authStateProvider).value;
+  return auth?.uid;
 });
 
 final Provider<OcrService> ocrServiceProvider = Provider<OcrService>((ref) {
@@ -58,5 +76,3 @@ final FutureProvider<List<dynamic>> receiptsProvider =
   final GetReceiptsUseCase getReceipts = ref.read(getReceiptsUseCaseProviderOverride);
   return getReceipts();
 });
-
-
