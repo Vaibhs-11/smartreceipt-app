@@ -32,7 +32,7 @@ class SmartReceiptApp extends ConsumerWidget {
           case AppRoutes.login:
             return MaterialPageRoute(builder: (_) => const LoginScreen());
           case AppRoutes.signup:
-            return MaterialPageRoute(builder: (_) => const SignUpScreen());
+            return MaterialPageRoute(builder: (_) => const SignupScreen());
           case AppRoutes.addReceipt:
             return MaterialPageRoute(builder: (_) => const AddReceiptScreen());
           case AppRoutes.scanReceipt:
