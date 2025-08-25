@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/signup_screen.dart';
 
 
@@ -17,19 +18,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
 
   Future<void> _submit() async {
-    // Use the AuthController to handle business logic and state
+    // Use the AuthController to handle business logic and state.
+    // This ensures the UI updates correctly with loading and error states.
     final controller = ref.read(authControllerProvider.notifier);
-    final scaffold = ScaffoldMessenger.of(context);
     try {
       await controller.signInWithEmailPassword(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-      // AuthGate will handle navigation on successful login
+
+      // On success, AuthGate would typically handle navigation.
+      // Since it's not set up as the root, we navigate manually.
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, AppRoutes.home);
+      }
     } catch (e) {
-      scaffold.showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      // The controller will set authState.error, which shows the inline error message.
+      // We can also show a SnackBar for more prominent feedback.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Login failed: $e")),
+        );
+      }
     }
   }
 

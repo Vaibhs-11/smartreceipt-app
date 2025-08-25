@@ -14,13 +14,13 @@ class AppConfig {
   factory AppConfig.fromEnv() {
     if (!dotenv.isInitialized) {
       return AppConfig(
-        useStubs: true || kDebugMode,
+        useStubs: kDebugMode,
         isPremium: false,
       );
     }
-    final String useStubsEnv = dotenv.maybeGet('USE_STUBS') ?? 'true';
+    final String useStubsEnv = dotenv.maybeGet('USE_STUBS') ?? 'false';
     final String isPremiumEnv = dotenv.maybeGet('PREMIUM') ?? 'false';
-    final bool useStubs = useStubsEnv.toLowerCase() != 'false';
+    final bool useStubs = useStubsEnv.toLowerCase() != 'true';
     final bool isPremium = isPremiumEnv.toLowerCase() == 'true';
     return AppConfig(useStubs: useStubs || kDebugMode, isPremium: isPremium);
   }

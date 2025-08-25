@@ -12,6 +12,7 @@ import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
 import 'package:smartreceipt/presentation/screens/onboarding_screen.dart';
 import 'package:smartreceipt/presentation/screens/scan_receipt_screen.dart';
 import 'package:smartreceipt/presentation/widgets/auth_gate.dart';
+import 'package:smartreceipt/presentation/app.dart';
 
 
 Future<void> main() async {
@@ -42,7 +43,7 @@ class SmartReceiptApp extends StatelessWidget {
     return MaterialApp(
       title: 'SmartReceipt',
       theme: ThemeData(primarySwatch: Colors.blue),
-      initialRoute: AppRoutes.onboarding, // 👈 start with onboarding/auth gate
+      initialRoute: AppRoutes.login, // 👈 start with onboarding/auth gate
       onGenerateRoute: _onGenerateRoute,
     );
   }
