@@ -52,8 +52,11 @@ final Provider<NotificationsService> notificationsServiceProvider =
 // Repository (local memory stub for MVP offline)
 final Provider<ReceiptRepository> receiptRepositoryProviderOverride =
     Provider<ReceiptRepository>((ref) {
-  final AppConfig config = ref.read(appConfigProvider);
-  if (config.useStubs) return LocalReceiptRepository();
+  // The AppConfig logic is great for switching environments, but to ensure
+  // we are connecting to Firestore, we will directly return the
+  // FirebaseReceiptRepository for now.
+  // final AppConfig config = ref.read(appConfigProvider);
+  // if (config.useStubs) return LocalReceiptRepository();
   return FirebaseReceiptRepository();
 });
 

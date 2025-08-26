@@ -1,18 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
-import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart';
 import 'package:smartreceipt/presentation/screens/login_screen.dart';
 import 'package:smartreceipt/presentation/screens/home_screen.dart';
-import 'package:smartreceipt/presentation/screens/receipt_list_screen.dart';
+import 'package:smartreceipt/presentation/screens/receipt_detail_screen.dart';
 import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
 import 'package:smartreceipt/presentation/screens/onboarding_screen.dart';
 import 'package:smartreceipt/presentation/screens/scan_receipt_screen.dart';
+import 'package:smartreceipt/presentation/screens/signup_screen.dart';
 import 'package:smartreceipt/presentation/widgets/auth_gate.dart';
-import 'package:smartreceipt/presentation/app.dart';
 
 
 Future<void> main() async {
@@ -31,25 +29,32 @@ Future<void> main() async {
 
   // Initialize Firebase
   await Firebase.initializeApp();
+  // Log the project ID to confirm the app is connecting to the correct Firebase project.
+  // You can then check this project's Firestore region in the Firebase Console.
+  debugPrint(
+      "Firebase Initialized for project: ${Firebase.app().options.projectId}");
 
   runApp(const ProviderScope(child: SmartReceiptApp()));
 }
 
-class SmartReceiptApp extends StatelessWidget {
+class SmartReceiptApp extends ConsumerWidget {
   const SmartReceiptApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Using AuthGate to determine the initial screen is a robust way
+    // to handle user authentication state.
     return MaterialApp(
       title: 'SmartReceipt',
       theme: ThemeData(primarySwatch: Colors.blue),
-      initialRoute: AppRoutes.login, // 👈 start with onboarding/auth gate
+      home: const AuthGate(),
       onGenerateRoute: _onGenerateRoute,
     );
   }
 
   Route<dynamic> _onGenerateRoute(RouteSettings settings) {
-    print("Navigating to: ${settings.name}"); // 👈 debug log
+    // Using debugPrint is better as it's a no-op in release builds.
+    debugPrint("Navigating to: ${settings.name}");
 
     switch (settings.name) {
       case AppRoutes.onboarding:
@@ -57,15 +62,18 @@ class SmartReceiptApp extends StatelessWidget {
       case AppRoutes.login:
         return MaterialPageRoute(builder: (_) => const LoginScreen());
       case AppRoutes.signup:
-        return MaterialPageRoute(builder: (_) => const LoginScreen()); // Replace with SignupScreen
+        return MaterialPageRoute(builder: (_) => const SignupScreen());
       case AppRoutes.home:
         return MaterialPageRoute(builder: (_) => const HomeScreen());
       case AppRoutes.addReceipt:
         return MaterialPageRoute(builder: (_) => const AddReceiptScreen());
       case AppRoutes.scanReceipt:
-        return MaterialPageRoute(builder: (_) => const ReceiptListScreen()); // Replace with ScanReceiptScreen
+        return MaterialPageRoute(builder: (_) => const ScanReceiptScreen());
       case AppRoutes.receiptDetail:
-        return MaterialPageRoute(builder: (_) => const ReceiptListScreen()); // Replace with ReceiptDetailScreen
+        // Example for passing arguments to a route
+        // final receiptId = settings.arguments as String;
+        // return MaterialPageRoute(builder: (_) => ReceiptDetailScreen(receiptId: receiptId));
+        return MaterialPageRoute(builder: (_) => ReceiptDetailScreen());
       default:
         return MaterialPageRoute(
           builder: (_) => const Scaffold(

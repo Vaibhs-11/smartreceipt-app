@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class FirebaseReceiptRepository implements ReceiptRepository {
   FirebaseReceiptRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})
@@ -11,7 +12,13 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
 
-  CollectionReference<Map<String, dynamic>> get _receipts => _db.collection('receipts');
+  CollectionReference<Map<String, dynamic>> get _receipts {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) {
+    throw Exception("No user logged in");
+  }
+  return _db.collection('users').doc(user.uid).collection('receipts');
+  }
 
   @override
   Future<void> addReceipt(Receipt receipt) async {
@@ -26,14 +33,14 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   @override
   Future<List<Receipt>> getAllReceipts() async {
     final QuerySnapshot<Map<String, dynamic>> snap = await _receipts.orderBy('date', descending: true).get();
-    return snap.docs.map((QueryDocumentSnapshot<Map<String, dynamic>> d) => Receipt.fromMap(d.data())).toList();
+    return snap.docs.map((d) => Receipt.fromDocument(d)).toList();
   }
 
   @override
   Future<Receipt?> getReceiptById(String id) async {
     final DocumentSnapshot<Map<String, dynamic>> doc = await _receipts.doc(id).get();
     if (!doc.exists || doc.data() == null) return null;
-    return Receipt.fromMap(doc.data()!);
+    return Receipt.fromDocument(doc);
   }
 
   @override
@@ -41,6 +48,3 @@ class FirebaseReceiptRepository implements ReceiptRepository {
     await _receipts.doc(receipt.id).update(receipt.toMap());
   }
 }
-
-
-
