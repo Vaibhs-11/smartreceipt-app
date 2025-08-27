@@ -7,6 +7,7 @@ class OcrResult {
 
 abstract class OcrService {
   Future<OcrResult> parseImage(String imagePath);
+  Future<OcrResult> parsePdf(String path);
 }
 
 

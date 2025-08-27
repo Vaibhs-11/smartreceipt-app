@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
@@ -21,6 +26,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   final TextEditingController _notesCtrl = TextEditingController();
   final TextEditingController _dateCtrl = TextEditingController();
   final TextEditingController _expiryCtrl = TextEditingController();
+  final String receiptId = const Uuid().v4();
   String _currency = AppConstants.supportedCurrencies.first;
   DateTime _date = DateTime.now();
   DateTime? _expiry;
@@ -61,7 +67,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (!_formKey.currentState!.validate()) return;
     final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
     final Receipt receipt = Receipt(
-      id: const Uuid().v4(),
+      id: receiptId,
       storeName: _storeCtrl.text.trim(),
       date: _date,
       total: total,
@@ -76,26 +82,111 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  Future<void> _pickImage({required bool fromCamera}) async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? file = await (fromCamera
-        ? picker.pickImage(source: ImageSource.camera)
-        : picker.pickImage(source: ImageSource.gallery));
-    if (file == null) return;
-    // Run stub OCR
-    final ocr = ref.read(ocrServiceProvider);
-    final result = await ocr.parseImage(file.path);
+  Future<String?> _uploadFileToStorage(File file) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      debugPrint("Cannot upload file, user not logged in.");
+      return null;
+    }
+    try {
+      final fileName = file.path.split('/').last;
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child("receipts")
+          .child(user.uid)
+          .child(receiptId)
+          .child(fileName);
+
+      await storageRef.putFile(file);
+      return await storageRef.getDownloadURL();
+    } catch (e) {
+      debugPrint("Upload failed: $e");
+      return null;
+    }
+  }
+
+  void _handleOcrResult(OcrResult result, {String? uploadedUrl}) {
+    if (!mounted) return;
     setState(() {
-      _imagePath = file.path;
+      if (uploadedUrl != null) {
+        _imagePath = uploadedUrl;
+      }
       if (result.storeName != null) _storeCtrl.text = result.storeName!;
       if (result.total != null) _totalCtrl.text = result.total!.toStringAsFixed(2);
       if (result.date != null) {
         _date = result.date!;
         _dateCtrl.text = DateFormat.yMMMd().format(_date);
       }
-      _extractedText = 'Store: ${result.storeName ?? '-'}\nDate: ${result.date != null ? DateFormat.yMMMd().format(result.date!) : '-'}\nTotal: ${result.total?.toStringAsFixed(2) ?? '-'}';
+      _extractedText =
+          'Store: ${result.storeName ?? '-'}\nDate: ${result.date != null ? DateFormat.yMMMd().format(result.date!) : '-'}\nTotal: ${result.total?.toStringAsFixed(2) ?? '-'}';
     });
   }
+
+  Future<void> _pickImage({required bool fromCamera}) async {
+    final picker = ImagePicker();
+    final XFile? file = await (fromCamera
+        ? picker.pickImage(source: ImageSource.camera)
+        : picker.pickImage(source: ImageSource.gallery));
+    if (file == null) return;
+
+    // TODO: Show a loading indicator
+    final uploadedUrl = await _uploadFileToStorage(File(file.path));
+    final ocr = ref.read(ocrServiceProvider);
+    final result = await ocr.parseImage(file.path);
+    // TODO: Hide loading indicator
+
+    _handleOcrResult(result, uploadedUrl: uploadedUrl);
+  }
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+    );
+
+    if (result == null || result.files.single.path == null) return;
+    final file = File(result.files.single.path!);
+
+    // TODO: Show a loading indicator
+    final uploadedUrl = await _uploadFileToStorage(file);
+    final ocr = ref.read(ocrServiceProvider);
+    final ocrResult = file.path.toLowerCase().endsWith('.pdf')
+        ? await ocr.parsePdf(file.path)
+        : await ocr.parseImage(file.path);
+    // TODO: Hide loading indicator
+
+    _handleOcrResult(ocrResult, uploadedUrl: uploadedUrl);
+  }
+Future<void> _showUploadOptions(BuildContext context) async {
+  final result = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) {
+      return SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Pick from Gallery'),
+              onTap: () => Navigator.of(context).pop('gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file),
+              title: const Text('Pick from Files'),
+              onTap: () => Navigator.of(context).pop('files'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+  if (result == 'gallery') {
+    await _pickImage(fromCamera: false);
+  } else if (result == 'files') {
+    await _pickFile();
+  }
+}
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -141,8 +232,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () => _pickImage(fromCamera: false),
-                    icon: const Icon(Icons.photo_library_outlined),
+                    onPressed: () => _showUploadOptions(context),
+                    icon: const Icon(Icons.upload),
                     label: const Text('Upload'),
                   ),
                 ),
@@ -194,5 +285,3 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     );
   }
 }
-
-

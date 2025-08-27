@@ -28,6 +28,7 @@ dependencies:
 
   # Image picking & camera
   image_picker: ^1.1.2
+  file_picker: ^8.0.0
   camera: ^0.11.2
 
   # OCR
