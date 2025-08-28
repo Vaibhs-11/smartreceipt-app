@@ -11,6 +11,13 @@ import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
+import 'package:smartreceipt/domain/entities/ocr_result.dart';
+
+class UploadedFile {
+  final String downloadUrl;
+  final String gcsUri;
+  UploadedFile({required this.downloadUrl, required this.gcsUri});
+}
 
 class AddReceiptScreen extends ConsumerStatefulWidget {
   const AddReceiptScreen({super.key});
@@ -32,6 +39,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   DateTime? _expiry;
   String? _imagePath;
   String? _extractedText;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -82,23 +90,24 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  Future<String?> _uploadFileToStorage(File file) async {
+  Future<UploadedFile?> _uploadFileToStorage(File file) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       debugPrint("Cannot upload file, user not logged in.");
       return null;
     }
     try {
-      final fileName = file.path.split('/').last;
       final storageRef = FirebaseStorage.instance
           .ref()
           .child("receipts")
           .child(user.uid)
           .child(receiptId)
-          .child(fileName);
+          .child(file.path.split('/').last);
 
       await storageRef.putFile(file);
-      return await storageRef.getDownloadURL();
+      final downloadUrl = await storageRef.getDownloadURL();
+      final gcsUri = 'gs://${storageRef.bucket}/${storageRef.fullPath}';
+      return UploadedFile(downloadUrl: downloadUrl, gcsUri: gcsUri);
     } catch (e) {
       debugPrint("Upload failed: $e");
       return null;
@@ -108,6 +117,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   void _handleOcrResult(OcrResult result, {String? uploadedUrl}) {
     if (!mounted) return;
     setState(() {
+      _isLoading = false;
       if (uploadedUrl != null) {
         _imagePath = uploadedUrl;
       }
@@ -118,7 +128,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         _dateCtrl.text = DateFormat.yMMMd().format(_date);
       }
       _extractedText =
-          'Store: ${result.storeName ?? '-'}\nDate: ${result.date != null ? DateFormat.yMMMd().format(result.date!) : '-'}\nTotal: ${result.total?.toStringAsFixed(2) ?? '-'}';
+          'Store: ${result.storeName ?? '-'}\nDate: ${result.date != null ? DateFormat.yMMMd().format(result.date!) : '-'}\nTotal: ${result.total?.toStringAsFixed(2) ?? '-'}\n\nRaw Text:\n${result.rawText ?? ''}';
     });
   }
 
@@ -129,13 +139,28 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         : picker.pickImage(source: ImageSource.gallery));
     if (file == null) return;
 
-    // TODO: Show a loading indicator
-    final uploadedUrl = await _uploadFileToStorage(File(file.path));
-    final ocr = ref.read(ocrServiceProvider);
-    final result = await ocr.parseImage(file.path);
-    // TODO: Hide loading indicator
-
-    _handleOcrResult(result, uploadedUrl: uploadedUrl);
+    setState(() => _isLoading = true);
+    try {
+      final uploadResult = await _uploadFileToStorage(File(file.path));
+      if (uploadResult == null) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File upload failed.')));
+        }
+        return;
+      }
+      final ocr = ref.read(ocrServiceProvider);
+      final result = await ocr.parseImage(uploadResult.downloadUrl);
+      _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+    } catch (e) {
+      debugPrint("Error processing image: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not process image. Please try again.')),
+        );
+      }
+    }
   }
 
   Future<void> _pickFile() async {
@@ -147,15 +172,30 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (result == null || result.files.single.path == null) return;
     final file = File(result.files.single.path!);
 
-    // TODO: Show a loading indicator
-    final uploadedUrl = await _uploadFileToStorage(file);
-    final ocr = ref.read(ocrServiceProvider);
-    final ocrResult = file.path.toLowerCase().endsWith('.pdf')
-        ? await ocr.parsePdf(file.path)
-        : await ocr.parseImage(file.path);
-    // TODO: Hide loading indicator
-
-    _handleOcrResult(ocrResult, uploadedUrl: uploadedUrl);
+    setState(() => _isLoading = true);
+    try {
+      final uploadResult = await _uploadFileToStorage(file);
+      if (uploadResult == null) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File upload failed.')));
+        }
+        return;
+      }
+      final ocr = ref.read(ocrServiceProvider);
+      final ocrResult = file.path.toLowerCase().endsWith('.pdf')
+          ? await ocr.parsePdf(uploadResult.gcsUri)
+          : await ocr.parseImage(uploadResult.downloadUrl);
+      _handleOcrResult(ocrResult, uploadedUrl: uploadResult.downloadUrl);
+    } catch (e) {
+      debugPrint("Error processing file: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not process file. Please try again.')),
+        );
+      }
+    }
   }
 Future<void> _showUploadOptions(BuildContext context) async {
   final result = await showModalBottomSheet<String>(
@@ -192,95 +232,106 @@ Future<void> _showUploadOptions(BuildContext context) async {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Add Receipt')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: <Widget>[
-            if (_imagePath != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  'Selected image: ${_imagePath}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+      body: Stack(
+        children: [
+          Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: <Widget>[
+                if (_imagePath != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Selected image: ${_imagePath}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                TextFormField(
+                  controller: _storeCtrl,
+                  decoration: const InputDecoration(labelText: 'Store name'),
+                  validator: (String? v) => v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _dateCtrl..text = DateFormat.yMMMd().format(_date),
+                  readOnly: true,
+                  decoration: const InputDecoration(labelText: 'Date'),
+                  onTap: () => _pickDate(_dateCtrl),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoading ? null : () => _pickImage(fromCamera: true),
+                        icon: const Icon(Icons.photo_camera_outlined),
+                        label: const Text('Capture'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoading ? null : () => _showUploadOptions(context),
+                        icon: const Icon(Icons.upload),
+                        label: const Text('Upload'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextFormField(
+                        controller: _totalCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: 'Total amount'),
+                        validator: (String? v) => (double.tryParse(v ?? '') == null) ? 'Enter valid number' : null,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    DropdownButton<String>(
+                      value: _currency,
+                      onChanged: (String? v) => setState(() => _currency = v ?? _currency),
+                      items: AppConstants.supportedCurrencies
+                          .map((String c) => DropdownMenuItem<String>(value: c, child: Text(c)))
+                          .toList(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _expiryCtrl,
+                  readOnly: true,
+                  decoration: const InputDecoration(labelText: 'Expiry date (optional)'),
+                  onTap: () => _pickDate(_expiryCtrl, isExpiry: true),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _notesCtrl,
+                  decoration: const InputDecoration(labelText: 'Notes (optional)'),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: _isLoading ? null : _submit,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save'),
+                ),
+              ],
+            ),
+          ),
+          if (_isLoading)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: const Center(
+                child: CircularProgressIndicator(),
               ),
-            TextFormField(
-              controller: _storeCtrl,
-              decoration: const InputDecoration(labelText: 'Store name'),
-              validator: (String? v) => v == null || v.trim().isEmpty ? 'Required' : null,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _dateCtrl..text = DateFormat.yMMMd().format(_date),
-              readOnly: true,
-              decoration: const InputDecoration(labelText: 'Date'),
-              onTap: () => _pickDate(_dateCtrl),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _pickImage(fromCamera: true),
-                    icon: const Icon(Icons.photo_camera_outlined),
-                    label: const Text('Capture'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showUploadOptions(context),
-                    icon: const Icon(Icons.upload),
-                    label: const Text('Upload'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: TextFormField(
-                    controller: _totalCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Total amount'),
-                    validator: (String? v) => (double.tryParse(v ?? '') == null) ? 'Enter valid number' : null,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                DropdownButton<String>(
-                  value: _currency,
-                  onChanged: (String? v) => setState(() => _currency = v ?? _currency),
-                  items: AppConstants.supportedCurrencies
-                      .map((String c) => DropdownMenuItem<String>(value: c, child: Text(c)))
-                      .toList(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _expiryCtrl,
-              readOnly: true,
-              decoration: const InputDecoration(labelText: 'Expiry date (optional)'),
-              onTap: () => _pickDate(_expiryCtrl, isExpiry: true),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _notesCtrl,
-              decoration: const InputDecoration(labelText: 'Notes (optional)'),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: _submit,
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Save'),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }

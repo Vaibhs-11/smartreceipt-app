@@ -1,6 +1,7 @@
 import 'dart:math';
 
-import 'package:smartreceipt/data/services/ocr/ocr_service.dart';
+import 'package:smartreceipt/domain/entities/ocr_result.dart';
+import 'package:smartreceipt/domain/services/ocr_service.dart';
 
 class GoogleVisionOcrStub implements OcrService {
   @override
@@ -12,7 +13,11 @@ class GoogleVisionOcrStub implements OcrService {
     final String storeName = stores[rng.nextInt(stores.length)];
     final DateTime date = DateTime.now().subtract(Duration(days: rng.nextInt(30)));
     final double total = (rng.nextDouble() * 200).clamp(5.0, 200.0);
-    return OcrResult(storeName: storeName, date: date, total: double.parse(total.toStringAsFixed(2)));
+    return OcrResult(
+        storeName: storeName,
+        date: date,
+        total: double.parse(total.toStringAsFixed(2)),
+        rawText: 'This is stubbed OCR text for $storeName.');
   }
 
   @override
@@ -25,6 +30,10 @@ class GoogleVisionOcrStub implements OcrService {
     final String storeName = stores[rng.nextInt(stores.length)];
     final DateTime date = DateTime.now().subtract(Duration(days: rng.nextInt(30)));
     final double total = (rng.nextDouble() * 200).clamp(5.0, 200.0);
-    return OcrResult(storeName: storeName, date: date, total: double.parse(total.toStringAsFixed(2)));
+    return OcrResult(
+        storeName: storeName,
+        date: date,
+        total: double.parse(total.toStringAsFixed(2)),
+        rawText: 'This is stubbed OCR text for PDF $storeName.');
   }
 }
