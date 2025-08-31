@@ -7,6 +7,9 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdfx/pdfx.dart';
+import 'package:path/path.dart' as path;
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
@@ -52,27 +55,28 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _pickDate(TextEditingController controller, {bool isExpiry = false}) async {
-    final DateTime? picked = await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
       initialDate: isExpiry ? (_expiry ?? DateTime.now()) : _date,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
-    if (picked != null) {
-      final String formatted = DateFormat.yMMMd().format(picked);
-      setState(() {
-        controller.text = formatted;
-        if (isExpiry) {
-          _expiry = picked;
-        } else {
-          _date = picked;
-        }
-      });
-    }
+    if (!mounted || picked == null) return;
+
+    final String formatted = DateFormat.yMMMd().format(picked);
+    setState(() {
+      controller.text = formatted;
+      if (isExpiry) {
+        _expiry = picked;
+      } else {
+        _date = picked;
+      }
+    });
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final navigator = Navigator.of(context);
     final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
     final Receipt receipt = Receipt(
       id: receiptId,
@@ -87,7 +91,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     );
     final add = ref.read(addReceiptUseCaseProviderOverride);
     await add(receipt);
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) navigator.pop();
   }
 
   Future<UploadedFile?> _uploadFileToStorage(File file) async {
@@ -132,6 +136,34 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     });
   }
 
+  Future<void> _processFile(File file) async {
+    setState(() => _isLoading = true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    try {
+      final uploadResult = await _uploadFileToStorage(file);
+      if (uploadResult == null) {
+        setState(() => _isLoading = false);
+        if (mounted) scaffoldMessenger.showSnackBar(const SnackBar(content: Text('File upload failed.')));
+        return;
+      }
+      final ocr = ref.read(ocrServiceProvider);
+      // The cloud function expects the GCS path, not the download URL.
+      // The path is part of the gcsUri: 'gs://<bucket>/<path>'
+      final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
+      final result = await ocr.parseImage(gcsPath);
+      _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+    } catch (e) {
+      debugPrint("Error processing file: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+              content: Text('Could not process file. Please try again.')),
+        );
+      }
+    }
+  }
+
   Future<void> _pickImage({required bool fromCamera}) async {
     final picker = ImagePicker();
     final XFile? file = await (fromCamera
@@ -139,28 +171,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         : picker.pickImage(source: ImageSource.gallery));
     if (file == null) return;
 
-    setState(() => _isLoading = true);
-    try {
-      final uploadResult = await _uploadFileToStorage(File(file.path));
-      if (uploadResult == null) {
-        if (mounted) {
-          setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File upload failed.')));
-        }
-        return;
-      }
-      final ocr = ref.read(ocrServiceProvider);
-      final result = await ocr.parseImage(uploadResult.downloadUrl);
-      _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
-    } catch (e) {
-      debugPrint("Error processing image: $e");
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not process image. Please try again.')),
-        );
-      }
-    }
+    await _processFile(File(file.path));
   }
 
   Future<void> _pickFile() async {
@@ -170,34 +181,67 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     );
 
     if (result == null || result.files.single.path == null) return;
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     final file = File(result.files.single.path!);
+    File fileToProcess = file;
 
-    setState(() => _isLoading = true);
-    try {
-      final uploadResult = await _uploadFileToStorage(file);
-      if (uploadResult == null) {
+    if (file.path.toLowerCase().endsWith('.pdf')) {
+      final bool? proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('PDF Upload'),
+          content: const Text(
+              'PDFs will be converted to an image. Only the first page will be used. Continue?'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Continue')),
+          ],
+        ),
+      );
+
+      if (proceed != true) {
+        return;
+      }
+
+      setState(() => _isLoading = true); // Show loader for conversion
+      try {
+        final doc = await PdfDocument.openFile(file.path);
+        final page = await doc.getPage(1);
+        final pageImage = await page.render(
+          width: 1024,
+          height: (1024 * page.height) / page.width,
+        ); // Render with a consistent width
+        await page.close();
+        await doc.close();
+
+        if (pageImage == null) {
+          throw Exception("Failed to render PDF page.");
+        }
+
+        final tempDir = await getTemporaryDirectory();
+        final tempFileName = '${receiptId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final imageFile = File(path.join(tempDir.path, tempFileName));
+        await imageFile.writeAsBytes(pageImage.bytes);
+        fileToProcess = imageFile;
+      } catch (e) {
+        debugPrint("Error converting PDF: $e");
         if (mounted) {
           setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File upload failed.')));
+          scaffoldMessenger.showSnackBar(
+              const SnackBar(content: Text('Could not convert PDF.')));
         }
         return;
       }
-      final ocr = ref.read(ocrServiceProvider);
-      final ocrResult = file.path.toLowerCase().endsWith('.pdf')
-          ? await ocr.parsePdf(uploadResult.gcsUri)
-          : await ocr.parseImage(uploadResult.downloadUrl);
-      _handleOcrResult(ocrResult, uploadedUrl: uploadResult.downloadUrl);
-    } catch (e) {
-      debugPrint("Error processing file: $e");
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not process file. Please try again.')),
-        );
-      }
     }
+
+    await _processFile(fileToProcess);
   }
-Future<void> _showUploadOptions(BuildContext context) async {
+
+Future<void> _showUploadOptions() async {
   final result = await showModalBottomSheet<String>(
     context: context,
     builder: (context) {
@@ -219,6 +263,9 @@ Future<void> _showUploadOptions(BuildContext context) async {
       );
     },
   );
+
+  if (!mounted) return;
+
   if (result == 'gallery') {
     await _pickImage(fromCamera: false);
   } else if (result == 'files') {
@@ -274,7 +321,7 @@ Future<void> _showUploadOptions(BuildContext context) async {
                     const SizedBox(width: 12),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : () => _showUploadOptions(context),
+                        onPressed: _isLoading ? null : _showUploadOptions,
                         icon: const Icon(Icons.upload),
                         label: const Text('Upload'),
                       ),

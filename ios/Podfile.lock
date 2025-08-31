@@ -1341,6 +1341,10 @@ PODS:
     - GoogleUtilities/Environment (~> 8.1)
     - GTMSessionFetcher/Core (< 6.0, >= 3.4)
   - Flutter (1.0.0)
+  - FMDB/Core (2.7.12)
+  - FMDB/SQLCipher (2.7.12):
+    - FMDB/Core
+    - SQLCipher (~> 4.6)
   - GoogleDataTransport (10.1.0):
     - nanopb (~> 3.30910.0)
     - PromisesObjC (~> 2.4)
@@ -1472,14 +1476,22 @@ PODS:
   - path_provider_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
+  - pdfx (1.0.0):
+    - Flutter
   - PromisesObjC (2.4.0)
   - RecaptchaInterop (101.0.0)
   - SDWebImage (5.21.1):
     - SDWebImage/Core (= 5.21.1)
   - SDWebImage/Core (5.21.1)
-  - sqflite_darwin (0.0.4):
+  - sqflite_sqlcipher (0.0.1):
     - Flutter
-    - FlutterMacOS
+    - FMDB/SQLCipher (~> 2.7.5)
+    - SQLCipher (= 4.10.0)
+  - SQLCipher (4.10.0):
+    - SQLCipher/standard (= 4.10.0)
+  - SQLCipher/common (4.10.0)
+  - SQLCipher/standard (4.10.0):
+    - SQLCipher/common
   - SwiftyGif (5.4.5)
 
 DEPENDENCIES:
@@ -1494,7 +1506,8 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
-  - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
+  - pdfx (from `.symlinks/plugins/pdfx/ios`)
+  - sqflite_sqlcipher (from `.symlinks/plugins/sqflite_sqlcipher/ios`)
 
 SPEC REPOS:
   trunk:
@@ -1517,6 +1530,7 @@ SPEC REPOS:
     - FirebaseMessagingInterop
     - FirebaseSharedSwift
     - FirebaseStorage
+    - FMDB
     - GoogleDataTransport
     - GoogleUtilities
     - "gRPC-C++"
@@ -1527,6 +1541,7 @@ SPEC REPOS:
     - PromisesObjC
     - RecaptchaInterop
     - SDWebImage
+    - SQLCipher
     - SwiftyGif
 
 EXTERNAL SOURCES:
@@ -1552,8 +1567,10 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
   path_provider_foundation:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
-  sqflite_darwin:
-    :path: ".symlinks/plugins/sqflite_darwin/darwin"
+  pdfx:
+    :path: ".symlinks/plugins/pdfx/ios"
+  sqflite_sqlcipher:
+    :path: ".symlinks/plugins/sqflite_sqlcipher/ios"
 
 SPEC CHECKSUMS:
   abseil: a05cc83bf02079535e17169a73c5be5ba47f714b
@@ -1584,6 +1601,7 @@ SPEC CHECKSUMS:
   FirebaseSharedSwift: 59266c22ccfcef604d725c034c568fa666ea9bda
   FirebaseStorage: 5603c913805b0eacc8e6853395e837ca5742e5f7
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  FMDB: 728731dd336af3936ce00f91d9d8495f5718a0e6
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   "gRPC-C++": cc207623316fb041a7a3e774c252cf68a058b9e8
@@ -1593,10 +1611,12 @@ SPEC CHECKSUMS:
   leveldb-library: cc8b8f8e013647a295ad3f8cd2ddf49a6f19be19
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
+  pdfx: 77f4dddc48361fbb01486fa2bdee4532cbb97ef3
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   SDWebImage: f29024626962457f3470184232766516dee8dfea
-  sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
+  sqflite_sqlcipher: 8e5bdaae6b2c254f8a277a564f07bc4e2a8642a3
+  SQLCipher: eb79c64049cb002b4e9fcb30edb7979bf4706dfc
   SwiftyGif: 706c60cf65fa2bc5ee0313beece843c8eb8194d4
 
 PODFILE CHECKSUM: e02fecf49bf16a5fbfbc73398460b3a22e75dfd1

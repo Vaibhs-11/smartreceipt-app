@@ -23,7 +23,7 @@ class GoogleVisionOcrService implements OcrService {
         {
           "image": {"content": base64Image},
           "features": [
-            {"type": "TEXT_DETECTION"}
+            {"type": "DOCUMENT_TEXT_DETECTION"}
           ]
         }
       ]
@@ -36,34 +36,109 @@ class GoogleVisionOcrService implements OcrService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception('Failed to call Vision API: ${response.body}');
+      throw Exception('Vision API error: ${response.body}');
     }
 
     final body = jsonDecode(response.body);
-    final textAnnotations = body['responses'][0]['textAnnotations'];
-    final rawText = textAnnotations != null && textAnnotations.isNotEmpty
-        ? textAnnotations[0]['description']
-        : "";
+    final responses = body['responses'] as List?;
+    if (responses == null || responses.isEmpty) {
+      throw Exception('No OCR response from Vision API');
+    }
 
-    // Parse OCR text into structured fields (storeName, date, total)
+    // Prefer fullTextAnnotation for receipts
+    final rawText = responses[0]['fullTextAnnotation']?['text'] ??
+        (responses[0]['textAnnotations']?[0]?['description'] ?? "");
+
     return _parseReceipt(rawText);
   }
 
   @override
   Future<OcrResult> parsePdf(String pdfPath) async {
-    // For PDFs you would need to convert pages to images first
     throw UnimplementedError("PDF OCR not yet implemented.");
   }
 
+  /// --- Receipt Parsing Logic ---
   OcrResult _parseReceipt(String rawText) {
-    // Very basic parsing logic — refine this later
-    final storeName = rawText.split("\n").first;
-    final date = DateTime.now(); // TODO: extract real date with regex
-    final total = 0.0; // TODO: extract using regex
+    final storeName = extractStoreName(rawText) ?? "Unknown Store";
+    final date = extractDate(rawText) ?? DateTime.now();
+    final total = extractTotal(rawText) ?? 0.0;
+
     return OcrResult(
-        storeName: storeName,
-        date: date,
-        total: total,
-        rawText: rawText);
+      storeName: storeName,
+      date: date,
+      total: total,
+      rawText: rawText,
+    );
+  }
+
+  String? extractStoreName(String rawText) {
+    final lines = rawText.split("\n");
+
+    for (var line in lines.take(5)) {
+      final cleaned = line.trim();
+      if (cleaned.isEmpty) continue;
+
+      // Skip dates
+      final dateRegex = RegExp(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})');
+      if (dateRegex.hasMatch(cleaned)) continue;
+
+      // Skip totals
+      final totalRegex =
+          RegExp(r'(total|amount|balance|cash|change)', caseSensitive: false);
+      if (totalRegex.hasMatch(cleaned)) continue;
+
+      // Skip phone numbers
+      final phoneRegex = RegExp(r'(\+?\d[\d\s-]{5,})');
+      if (phoneRegex.hasMatch(cleaned)) continue;
+
+      // Skip ABN/GST
+      final abnRegex = RegExp(r'(ABN|GST)', caseSensitive: false);
+      if (abnRegex.hasMatch(cleaned)) continue;
+
+      return cleaned; // Assume store name
+    }
+    return null;
+  }
+
+  DateTime? extractDate(String text) {
+    final dateRegex = RegExp(
+      r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})',
+    );
+    final match = dateRegex.firstMatch(text);
+    if (match != null) {
+      final raw = match.group(0)!;
+      // Normalize dd/mm/yyyy -> yyyy-mm-dd if possible
+      try {
+        if (raw.contains('/')) {
+          final parts = raw.split('/');
+          if (parts[2].length == 2) {
+            // expand yy -> yyyy (naive assumption: 20xx)
+            parts[2] = "20${parts[2]}";
+          }
+          return DateTime.parse("${parts[2]}-${parts[1]}-${parts[0]}");
+        } else if (raw.contains('-')) {
+          return DateTime.tryParse(raw);
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  double? extractTotal(String text) {
+    final totalRegex =
+        RegExp(r'((TOTAL|AMOUNT|BALANCE)[^\d]*)(\d+[.,]\d{2})',
+            caseSensitive: false);
+    final match = totalRegex.firstMatch(text);
+    if (match != null) {
+      return double.tryParse(match.group(3)!.replaceAll(',', '.'));
+    }
+
+    // fallback: grab last number with decimals
+    final fallbackRegex = RegExp(r'\d+[.,]\d{2}');
+    final matches = fallbackRegex.allMatches(text);
+    if (matches.isNotEmpty) {
+      return double.tryParse(matches.last.group(0)!.replaceAll(',', '.'));
+    }
+    return null;
   }
 }

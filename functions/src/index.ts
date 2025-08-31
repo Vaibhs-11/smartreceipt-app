@@ -24,33 +24,46 @@ setGlobalOptions({maxInstances: 10});
 
 export const parseReceipt = onCall(async (request) => {
   // Ensure the user is authenticated.
-  if (!request.auth) {
-    throw new HttpsError(
-      "unauthenticated",
-      "The function must be called while authenticated.",
-    );
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "User must be authenticated");
   }
 
-  const imageUrl = request.data.imageUrl;
-  if (typeof imageUrl !== "string" || !imageUrl) {
+  const path = request.data.path;
+  if (typeof path !== "string" || !path) {
     throw new HttpsError(
       "invalid-argument",
-      "The function must be called with a valid 'imageUrl'.",
+      "The function must be called with a valid 'path' parameter.",
     );
   }
 
-  logger.info(`Parsing receipt from URL: ${imageUrl}`, {uid: request.auth.uid});
+  logger.info(`Parsing receipt from path: ${path}`, {uid});
 
   try {
-    const [result] = await client.textDetection(imageUrl);
-    const detections = result.textAnnotations;
-    return {text: detections?.[0]?.description ?? ""};
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(path);
+
+    // Download file bytes
+    const [buffer] = await file.download();
+
+    // Call Vision API (Document Text Detection is better for receipts)
+    const [result] = await client.documentTextDetection({
+      image: {content: buffer},
+    });
+    const text = result.fullTextAnnotation?.text || "";
+
+    return {
+      text,
+      locale:
+        result.fullTextAnnotation?.pages?.[0]?.property?.detectedLanguages?.[0]
+          ?.languageCode || null,
+    };
   } catch (error) {
-    logger.error("Error calling Vision API", {error, imageUrl});
+    logger.error("Vision API failed", {error, path});
     throw new HttpsError(
       "internal",
-      "Failed to process receipt image with Vision API.",
-      error,
+      "Failed to process receipt image with Vision API",
+      error as Error
     );
   }
 });

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
@@ -70,16 +71,26 @@ class SmartReceiptApp extends ConsumerWidget {
       case AppRoutes.scanReceipt:
         return MaterialPageRoute(builder: (_) => const ScanReceiptScreen());
       case AppRoutes.receiptDetail:
-        // Example for passing arguments to a route
-        // final receiptId = settings.arguments as String;
-        // return MaterialPageRoute(builder: (_) => ReceiptDetailScreen(receiptId: receiptId));
-        return MaterialPageRoute(builder: (_) => ReceiptDetailScreen());
+        // It's best practice to handle arguments safely.
+        final receiptId = settings.arguments as String?;
+        if (receiptId != null) {
+          // You will need to update ReceiptDetailScreen to accept this parameter.
+          return MaterialPageRoute(
+              builder: (_) => ReceiptDetailScreen(receiptId: receiptId));
+        }
+        // Fallback or error case if the ID is missing.
+        return _errorRoute();
       default:
-        return MaterialPageRoute(
-          builder: (_) => const Scaffold(
-            body: Center(child: Text("Route not found")),
-          ),
-        );
+        return _errorRoute("Route not found");
     }
+  }
+
+  Route<dynamic> _errorRoute([String message = "Error: Route not found"]) {
+    return MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('Error')),
+        body: Center(child: Text(message)),
+      ),
+    );
   }
 }

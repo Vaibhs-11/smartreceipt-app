@@ -15,7 +15,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
     return openDatabase(
       dbPath,
       password: 'smartreceipt_dev',
-      version: 1,
+      version: 2, // Incremented version to trigger upgrade/create
       onCreate: (Database db, int version) async {
         await db.execute('''
         CREATE TABLE receipts (
@@ -27,9 +27,15 @@ class SqliteReceiptRepository implements ReceiptRepository {
           notes TEXT,
           tags TEXT,
           imagePath TEXT,
+          extractedText TEXT,
           expiryDate TEXT
         );
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE receipts ADD COLUMN extractedText TEXT;');
+        }
       },
     );
   }
@@ -79,6 +85,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
         'notes': r.notes,
         'tags': jsonEncode(r.tags),
         'imagePath': r.imagePath,
+        'extractedText': r.extractedText,
         'expiryDate': r.expiryDate?.toIso8601String(),
       };
 
@@ -95,11 +102,10 @@ class SqliteReceiptRepository implements ReceiptRepository {
       notes: map['notes'] as String?,
       tags: tags,
       imagePath: map['imagePath'] as String?,
+      extractedText: map['extractedText'] as String?,
       expiryDate: (map['expiryDate'] as String?) != null
           ? DateTime.parse(map['expiryDate']! as String)
           : null,
     );
   }
 }
-
-

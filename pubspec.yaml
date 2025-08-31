@@ -24,10 +24,11 @@ dependencies:
   cloud_functions: ^6.0.0
 
   # Local database
-  sqflite: ^2.3.3
+  sqflite_sqlcipher: ^3.3.0
   path_provider: ^2.1.3
 
   # Image picking & camera
+  pdfx: ^2.5.0
   image_picker: ^1.1.2
   file_picker: ^8.0.0
   camera: ^0.11.2
