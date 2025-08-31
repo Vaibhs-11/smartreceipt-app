@@ -39,17 +39,31 @@ export const parseReceipt = onCall(async (request) => {
 
   logger.info(`Parsing receipt from path: ${path}`, {uid});
 
+  const isPdf = path.toLowerCase().endsWith(".pdf");
+
   try {
-    const bucket = admin.storage().bucket();
-    const file = bucket.file(path);
+    // The request to the Vision API needs to be structured differently
+    // for PDFs vs. images when processing online.
+    let visionRequest;
+    if (isPdf) {
+      // For PDFs, Vision API needs the GCS URI.
+      const bucketName = admin.storage().bucket().name;
+      const gcsUri = `gs://${bucketName}/${path}`;
+      logger.info(`Sending PDF to Vision API with GCS URI: ${gcsUri}`);
+      visionRequest = {image: {source: {imageUri: gcsUri}}};
+    } else {
+      // For images, we can send the byte content.
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(path);
+      const [buffer] = await file.download();
+      visionRequest = {image: {content: buffer}};
+    }
 
-    // Download file bytes
-    const [buffer] = await file.download();
+    const [result] = await client.documentTextDetection(visionRequest);
+    // Log the full JSON response from the Vision API for debugging.
+    // This will appear in your Cloud Function logs in the Firebase Console.
+    logger.info("Full Vision API response:", {visionResult: result});
 
-    // Call Vision API (Document Text Detection is better for receipts)
-    const [result] = await client.documentTextDetection({
-      image: {content: buffer},
-    });
     const text = result.fullTextAnnotation?.text || "";
 
     return {

@@ -9,24 +9,19 @@ class ReceiptListScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final AsyncValue<List<dynamic>> receipts = ref.watch(receiptsProvider);
+    final AsyncValue<List<Receipt>> receipts = ref.watch(receiptsProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text("My Receipts"),
       ),
       body: receipts.when(
-          data: (data) {
-          final items = data.cast<Receipt>();
-      return items.isEmpty
-          ? const _EmptyState()
-          : ReceiptList(receipts: items);
-    },
-    loading: () => const Center(child: CircularProgressIndicator()),
-    error: (e, st) => Center(child: Text('Error: $e')),
-    ),
-  );
-
+        data: (items) =>
+            items.isEmpty ? const _EmptyState() : ReceiptList(receipts: items),
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, st) => Center(child: Text('Error: $e')),
+      ),
+    );
   }
 }
 

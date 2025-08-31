@@ -136,31 +136,60 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     });
   }
 
-  Future<void> _processFile(File file) async {
+  Future<void> _processAndUploadFile(File file) async {
     setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+    File fileToProcess = file;
+
     try {
-      final uploadResult = await _uploadFileToStorage(file);
+      // Handle PDF conversion before upload
+      if (file.path.toLowerCase().endsWith('.pdf')) {
+        final bool? proceed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('PDF Upload'),
+            content: const Text('PDFs will be converted to an image. Only the first page will be used. Continue?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+              TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Continue')),
+            ],
+          ),
+        );
+
+        if (proceed != true) return;
+
+        final doc = await PdfDocument.openFile(file.path);
+        final page = await doc.getPage(1);
+        final pageImage = await page.render(
+          width: 1024,
+          height: (1024 * page.height) / page.width,
+        );
+        await page.close();
+        await doc.close();
+
+        if (pageImage == null) throw Exception("Failed to render PDF page.");
+
+        final tempDir = await getTemporaryDirectory();
+        final tempFileName = '${receiptId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final imageFile = File(path.join(tempDir.path, tempFileName));
+        await imageFile.writeAsBytes(pageImage.bytes);
+        fileToProcess = imageFile;
+      }
+
+      final uploadResult = await _uploadFileToStorage(fileToProcess);
       if (uploadResult == null) {
-        setState(() => _isLoading = false);
-        if (mounted) scaffoldMessenger.showSnackBar(const SnackBar(content: Text('File upload failed.')));
+        scaffoldMessenger.showSnackBar(const SnackBar(content: Text('File upload failed.')));
         return;
       }
       final ocr = ref.read(ocrServiceProvider);
-      // The cloud function expects the GCS path, not the download URL.
-      // The path is part of the gcsUri: 'gs://<bucket>/<path>'
       final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
       final result = await ocr.parseImage(gcsPath);
       _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
     } catch (e) {
       debugPrint("Error processing file: $e");
-      if (mounted) {
-        setState(() => _isLoading = false);
-        scaffoldMessenger.showSnackBar(
-          const SnackBar(
-              content: Text('Could not process file. Please try again.')),
-        );
-      }
+      scaffoldMessenger.showSnackBar(const SnackBar(content: Text('Could not process file. Please try again.')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -171,7 +200,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         : picker.pickImage(source: ImageSource.gallery));
     if (file == null) return;
 
-    await _processFile(File(file.path));
+    await _processAndUploadFile(File(file.path));
   }
 
   Future<void> _pickFile() async {
@@ -181,64 +210,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     );
 
     if (result == null || result.files.single.path == null) return;
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
     final file = File(result.files.single.path!);
-    File fileToProcess = file;
-
-    if (file.path.toLowerCase().endsWith('.pdf')) {
-      final bool? proceed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('PDF Upload'),
-          content: const Text(
-              'PDFs will be converted to an image. Only the first page will be used. Continue?'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel')),
-            TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Continue')),
-          ],
-        ),
-      );
-
-      if (proceed != true) {
-        return;
-      }
-
-      setState(() => _isLoading = true); // Show loader for conversion
-      try {
-        final doc = await PdfDocument.openFile(file.path);
-        final page = await doc.getPage(1);
-        final pageImage = await page.render(
-          width: 1024,
-          height: (1024 * page.height) / page.width,
-        ); // Render with a consistent width
-        await page.close();
-        await doc.close();
-
-        if (pageImage == null) {
-          throw Exception("Failed to render PDF page.");
-        }
-
-        final tempDir = await getTemporaryDirectory();
-        final tempFileName = '${receiptId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final imageFile = File(path.join(tempDir.path, tempFileName));
-        await imageFile.writeAsBytes(pageImage.bytes);
-        fileToProcess = imageFile;
-      } catch (e) {
-        debugPrint("Error converting PDF: $e");
-        if (mounted) {
-          setState(() => _isLoading = false);
-          scaffoldMessenger.showSnackBar(
-              const SnackBar(content: Text('Could not convert PDF.')));
-        }
-        return;
-      }
-    }
-
-    await _processFile(fileToProcess);
+    await _processAndUploadFile(file);
   }
 
 Future<void> _showUploadOptions() async {

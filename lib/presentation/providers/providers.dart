@@ -10,8 +10,10 @@ import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 import 'package:smartreceipt/data/services/notifications/notifications_service.dart';
 import 'package:smartreceipt/data/services/ocr/google_vision_ocr_stub.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
 import 'package:smartreceipt/domain/usecases/add_receipt.dart';
+import 'package:smartreceipt/domain/usecases/get_receipt_by_id.dart';
 import 'package:smartreceipt/domain/usecases/get_receipts.dart';
 
 // Services (stubbed by default)
@@ -78,9 +80,22 @@ final AutoDisposeProvider<GetReceiptsUseCase> getReceiptsUseCaseProviderOverride
   return GetReceiptsUseCase(repository);
 });
 
+final getReceiptByIdUseCaseProvider =
+    Provider.autoDispose<GetReceiptByIdUseCase>((ref) {
+  final ReceiptRepository repository =
+      ref.read(receiptRepositoryProviderOverride);
+  return GetReceiptByIdUseCase(repository);
+});
+
 // Receipt list provider
-final FutureProvider<List<dynamic>> receiptsProvider =
-    FutureProvider<List<dynamic>>((ref) async {
-  final GetReceiptsUseCase getReceipts = ref.read(getReceiptsUseCaseProviderOverride);
+final receiptsProvider = FutureProvider<List<Receipt>>((ref) async {
+  final getReceipts = ref.read(getReceiptsUseCaseProviderOverride);
   return getReceipts();
+});
+
+// Single receipt detail provider
+final receiptDetailProvider =
+    FutureProvider.autoDispose.family<Receipt?, String>((ref, receiptId) {
+  final getReceipt = ref.read(getReceiptByIdUseCaseProvider);
+  return getReceipt(receiptId);
 });

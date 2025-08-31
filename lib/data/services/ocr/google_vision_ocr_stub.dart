@@ -5,9 +5,9 @@ import 'package:smartreceipt/domain/services/ocr_service.dart';
 
 class GoogleVisionOcrStub implements OcrService {
   @override
-  Future<OcrResult> parseImage(String imagePath) async {
+  Future<OcrResult> parseImage(String gcsPath) async {
     // Deterministic-but-fake parse for demo
-    final int seed = imagePath.hashCode;
+    final int seed = gcsPath.hashCode;
     final Random rng = Random(seed);
     final List<String> stores = <String>['Target', 'Best Buy', 'Tesco', 'Coles', 'Reliance'];
     final String storeName = stores[rng.nextInt(stores.length)];
@@ -21,10 +21,10 @@ class GoogleVisionOcrStub implements OcrService {
   }
 
   @override
-  Future<OcrResult> parsePdf(String pdfPath) async {
+  Future<OcrResult> parsePdf(String gcsPath) async {
     // For stubbing, we can reuse the same logic as parseImage.
     // A real implementation would use a PDF parsing library.
-    final int seed = pdfPath.hashCode;
+    final int seed = gcsPath.hashCode;
     final Random rng = Random(seed);
     final List<String> stores = <String>['Target', 'Best Buy', 'Tesco', 'Coles', 'Reliance'];
     final String storeName = stores[rng.nextInt(stores.length)];

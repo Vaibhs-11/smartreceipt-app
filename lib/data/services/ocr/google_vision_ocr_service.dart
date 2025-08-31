@@ -125,20 +125,103 @@ class GoogleVisionOcrService implements OcrService {
   }
 
   double? extractTotal(String text) {
-    final totalRegex =
-        RegExp(r'((TOTAL|AMOUNT|BALANCE)[^\d]*)(\d+[.,]\d{2})',
-            caseSensitive: false);
-    final match = totalRegex.firstMatch(text);
-    if (match != null) {
-      return double.tryParse(match.group(3)!.replaceAll(',', '.'));
+  final lines = text.split('\n');
+  final candidates = <_Cand>[];
+
+  // Helper: extract all money values from a line and normalize to double
+  List<double> _moneyFrom(String s) {
+    final moneyRe = RegExp(
+      r'(?:AUD\s*)?\$?\s*('
+      r'[0-9]{1,3}(?:[.,\s][0-9]{3})*(?:[.,][0-9]{2})' // 1,234.56 or 1 234,56
+      r'|[0-9]+[.,][0-9]{2}'                            // 12.34 or 12,34
+      r')'
+    );
+    final out = <double>[];
+    for (final m in moneyRe.allMatches(s)) {
+      var g = m.group(1)!.replaceAll(' ', '');
+      // Normalize thousands vs decimal: use the last separator as decimal
+      if (g.contains(',') && g.contains('.')) {
+        if (g.lastIndexOf('.') > g.lastIndexOf(',')) {
+          g = g.replaceAll(',', '');      // 1,234.56 -> 1234.56
+        } else {
+          g = g.replaceAll('.', '');      // 1.234,56 -> 1234,56
+          g = g.replaceAll(',', '.');     // -> 1234.56
+        }
+      } else {
+        g = g.replaceAll(',', '.');       // 12,34 -> 12.34
+      }
+      final v = double.tryParse(g);
+      if (v != null) out.add(v);
+    }
+    return out;
+  }
+
+  // Pass 1: scan lines, collect candidates with scores
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i].trim();
+    if (line.isEmpty) continue;
+    final lower = line.toLowerCase();
+
+    // Skip common traps
+    if (lower.contains('gst') && lower.contains('total')) continue; // e.g., "GST Incl. In Total $14.59"
+    if (lower.contains('avail bal') || lower.contains('balance')) continue;
+    if (lower.contains('declined')) continue;
+
+    // Score the line by intent
+    int score = 0;
+    if (lower.contains('grand total')) score += 120;
+    if (lower == 'total' || lower.startsWith('total')) score += 110;
+    if (lower.contains('amount due')) score += 100;
+    if (lower.contains('total')) score += 90;
+    if (lower.contains('eftpos') || lower.contains('paid')) score += 70;
+
+    // Extract amounts in this line
+    var amounts = _moneyFrom(line);
+
+    // If it's a "total/amount due" line without an amount, look ahead a couple of lines
+    if (amounts.isEmpty && (lower.contains('total') || lower.contains('amount due'))) {
+      for (int j = 1; j <= 2 && i + j < lines.length; j++) {
+        final la = lines[i + j].trim();
+        final lal = la.toLowerCase();
+        if (lal.isEmpty) continue;
+        if (lal.contains('gst') && lal.contains('total')) continue;
+        if (lal.contains('balance') || lal.contains('declined')) continue;
+        final nextAmts = _moneyFrom(la);
+        if (nextAmts.isNotEmpty) {
+          amounts = nextAmts;
+          break;
+        }
+      }
     }
 
-    // fallback: grab last number with decimals
-    final fallbackRegex = RegExp(r'\d+[.,]\d{2}');
-    final matches = fallbackRegex.allMatches(text);
-    if (matches.isNotEmpty) {
-      return double.tryParse(matches.last.group(0)!.replaceAll(',', '.'));
+    for (final a in amounts) {
+      candidates.add(_Cand(value: a, score: score, line: line));
     }
-    return null;
   }
+
+  if (candidates.isNotEmpty) {
+    // Prefer higher score; if tie, prefer larger amount
+    candidates.sort((b, a) {
+      final sc = a.score.compareTo(b.score);
+      if (sc != 0) return sc;
+      return a.value.compareTo(b.value);
+    });
+    return candidates.first.value;
+  }
+
+  // Final fallback: take the largest money-like number anywhere
+  double? best;
+  for (final v in _moneyFrom(text)) {
+    if (best == null || v > best) best = v;
+  }
+  return best;
+}
+
+// Small holder for ranking
+class _Cand {
+  final double value;
+  final int score;
+  final String line;
+  _Cand({required this.value, required this.score, required this.line});
+}
 }

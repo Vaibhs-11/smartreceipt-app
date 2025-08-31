@@ -1,7 +1,9 @@
 import '../entities/ocr_result.dart';
 
 abstract class OcrService {
-  Future<OcrResult> parseImage(String imageUrl);
+  /// Parses an image from a Google Cloud Storage path.
+  Future<OcrResult> parseImage(String gcsPath);
 
-  Future<OcrResult> parsePdf(String pdfUrl);
+  /// Parses a PDF from a Google Cloud Storage path.
+  Future<OcrResult> parsePdf(String gcsPath);
 }
