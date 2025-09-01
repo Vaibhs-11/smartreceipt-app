@@ -124,31 +124,31 @@ class GoogleVisionOcrService implements OcrService {
     return null;
   }
 
-  double? extractTotal(String text) {
+  // Place this in the same file as your other helpers
+double? extractTotal(String text, {bool debug = false}) {
   final lines = text.split('\n');
-  final candidates = <_Cand>[];
 
-  // Helper: extract all money values from a line and normalize to double
+  // Normalizer & extractor: returns a list of doubles found in a line
   List<double> _moneyFrom(String s) {
     final moneyRe = RegExp(
-      r'(?:AUD\s*)?\$?\s*('
+      r'(?:AUD\s*|\$)?\s*('
       r'[0-9]{1,3}(?:[.,\s][0-9]{3})*(?:[.,][0-9]{2})' // 1,234.56 or 1 234,56
-      r'|[0-9]+[.,][0-9]{2}'                            // 12.34 or 12,34
+      r'|[0-9]+(?:[.,][0-9]{2})'                       // 12.34 or 12,34
       r')'
     );
     final out = <double>[];
     for (final m in moneyRe.allMatches(s)) {
       var g = m.group(1)!.replaceAll(' ', '');
-      // Normalize thousands vs decimal: use the last separator as decimal
+      // Decide last separator is decimal separator
       if (g.contains(',') && g.contains('.')) {
         if (g.lastIndexOf('.') > g.lastIndexOf(',')) {
-          g = g.replaceAll(',', '');      // 1,234.56 -> 1234.56
+          g = g.replaceAll(',', ''); // 1,234.56 -> 1234.56
         } else {
-          g = g.replaceAll('.', '');      // 1.234,56 -> 1234,56
-          g = g.replaceAll(',', '.');     // -> 1234.56
+          g = g.replaceAll('.', ''); // 1.234,56 -> 1234,56
+          g = g.replaceAll(',', '.'); // -> 1234.56
         }
       } else {
-        g = g.replaceAll(',', '.');       // 12,34 -> 12.34
+        g = g.replaceAll(',', '.'); // 12,34 -> 12.34
       }
       final v = double.tryParse(g);
       if (v != null) out.add(v);
@@ -156,72 +156,149 @@ class GoogleVisionOcrService implements OcrService {
     return out;
   }
 
-  // Pass 1: scan lines, collect candidates with scores
+  // Weighted keyword map (higher = stronger signal the line is a total)
+  final keywordWeights = <String, int>{
+    'grand total': 200,
+    'invoice total': 180,
+    'amount due': 170,
+    'amount payable': 170,
+    'total': 160,
+    'subtotal': 120,
+    'paid': 110,
+    'eftpos': 100,
+    'payment': 100,
+    'balance due': 140,
+  };
+
+  final candidates = <_Cand>[];
+
+  // Collect all money-like tokens across the document for debug/fallback
+  final allMoney = <_MoneyMatch>[];
+  for (int i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final matches = _moneyFrom(line);
+    for (final m in matches) {
+      allMoney.add(_MoneyMatch(value: m, lineIndex: i, lineText: line.trim()));
+    }
+  }
+
+  if (debug) {
+    print('--- Money tokens found (${allMoney.length}) ---');
+    for (final m in allMoney) {
+      print('line ${m.lineIndex}: ${m.value.toStringAsFixed(2)} -> "${m.lineText}"');
+    }
+  }
+
+  // 1) Look for explicit keywords and capture amounts in the same or close lines
   for (int i = 0; i < lines.length; i++) {
     final line = lines[i].trim();
     if (line.isEmpty) continue;
     final lower = line.toLowerCase();
 
-    // Skip common traps
-    if (lower.contains('gst') && lower.contains('total')) continue; // e.g., "GST Incl. In Total $14.59"
-    if (lower.contains('avail bal') || lower.contains('balance')) continue;
-    if (lower.contains('declined')) continue;
+    // Skip obvious traps where "total" is for tax only
+    if (lower.contains('gst') && lower.contains('total')) continue;
+    if (lower.contains('tax') && lower.contains('total')) continue;
+    if (lower.contains('change') || lower.contains('refun')) continue; // refund/change
 
-    // Score the line by intent
-    int score = 0;
-    if (lower.contains('grand total')) score += 120;
-    if (lower == 'total' || lower.startsWith('total')) score += 110;
-    if (lower.contains('amount due')) score += 100;
-    if (lower.contains('total')) score += 90;
-    if (lower.contains('eftpos') || lower.contains('paid')) score += 70;
-
-    // Extract amounts in this line
-    var amounts = _moneyFrom(line);
-
-    // If it's a "total/amount due" line without an amount, look ahead a couple of lines
-    if (amounts.isEmpty && (lower.contains('total') || lower.contains('amount due'))) {
-      for (int j = 1; j <= 2 && i + j < lines.length; j++) {
-        final la = lines[i + j].trim();
-        final lal = la.toLowerCase();
-        if (lal.isEmpty) continue;
-        if (lal.contains('gst') && lal.contains('total')) continue;
-        if (lal.contains('balance') || lal.contains('declined')) continue;
-        final nextAmts = _moneyFrom(la);
-        if (nextAmts.isNotEmpty) {
-          amounts = nextAmts;
-          break;
-        }
+    // Determine best keyword present in the line (longer phrases first)
+    int bestWeight = 0;
+    for (final key in keywordWeights.keys) {
+      if (lower.contains(key)) {
+        if (keywordWeights[key]! > bestWeight) bestWeight = keywordWeights[key]!;
       }
     }
 
-    for (final a in amounts) {
-      candidates.add(_Cand(value: a, score: score, line: line));
+    // If keyword hit, attempt to find amounts in same line, or up to 3 lines ahead/back
+    if (bestWeight > 0) {
+      var amounts = _moneyFrom(line);
+
+      // look ahead/back if no amounts in same line
+      if (amounts.isEmpty) {
+        // search nearby lines (backwards 2 lines, forwards 3 lines)
+        for (int j = 1; j <= 2 && i - j >= 0 && amounts.isEmpty; j++) {
+          final la = lines[i - j].trim();
+          if (la.isEmpty) continue;
+          if (la.toLowerCase().contains('gst') && la.toLowerCase().contains('total')) continue;
+          amounts = _moneyFrom(la);
+        }
+        for (int j = 1; j <= 3 && i + j < lines.length && amounts.isEmpty; j++) {
+          final la = lines[i + j].trim();
+          if (la.isEmpty) continue;
+          if (la.toLowerCase().contains('gst') && la.toLowerCase().contains('total')) continue;
+          amounts = _moneyFrom(la);
+        }
+      }
+
+      for (final a in amounts) {
+        candidates.add(_Cand(value: a, score: bestWeight, lineIndex: i, line: line));
+      }
     }
   }
 
+  // 2) If no keyword-based candidates, check bottom region of receipt (last N lines)
+  if (candidates.isEmpty) {
+    final N = 12; // look at last 12 lines
+    final start = (lines.length - N).clamp(0, lines.length);
+    for (int i = start; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+      // skip small balance lines or "AVAIL BAL" style
+      final lower = line.toLowerCase();
+      if (lower.contains('avail bal') || lower.contains('available balance')) continue;
+      if (lower.contains('gst') && lower.contains('total')) continue;
+
+      final amounts = _moneyFrom(line);
+      for (final a in amounts) {
+        // give modest weight to bottom-of-receipt matches
+        candidates.add(_Cand(value: a, score: 75, lineIndex: i, line: line));
+      }
+    }
+  }
+
+  if (debug) {
+    print('--- Candidate totals before ranking (${candidates.length}) ---');
+    for (final c in candidates) {
+      print('score=${c.score} value=${c.value.toStringAsFixed(2)} lineIdx=${c.lineIndex} -> "${c.line}"');
+    }
+  }
+
+  // Rank candidates: higher score first, then larger value
   if (candidates.isNotEmpty) {
-    // Prefer higher score; if tie, prefer larger amount
     candidates.sort((b, a) {
       final sc = a.score.compareTo(b.score);
       if (sc != 0) return sc;
       return a.value.compareTo(b.value);
     });
-    return candidates.first.value;
+    final chosen = candidates.first;
+    if (debug) {
+      print('>>> selected candidate: value=${chosen.value}, score=${chosen.score}, line="${chosen.line}"');
+    }
+    return chosen.value;
   }
 
-  // Final fallback: take the largest money-like number anywhere
+  // Final fallback: pick the largest money token anywhere
   double? best;
-  for (final v in _moneyFrom(text)) {
-    if (best == null || v > best) best = v;
+  for (final m in allMoney) {
+    if (best == null || m.value > best) best = m.value;
+  }
+  if (debug) {
+    print('>>> fallback largest token: ${best?.toStringAsFixed(2) ?? "none"}');
   }
   return best;
 }
 
-// Small holder for ranking
+// Helper holders
 class _Cand {
   final double value;
   final int score;
+  final int lineIndex;
   final String line;
-  _Cand({required this.value, required this.score, required this.line});
+  _Cand({required this.value, required this.score, required this.lineIndex, required this.line});
 }
+class _MoneyMatch {
+  final double value;
+  final int lineIndex;
+  final String lineText;
+  _MoneyMatch({required this.value, required this.lineIndex, required this.lineText});
 }
+
