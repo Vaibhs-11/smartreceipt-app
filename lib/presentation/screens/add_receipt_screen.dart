@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:pdfx/pdfx.dart';
-import 'package:path/path.dart' as path;
-import 'package:pdf_text/pdf_text.dart';
-import 'package:smartreceipt/domain/services/receipt_parser.dart';
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
@@ -138,107 +132,33 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     });
   }
 
-  Future<void> _processImageFile(File imageFile) async {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final uploadResult = await _uploadFileToStorage(fileToProcess);
-    if (uploadResult == null) {
-      throw Exception('File upload failed.');
-    }
-
-    final ocr = ref.read(ocrServiceProvider);
-    // The GCS path is the path within the bucket, without the gs://<bucket-name>/ prefix
-    final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
-    final result = await ocr.parseImage(gcsPath);
-    _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
-  }
-
   Future<void> _processAndUploadFile(File file) async {
     setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     try {
-      if (file.path.toLowerCase().endsWith('.pdf')) {
-        // It's a PDF. Try to extract text first.
-        PDFDoc? pdfDoc;
-        String extractedPdfText = '';
-        try {
-          pdfDoc = await PDFDoc.fromFile(file);
-          extractedPdfText = await pdfDoc.text;
-        } finally {
-          await pdfDoc?.close();
-        }
-
-        // Heuristic to decide if it's a text-based PDF.
-        // A small amount of text might just be a header on a scanned image.
-        if (extractedPdfText.trim().length > 20) {
-          debugPrint("Detected text-based PDF. Processing locally.");
-          final uploadResult = await _uploadFileToStorage(file);
-          if (uploadResult == null) {
-            throw Exception('PDF upload failed.');
-          }
-
-          // Parse text locally using the shared parser functions
-          final storeName = extractStoreName(extractedPdfText);
-          final date = extractDate(extractedPdfText);
-          final total = extractTotal(extractedPdfText);
-
-          final ocrResult = OcrResult(
-            storeName: storeName,
-            date: date,
-            total: total,
-            rawText: extractedPdfText,
-          );
-
-          _handleOcrResult(ocrResult, uploadedUrl: uploadResult.downloadUrl);
-        } else {
-          // Scanned/Image-based PDF path. Convert to image and use Vision.
-          debugPrint("Detected image-based PDF, converting to image.");
-          final bool? proceed = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Scanned PDF Detected'),
-              content: const Text(
-                  'This appears to be a scanned PDF. To extract data, the first page will be converted to an image and processed. Continue?'),
-              actions: [
-                TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-                TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Continue')),
-              ],
-            ),
-          );
-
-          if (proceed != true) {
-            setState(() => _isLoading = false); // User cancelled
-            return;
-          }
-
-          final doc = await PdfDocument.openFile(file.path);
-          final page = await doc.getPage(1);
-          const double scale = 2.0;
-          final pageImage = await page.render(width: page.width * scale, height: page.height * scale);
-          await page.close();
-          await doc.close();
-
-          if (pageImage == null) throw Exception("Failed to render PDF page.");
-
-          final tempDir = await getTemporaryDirectory();
-          final tempFileName = '${receiptId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-          final imageFile = File(path.join(tempDir.path, tempFileName));
-          await imageFile.writeAsBytes(pageImage.bytes);
-
-          await _processImageFile(imageFile);
-        }
-      } else {
-        // It's an image file, process as before.
-        await _processImageFile(file);
+      final uploadResult = await _uploadFileToStorage(file);
+      if (uploadResult == null) {
+        throw Exception('File upload failed.');
       }
-  } catch (e) {
-    debugPrint("Error processing file: $e");
-    scaffoldMessenger.showSnackBar(const SnackBar(
-        content: Text('Could not process file. Please try again.')));
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
+
+      final ocr = ref.read(ocrServiceProvider);
+      // The GCS path is the path within the bucket, without the gs://<bucket-name>/ prefix.
+      // The cloud function expects this path.
+      final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
+
+      // The cloud function can handle both images and PDFs.
+      final result = await ocr.parseImage(gcsPath);
+
+      _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+    } catch (e) {
+      debugPrint("Error processing file: $e");
+      scaffoldMessenger.showSnackBar(const SnackBar(
+          content: Text('Could not process file. Please try again.')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
-}
 
   Future<void> _pickImage({required bool fromCamera}) async {
     final picker = ImagePicker();
