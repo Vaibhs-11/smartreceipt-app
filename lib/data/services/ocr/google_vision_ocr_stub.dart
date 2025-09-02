@@ -36,4 +36,14 @@ class GoogleVisionOcrStub implements OcrService {
         total: double.parse(total.toStringAsFixed(2)),
         rawText: 'This is stubbed OCR text for PDF $storeName.');
   }
+
+  @override
+  Future<OcrResult> parseRawText(String rawText) async {
+    // Return deterministic stub using provided text
+    return OcrResult(
+        storeName: 'Stub Store',
+        date: DateTime.now(),
+        total: 42.00,
+        rawText: rawText.isEmpty ? 'Stub text' : rawText);
+  }
 }

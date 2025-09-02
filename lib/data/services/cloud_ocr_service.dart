@@ -59,6 +59,17 @@ class CloudOcrService implements OcrService {
     }
   }
 
+  @override
+  Future<OcrResult> parseRawText(String rawText) async {
+    // No remote calls; just parse the provided text locally.
+    try {
+      return _parseReceipt(rawText);
+    } catch (e, s) {
+      debugPrint('Failed to parse raw text: $e\n$s');
+      rethrow;
+    }
+  }
+
   String? _extractStoreName(String rawText) {
     final lines = rawText.split("\n");
 

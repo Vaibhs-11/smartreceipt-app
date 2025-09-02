@@ -11,6 +11,10 @@ import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart';
+import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:pdf_text/pdf_text.dart';
+import 'package:pdf_render/pdf_render.dart';
+import 'package:image/image.dart' as img;
 
 class UploadedFile {
   final String downloadUrl;
@@ -134,29 +138,95 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   Future<void> _processAndUploadFile(File file) async {
     setState(() => _isLoading = true);
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     try {
-      final uploadResult = await _uploadFileToStorage(file);
-      if (uploadResult == null) {
-        throw Exception('File upload failed.');
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+      final String lowerPath = file.path.toLowerCase();
+      final bool isPdf = lowerPath.endsWith('.pdf');
+      final OcrService ocr = ref.read(ocrServiceProvider);
+
+      if (!isPdf) {
+        // Image flow: upload image and OCR via Vision
+        final uploadResult = await _uploadFileToStorage(file);
+        if (uploadResult == null) throw Exception('File upload failed.');
+        final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
+        final result = await ocr.parseImage(gcsPath);
+        _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+        return;
       }
 
-      final ocr = ref.read(ocrServiceProvider);
-      // The GCS path is the path within the bucket, without the gs://<bucket-name>/ prefix.
-      // The cloud function expects this path.
+      // PDF flow: try extracting text locally first
+      String extractedText = '';
+      try {
+        final PDFDoc doc = await PDFDoc.fromFile(file);
+        extractedText = await doc.text;
+      } catch (e) {
+        debugPrint('PDF text extraction failed locally: $e');
+      }
+
+      if (extractedText.trim().isNotEmpty) {
+        // Text-selectable PDF: upload PDF as-is, no Vision call
+        final uploadResult = await _uploadFileToStorage(file);
+        if (uploadResult == null) throw Exception('File upload failed.');
+        final parsed = await ocr.parseRawText(extractedText);
+        _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
+        return;
+      }
+
+      // Non-selectable (scanned) PDF: render first page to image, upload, then OCR
+      File? tempImageFile;
+      try {
+        final pdf = await PdfDocument.openFile(file.path);
+        final page = await pdf.getPage(1);
+
+        final pageImage = await page.render(
+          width: page.width.toInt(),
+          height: page.height.toInt(),
+        );
+
+        final image = img.Image.fromBytes(
+          width: pageImage.width,
+          height: pageImage.height,
+          bytes: pageImage.pixels.buffer,
+        );
+
+        // Dispose resources as soon as they are not needed
+        pageImage.dispose();
+        await pdf.dispose();
+
+        final jpgBytes = img.encodeJpg(image, quality: 92);
+        final jpgPath = file.path.replaceAll(
+          RegExp(r'\.pdf$', caseSensitive: false),
+          '_page1.jpg',
+        );
+
+        tempImageFile = File(jpgPath);
+        await tempImageFile.writeAsBytes(jpgBytes, flush: true);
+      } catch (e) {
+        debugPrint('Failed to render PDF to image: $e');
+      }
+
+      if (tempImageFile == null || !(await tempImageFile.exists())) {
+        throw Exception('Failed to convert PDF to image for OCR');
+      }
+
+      final uploadResult = await _uploadFileToStorage(tempImageFile);
+      if (uploadResult == null) throw Exception('File upload failed.');
+
       final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
-
-      // The cloud function can handle both images and PDFs.
       final result = await ocr.parseImage(gcsPath);
-
       _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
-    } catch (e) {
-      debugPrint("Error processing file: $e");
-      scaffoldMessenger.showSnackBar(const SnackBar(
-          content: Text('Could not process file. Please try again.')));
+    } catch (e, s) {
+      debugPrint('Error processing file: $e\n$s');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error processing file: $e')),
+        );
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
