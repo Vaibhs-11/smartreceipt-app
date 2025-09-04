@@ -1,5 +1,5 @@
 # Define a global platform for your project
-platform :ios, '15.5'
+platform :ios, '16.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -27,14 +27,28 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
+# 🔒 Force consistent Firebase SDK version
+$FirebaseSDKVersion = '10.18.0'
+install! 'cocoapods', :deterministic_uuids => false
+
 target 'Runner' do
   use_frameworks! :linkage => :static
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  
+  pod 'FirebaseCore', $FirebaseSDKVersion
+  pod 'FirebaseAuth', $FirebaseSDKVersion
+  pod 'FirebaseFirestore', $FirebaseSDKVersion
+  pod 'FirebaseStorage', $FirebaseSDKVersion
+  pod 'FirebaseMessaging', $FirebaseSDKVersion
+  pod 'FirebaseFunctions', $FirebaseSDKVersion
+
+  
   target 'RunnerTests' do
     inherit! :search_paths
   end
 end
+
 
 
 post_install do |installer|
@@ -43,12 +57,10 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386'
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.5'
-      # Ensure modern C++ standard for pods that use gRPC/abseil code
       config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
-      # Allow non-modular headers in framework modules to fix Firebase plugin include errors
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-      # Ensure Firebase modular headers are discoverable for plugin code
+
       header_search = config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
       firebase_headers = [
         '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseCore/FirebaseCore.framework/Headers"',
@@ -59,9 +71,7 @@ post_install do |installer|
       config.build_settings['HEADER_SEARCH_PATHS'] = ([header_search] + firebase_headers).join(' ')
     end
 
-    # Workaround: Some pods (e.g., BoringSSL-GRPC) inject an invalid flag
-    # "-GCC_WARN_INHIBIT_ALL_WARNINGS" which causes clang to error with
-    # "unsupported option '-G'" on iOS simulator targets. Strip it.
+    # Workaround: Strip invalid flags from BoringSSL-GRPC
     if target.name == 'BoringSSL-GRPC'
       target.build_phases.each do |phase|
         next unless phase.respond_to?(:files)
@@ -69,20 +79,17 @@ post_install do |installer|
           settings = build_file.settings
           next unless settings && settings['COMPILER_FLAGS']
           flags = settings['COMPILER_FLAGS']
-          # Remove the exact bad token and any accidental variants starting with -GCC_WARN_INHIBIT_ALL_WARNINGS
           flags = flags.gsub(/\s-?GCC_WARN_INHIBIT_ALL_WARNINGS\b/, '')
-          # Also defensively remove any stray -G<word> tokens which are invalid for clang here
           flags = flags.gsub(/\s-G\w+\b/, '')
           build_file.settings['COMPILER_FLAGS'] = flags.strip
         end
       end
     end
 
-    # Then apply Flutter additional settings once per target
     flutter_additional_ios_build_settings(target)
   end
 
-  # Hotfix: Patch gRPC headers to avoid Clang missing-template-arg parse issue on Xcode 16+
+  # Hotfix: Patch gRPC headers for Xcode 16+
   grpc_headers = [
     File.join(__dir__, 'Pods', 'gRPC-Core', 'src', 'core', 'lib', 'promise', 'detail', 'basic_seq.h'),
     File.join(__dir__, 'Pods', 'gRPC-C++', 'src', 'core', 'lib', 'promise', 'detail', 'basic_seq.h')
