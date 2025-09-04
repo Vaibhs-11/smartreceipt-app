@@ -1,7 +1,4 @@
-# Define a global platform for your project
 platform :ios, '16.0'
-
-# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner', {
@@ -13,29 +10,30 @@ project 'Runner', {
 def flutter_root
   generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
   unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+    raise "#{generated_xcode_build_settings_path} must exist. Run flutter pub get first"
   end
 
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT\=(.*)/)
     return matches[1].strip if matches
   end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}"
 end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 flutter_ios_podfile_setup
 
-# 🔒 Force consistent Firebase SDK version
-$FirebaseSDKVersion = '10.18.0'
+$FirebaseSDKVersion = '10.18.0'  # 🔑 keep everything aligned
+
 install! 'cocoapods', :deterministic_uuids => false
 
 target 'Runner' do
-  use_frameworks! :linkage => :static
+  use_frameworks!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   
+  # Core Firebase pods
   pod 'FirebaseCore', $FirebaseSDKVersion
   pod 'FirebaseAuth', $FirebaseSDKVersion
   pod 'FirebaseFirestore', $FirebaseSDKVersion
@@ -43,63 +41,30 @@ target 'Runner' do
   pod 'FirebaseMessaging', $FirebaseSDKVersion
   pod 'FirebaseFunctions', $FirebaseSDKVersion
 
-  
+  # Internal / interop subspecs (pin to 10.18.0 as well)
+  pod 'FirebaseCoreInternal', $FirebaseSDKVersion
+  pod 'FirebaseAppCheckInterop', $FirebaseSDKVersion
+  pod 'FirebaseAuthInterop', $FirebaseSDKVersion
+  pod 'FirebaseCoreExtension', $FirebaseSDKVersion
+  pod 'FirebaseFirestoreInternal', $FirebaseSDKVersion
+  pod 'FirebaseMessagingInterop', $FirebaseSDKVersion
+  pod 'FirebaseSharedSwift', $FirebaseSDKVersion
+  pod 'FirebaseInstallations', $FirebaseSDKVersion
+
   target 'RunnerTests' do
     inherit! :search_paths
   end
 end
 
-
-
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # First, normalize build settings across all configurations
     target.build_configurations.each do |config|
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386'
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.5'
+      config.build_settings['SWIFT_VERSION'] = '5.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'  # 🔑 unified
       config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-
-      header_search = config.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
-      firebase_headers = [
-        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseCore/FirebaseCore.framework/Headers"',
-        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseMessaging/FirebaseMessaging.framework/Headers"',
-        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseStorage/FirebaseStorage.framework/Headers"',
-        '"${PODS_CONFIGURATION_BUILD_DIR}/FirebaseAuth/FirebaseAuth.framework/Headers"'
-      ]
-      config.build_settings['HEADER_SEARCH_PATHS'] = ([header_search] + firebase_headers).join(' ')
     end
-
-    # Workaround: Strip invalid flags from BoringSSL-GRPC
-    if target.name == 'BoringSSL-GRPC'
-      target.build_phases.each do |phase|
-        next unless phase.respond_to?(:files)
-        phase.files.each do |build_file|
-          settings = build_file.settings
-          next unless settings && settings['COMPILER_FLAGS']
-          flags = settings['COMPILER_FLAGS']
-          flags = flags.gsub(/\s-?GCC_WARN_INHIBIT_ALL_WARNINGS\b/, '')
-          flags = flags.gsub(/\s-G\w+\b/, '')
-          build_file.settings['COMPILER_FLAGS'] = flags.strip
-        end
-      end
-    end
-
     flutter_additional_ios_build_settings(target)
-  end
-
-  # Hotfix: Patch gRPC headers for Xcode 16+
-  grpc_headers = [
-    File.join(__dir__, 'Pods', 'gRPC-Core', 'src', 'core', 'lib', 'promise', 'detail', 'basic_seq.h'),
-    File.join(__dir__, 'Pods', 'gRPC-C++', 'src', 'core', 'lib', 'promise', 'detail', 'basic_seq.h')
-  ]
-  grpc_headers.each do |hdr|
-    next unless File.exist?(hdr)
-    contents = File.read(hdr)
-    fixed = contents.gsub('Traits::template CallSeqFactory', 'Traits::CallSeqFactory')
-    if fixed != contents
-      File.open(hdr, 'w') { |f| f.write(fixed) }
-    end
   end
 end
