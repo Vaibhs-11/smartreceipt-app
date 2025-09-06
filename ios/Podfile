@@ -24,7 +24,8 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
-$FirebaseSDKVersion = '10.18.0'  # 🔑 keep everything aligned
+# 🔑 Keep Firebase SDKs aligned
+$FirebaseSDKVersion = '10.25.0'
 
 install! 'cocoapods', :deterministic_uuids => false
 
@@ -41,7 +42,7 @@ target 'Runner' do
   pod 'FirebaseMessaging', $FirebaseSDKVersion
   pod 'FirebaseFunctions', $FirebaseSDKVersion
 
-  # Internal / interop subspecs (pin to 10.18.0 as well)
+  # Internal / interop pods (keep consistent)
   pod 'FirebaseCoreInternal', $FirebaseSDKVersion
   pod 'FirebaseAppCheckInterop', $FirebaseSDKVersion
   pod 'FirebaseAuthInterop', $FirebaseSDKVersion
@@ -51,6 +52,16 @@ target 'Runner' do
   pod 'FirebaseSharedSwift', $FirebaseSDKVersion
   pod 'FirebaseInstallations', $FirebaseSDKVersion
 
+  # Force modern gRPC/BoringSSL to avoid -G issue
+  pod 'gRPC-C++', '1.62.0'
+  #pod 'gRPC-Core', '1.62.0'
+  pod 'gRPC-Core', :modular_headers => false
+  pod 'BoringSSL-GRPC', '0.0.32'
+    # Force Abseil to older version compatible with gRPC 1.49.x
+  #pod 'abseil', '1.20211102.0'
+  pod 'abseil', '~> 1.20240116.1'
+
+
   target 'RunnerTests' do
     inherit! :search_paths
   end
@@ -59,12 +70,52 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
+      # Force Swift + Deployment Target
       config.build_settings['SWIFT_VERSION'] = '5.0'
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'  # 🔑 unified
-      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+
+      # 🚀 Force modern C++ for all pods
+      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+
+      # Allow non-modular includes
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      std = config.build_settings['CLANG_CXX_LANGUAGE_STANDARD']
+      puts "Pod Target: #{target.name} | Build Config: #{config.name} | C++ Standard: #{std}"
+      # Clean out rogue flags like -G
+      config.build_settings.keys.each do |key|
+        val = config.build_settings[key]
+        if val.is_a?(String)
+          cleaned = val.gsub(/(^|\s)-G(\s|$)/, ' ').gsub(/(^|\s)-G[A-Za-z0-9_\-]+/, ' ')
+          config.build_settings[key] = cleaned
+        elsif val.is_a?(Array)
+          cleaned = val.map { |s| s.gsub(/(^|\s)-G(\s|$)/, ' ').gsub(/(^|\s)-G[A-Za-z0-9_\-]+/, ' ') }
+          config.build_settings[key] = cleaned
+        end
+      end
     end
+
+    # ✅ Force C++17 for gRPC & Abseil explicitly
+    #if target.name.include?("gRPC") || target.name.include?("abseil")
+    #  target.build_configurations.each do |config|
+    #    config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+    #    config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+    #  end
+    #end
+
+    # Scrub per-file flags
+    target.build_phases.each do |phase|
+      next unless phase.respond_to?(:files)
+      phase.files.each do |build_file|
+        settings = build_file.settings
+        next unless settings && settings['COMPILER_FLAGS'].is_a?(String)
+        flags = settings['COMPILER_FLAGS']
+        flags = flags.gsub(/(^|\s)-G(\s|$)/, ' ')
+        flags = flags.gsub(/(^|\s)-G[A-Za-z0-9_\-]+/, ' ')
+        settings['COMPILER_FLAGS'] = flags.strip
+      end
+    end
+
     flutter_additional_ios_build_settings(target)
   end
 end

@@ -1,0 +1,118 @@
+platform :ios, '16.0'
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. Run flutter pub get first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+# 🔑 Keep Firebase SDKs aligned was 10.18 earlier
+$FirebaseSDKVersion = '10.25.0'
+
+install! 'cocoapods', :deterministic_uuids => false
+
+target 'Runner' do
+  use_frameworks!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  
+  # Core Firebase pods
+  pod 'FirebaseCore', $FirebaseSDKVersion
+  pod 'FirebaseAuth', $FirebaseSDKVersion
+  pod 'FirebaseFirestore', $FirebaseSDKVersion
+  pod 'FirebaseStorage', $FirebaseSDKVersion
+  pod 'FirebaseMessaging', $FirebaseSDKVersion
+  pod 'FirebaseFunctions', $FirebaseSDKVersion
+
+  # Internal / interop pods (keep consistent)
+  pod 'FirebaseCoreInternal', $FirebaseSDKVersion
+  pod 'FirebaseAppCheckInterop', $FirebaseSDKVersion
+  pod 'FirebaseAuthInterop', $FirebaseSDKVersion
+  pod 'FirebaseCoreExtension', $FirebaseSDKVersion
+  pod 'FirebaseFirestoreInternal', $FirebaseSDKVersion
+  pod 'FirebaseMessagingInterop', $FirebaseSDKVersion
+  pod 'FirebaseSharedSwift', $FirebaseSDKVersion
+  pod 'FirebaseInstallations', $FirebaseSDKVersion
+
+  # Force modern gRPC/BoringSSL to avoid -G issue
+  pod 'gRPC-C++', '1.62.1'
+  pod 'gRPC-Core', '1.62.1'
+  pod 'BoringSSL-GRPC', '0.0.36'
+    # Force Abseil to older version compatible with gRPC 1.49.x
+  #pod 'abseil', '1.20211102.0'
+
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      # Force Swift + Deployment Target
+      config.build_settings['SWIFT_VERSION'] = '5.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+
+      # 🚀 Force modern C++ for all pods
+      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+
+      # Allow non-modular includes
+      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+
+      # Clean out rogue flags like -G
+      config.build_settings.keys.each do |key|
+        val = config.build_settings[key]
+        if val.is_a?(String)
+          cleaned = val.gsub(/(^|\s)-G(\s|$)/, ' ').gsub(/(^|\s)-G[A-Za-z0-9_\-]+/, ' ')
+          config.build_settings[key] = cleaned
+        elsif val.is_a?(Array)
+          cleaned = val.map { |s| s.gsub(/(^|\s)-G(\s|$)/, ' ').gsub(/(^|\s)-G[A-Za-z0-9_\-]+/, ' ') }
+          config.build_settings[key] = cleaned
+        end
+      end
+    end
+
+    # ✅ Force C++17 for gRPC & Abseil explicitly
+    if target.name.include?("gRPC") || target.name.include?("abseil")
+      target.build_configurations.each do |config|
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+        config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+      end
+    end
+
+    # Scrub per-file flags
+    target.build_phases.each do |phase|
+      next unless phase.respond_to?(:files)
+      phase.files.each do |build_file|
+        settings = build_file.settings
+        next unless settings && settings['COMPILER_FLAGS'].is_a?(String)
+        flags = settings['COMPILER_FLAGS']
+        flags = flags.gsub(/(^|\s)-G(\s|$)/, ' ')
+        flags = flags.gsub(/(^|\s)-G[A-Za-z0-9_\-]+/, ' ')
+        settings['COMPILER_FLAGS'] = flags.strip
+      end
+    end
+
+    flutter_additional_ios_build_settings(target)
+  end
+end
