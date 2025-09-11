@@ -1,0 +1,141 @@
+# ios/Podfile
+platform :ios, '16.0'
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. Run flutter pub get first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+flutter_ios_podfile_setup
+
+# --------------------
+# PRE-INSTALL: replace any gRPC-Core dependency with gRPC-C++
+# --------------------
+pre_install do |installer|
+  installer.pod_targets.each do |pod_target|
+    begin
+      # Defensive: produce a replaced list where any dependency named "gRPC-Core"
+      # or a subspec starting with "gRPC-Core/" is swapped for gRPC-C++.
+      new_deps = pod_target.dependencies.map do |d|
+        name = d.respond_to?(:name) ? d.name : d.to_s
+        if name == 'gRPC-Core' || name.start_with?('gRPC-Core/')
+          Pod::Dependency.new('gRPC-C++', '~> 1.62.0')
+        else
+          d
+        end
+      end
+
+      # Replace in-place (some Pod versions expect .dependencies to be mutable)
+      if pod_target.dependencies.respond_to?(:replace)
+        pod_target.dependencies.replace(new_deps)
+      else
+        # fallback: assign via instance variable (defensive)
+        pod_target.instance_variable_set(:@dependencies, new_deps)
+      end
+    rescue => e
+      puts "pre_install: failed to patch #{pod_target.name}: #{e}"
+    end
+  end
+end
+
+# --------------------
+# Pod version pins (keep gRPC-C++/abseil consistent)
+# --------------------
+$FirebaseSDKVersion = '10.25.0'   # adapt if you want a different aligned Firebase SDK
+
+install! 'cocoapods', :deterministic_uuids => false
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  # Use our fake podspec to override gRPC-Core with an empty pod
+  #pod 'gRPC-Core', :path => 'empty-gRPC-Core'
+
+  # explicit pins to help resolution (these are safe to list alongside flutter_install_all_ios_pods)
+  pod 'gRPC-C++', '1.62.0'
+  pod 'BoringSSL-GRPC', '0.0.32'
+  pod 'abseil', '~> 1.20240116.1'
+
+  # (optional) explicit Firebase pins to make intention clear
+  pod 'FirebaseCore', $FirebaseSDKVersion
+  pod 'FirebaseAuth', $FirebaseSDKVersion
+  pod 'FirebaseFirestore', $FirebaseSDKVersion
+  pod 'FirebaseStorage', $FirebaseSDKVersion
+  pod 'FirebaseMessaging', $FirebaseSDKVersion
+  pod 'FirebaseFunctions', $FirebaseSDKVersion
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+# --------------------
+# POST-INSTALL: enforce settings & scrub -G flags
+# --------------------
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    begin
+      flutter_additional_ios_build_settings(target)
+    rescue => e
+      puts "warning flutter_additional_ios_build_settings failed for #{target.name}: #{e}"
+    end
+
+    target.build_configurations.each do |config|
+      # Force consistent iOS target & Swift settings
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+      config.build_settings['SWIFT_VERSION'] = '5.0'
+
+      # Only enforce gnu++17 for gRPC-related libraries
+      if ['gRPC-C++', 'abseil', 'BoringSSL-GRPC'].include?(target.name)
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
+        config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+      end
+
+      # Defensive flags (safe globally)
+      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+
+      # Scrub common flag buckets
+      %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS OTHER_LDFLAGS].each do |flag|
+        next unless config.build_settings[flag]
+        if config.build_settings[flag].is_a?(Array)
+          config.build_settings[flag] = config.build_settings[flag].reject { |f| f =~ /\b(-?G[A-Za-z0-9_\-]*|-o(\s+\S+)?)\b/ }
+        elsif config.build_settings[flag].is_a?(String)
+          config.build_settings[flag] = config.build_settings[flag].gsub(/\b(-?G[A-Za-z0-9_\-]*|-o(\s+\S+)?)\b/, ' ').strip
+        end
+      end
+    end
+
+    # Scrub per-file flags
+    target.build_phases.each do |phase|
+      next unless phase.respond_to?(:files)
+      phase.files.each do |build_file|
+        settings = build_file.settings
+        next unless settings && settings['COMPILER_FLAGS'].is_a?(String)
+        flags = settings['COMPILER_FLAGS']
+        flags = flags.gsub(/\b(-?G[A-Za-z0-9_\-]*|-o(\s+\S+)?)\b/, ' ')
+        settings['COMPILER_FLAGS'] = flags.strip
+      end
+    end
+  end
+end
+
+

@@ -1,4 +1,6 @@
 platform :ios, '16.0'
+
+# CocoaPods analytics disables
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner', {
@@ -8,101 +10,34 @@ project 'Runner', {
 }
 
 def flutter_root
-  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  generated_xcode_build_settings_path = File.join(__dir__, 'Flutter', 'Generated.xcconfig')
   unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. Run flutter pub get first"
+    raise "#{generated_xcode_build_settings_path} must exist. Run 'flutter pub get' in your project root."
   end
 
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT\=(.*)/)
     return matches[1].strip if matches
   end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}"
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}."
 end
 
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
-
-flutter_ios_podfile_setup
-
-# Ensure gRPC-Core is not selected by FirebaseFunctions: patch pod targets early
-# Ensure gRPC-Core is not selected by FirebaseFunctions: patch pod targets early
-pre_install do |installer|
-  installer.pod_targets.each do |pod_target|
-    if pod_target.name == 'FirebaseFunctions' || pod_target.name.start_with?('FirebaseFunctions')
-      # normalize dep names to string
-      pod_target.dependencies.reject! do |dep|
-        dep_name = dep.respond_to?(:name) ? dep.name : dep.to_s
-        dep_name == 'gRPC-Core'
-      end
-
-      # ensure gRPC-C++ is added
-      unless pod_target.dependencies.any? { |dep| (dep.respond_to?(:name) ? dep.name : dep.to_s) == 'gRPC-C++' }
-        pod_target.dependencies << Pod::Dependency.new('gRPC-C++', '~> 1.62.0')
-      end
-
-      puts "🔧 pre_install: patched #{pod_target.name} deps -> prefer gRPC-C++"
-    end
-  end
-end
-
-
-# 🔑 Keep Firebase SDKs aligned (pick the SDK that matches your flutterfire plugin versions)
-$FirebaseSDKVersion = '10.25.0'
-
-install! 'cocoapods', :deterministic_uuids => false
+require File.expand_path(File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb'))
 
 target 'Runner' do
   use_frameworks!
+  use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-
-  # Core Firebase pods (these are still resolved by flutter_install_all_ios_pods,
-  # but listing explicitly makes intended pinning clearer)
-  pod 'FirebaseCore', $FirebaseSDKVersion
-  pod 'FirebaseAuth', $FirebaseSDKVersion
-  pod 'FirebaseFirestore', $FirebaseSDKVersion
-  pod 'FirebaseStorage', $FirebaseSDKVersion
-  pod 'FirebaseMessaging', $FirebaseSDKVersion
-  pod 'FirebaseFunctions', $FirebaseSDKVersion
-
-  # Force gRPC-C++ + abseil (explicit)
-  pod 'gRPC-C++', '1.62.0'
-  pod 'abseil', '~> 1.20240116.1'
-  pod 'BoringSSL-GRPC', '0.0.32'
-
-  target 'RunnerTests' do
-    inherit! :search_paths
-  end
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # First, let Flutter apply its defaults
     flutter_additional_ios_build_settings(target)
 
     target.build_configurations.each do |config|
-      # ✅ Force consistent deployment target across all configs
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
-
-      # ✅ Other overrides
       config.build_settings['SWIFT_VERSION'] = '5.0'
-      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
-      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
-      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-    end
-
-    # ✅ Scrub risky per-file compiler flags (-G issues)
-    target.build_phases.each do |phase|
-      next unless phase.respond_to?(:files)
-      phase.files.each do |build_file|
-        settings = build_file.settings
-        next unless settings && settings['COMPILER_FLAGS'].is_a?(String)
-
-        flags = settings['COMPILER_FLAGS']
-        flags = flags.gsub(/(^|\s)-G(\s|$)/, ' ')
-        flags = flags.gsub(/(^|\s)-G[A-Za-z0-9_\-]+/, ' ')
-        settings['COMPILER_FLAGS'] = flags.strip
-      end
     end
   end
 end

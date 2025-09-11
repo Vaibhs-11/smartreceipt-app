@@ -6,13 +6,14 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
-import 'package:pdf_text/pdf_text.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:pdf_render/pdf_render.dart';
 import 'package:image/image.dart' as img;
 
@@ -158,11 +159,15 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       // PDF flow: try extracting text locally first
       String extractedText = '';
       try {
-        final PDFDoc doc = await PDFDoc.fromFile(file);
-        extractedText = await doc.text;
-      } catch (e) {
-        debugPrint('PDF text extraction failed locally: $e');
-      }
+           final Uint8List bytes = await file.readAsBytes();
+           final PdfDocument document = PdfDocument(inputBytes: bytes);
+           final PdfTextExtractor extractor = PdfTextExtractor(document);
+          extractedText = extractor.extractText() ?? '';
+          document.dispose();
+         } catch (e) {
+         debugPrint('PDF text extraction failed locally: $e');
+         }
+
 
       if (extractedText.trim().isNotEmpty) {
         // Text-selectable PDF: upload PDF as-is, no Vision call
