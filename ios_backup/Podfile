@@ -1,0 +1,29 @@
+# Podfile for Flutter iOS (free Apple account compatible)
+platform :ios, '13.0'
+
+use_frameworks! :linkage => :static
+use_modular_headers!
+
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+# Explicitly require the podhelper from ios/Flutter
+require File.expand_path('Flutter/podhelper.rb', __dir__)
+
+target 'Runner' do
+  # Install Flutter pods (no arguments needed)
+  install_all_flutter_pods
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    # Apply Flutter iOS build settings
+    flutter_additional_ios_build_settings(target)
+
+    target.build_configurations.each do |config|
+      # iOS deployment target
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      # Exclude arm64 for simulator to avoid M1/M2 issues
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+    end
+  end
+end

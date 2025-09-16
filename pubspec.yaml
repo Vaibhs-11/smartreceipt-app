@@ -25,6 +25,7 @@ dependencies:
 
   # Local database
   sqflite_sqlcipher: ^3.3.0
+  #sqflite: ^2.3.3
   path_provider: ^2.1.3
 
   # Image picking & camera
@@ -37,7 +38,8 @@ dependencies:
   intl: ^0.20.2
 
   # PDF processing (use compatible versions)
-  pdf_render: ^1.3.6
+  #pdf_render: ^1.3.9+hotfix.1
+  pdfx: ^2.6.0
   image: ^4.1.7
   syncfusion_flutter_pdf: ^31.1.18
 

@@ -13,8 +13,8 @@ import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
-import 'package:pdf_render/pdf_render.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
+import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:image/image.dart' as img;
 
 class UploadedFile {
@@ -138,102 +138,105 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _processAndUploadFile(File file) async {
-    setState(() => _isLoading = true);
+  setState(() => _isLoading = true);
 
-    try {
-      final scaffoldMessenger = ScaffoldMessenger.of(context);
-      final String lowerPath = file.path.toLowerCase();
-      final bool isPdf = lowerPath.endsWith('.pdf');
-      final OcrService ocr = ref.read(ocrServiceProvider);
+  try {
+    final String lowerPath = file.path.toLowerCase();
+    final bool isPdf = lowerPath.endsWith('.pdf');
+    final OcrService ocr = ref.read(ocrServiceProvider);
 
-      if (!isPdf) {
-        // Image flow: upload image and OCR via Vision
-        final uploadResult = await _uploadFileToStorage(file);
-        if (uploadResult == null) throw Exception('File upload failed.');
-        final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
-        final result = await ocr.parseImage(gcsPath);
-        _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
-        return;
-      }
-
-      // PDF flow: try extracting text locally first
-      String extractedText = '';
-      try {
-           final Uint8List bytes = await file.readAsBytes();
-           final PdfDocument document = PdfDocument(inputBytes: bytes);
-           final PdfTextExtractor extractor = PdfTextExtractor(document);
-          extractedText = extractor.extractText() ?? '';
-          document.dispose();
-         } catch (e) {
-         debugPrint('PDF text extraction failed locally: $e');
-         }
-
-
-      if (extractedText.trim().isNotEmpty) {
-        // Text-selectable PDF: upload PDF as-is, no Vision call
-        final uploadResult = await _uploadFileToStorage(file);
-        if (uploadResult == null) throw Exception('File upload failed.');
-        final parsed = await ocr.parseRawText(extractedText);
-        _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
-        return;
-      }
-
-      // Non-selectable (scanned) PDF: render first page to image, upload, then OCR
-      File? tempImageFile;
-      try {
-        final pdf = await PdfDocument.openFile(file.path);
-        final page = await pdf.getPage(1);
-
-        final pageImage = await page.render(
-          width: page.width.toInt(),
-          height: page.height.toInt(),
-        );
-
-        final image = img.Image.fromBytes(
-          width: pageImage.width,
-          height: pageImage.height,
-          bytes: pageImage.pixels.buffer,
-        );
-
-        // Dispose resources as soon as they are not needed
-        pageImage.dispose();
-        await pdf.dispose();
-
-        final jpgBytes = img.encodeJpg(image, quality: 92);
-        final jpgPath = file.path.replaceAll(
-          RegExp(r'\.pdf$', caseSensitive: false),
-          '_page1.jpg',
-        );
-
-        tempImageFile = File(jpgPath);
-        await tempImageFile.writeAsBytes(jpgBytes, flush: true);
-      } catch (e) {
-        debugPrint('Failed to render PDF to image: $e');
-      }
-
-      if (tempImageFile == null || !(await tempImageFile.exists())) {
-        throw Exception('Failed to convert PDF to image for OCR');
-      }
-
-      final uploadResult = await _uploadFileToStorage(tempImageFile);
+    if (!isPdf) {
+      // Image flow (unchanged)
+      final uploadResult = await _uploadFileToStorage(file);
       if (uploadResult == null) throw Exception('File upload failed.');
-
       final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
       final result = await ocr.parseImage(gcsPath);
       _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
-    } catch (e, s) {
-      debugPrint('Error processing file: $e\n$s');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error processing file: $e')),
-        );
+      return;
+    }
+
+    // PDF flow: try extracting text locally first (Syncfusion)
+    String extractedText = '';
+    try {
+      final Uint8List bytes = await file.readAsBytes();
+      final sfpdf.PdfDocument document = sfpdf.PdfDocument(inputBytes: bytes);
+      final sfpdf.PdfTextExtractor extractor = sfpdf.PdfTextExtractor(document);
+      extractedText = extractor.extractText() ?? '';
+      document.dispose();
+    } catch (e) {
+      debugPrint('PDF text extraction failed locally: $e');
+    }
+
+    if (extractedText.trim().isNotEmpty) {
+      // Text-selectable PDF: upload PDF as-is and parse extracted text
+      final uploadResult = await _uploadFileToStorage(file);
+      if (uploadResult == null) throw Exception('File upload failed.');
+      final parsed = await ocr.parseRawText(extractedText);
+      _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
+      return;
+    }
+
+    // Non-selectable (scanned) PDF: render first page to image (pdfx), upload, then OCR
+    File? tempImageFile;
+    try {
+      final pdfx.PdfDocument pdf = await pdfx.PdfDocument.openFile(file.path);
+      final pdfx.PdfPage page = await pdf.getPage(1);
+
+      // Render page -> jpeg bytes
+      final pdfx.PdfPageImage? pageImage = await page.render(
+        width: page.width, // doubles are accepted
+        height: page.height,
+        format: pdfx.PdfPageImageFormat.jpeg,
+        backgroundColor: '#FFFFFF', // optional
+      );
+
+      if (pageImage == null || pageImage.bytes.isEmpty) {
+        await page.close();
+        await pdf.close();
+        throw Exception('Failed to render PDF page to image');
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+
+      final Uint8List jpgBytes = pageImage.bytes;
+
+      // cleanup pdfx objects
+      await page.close();
+      await pdf.close();
+
+      final jpgPath = file.path.replaceAll(
+        RegExp(r'\.pdf$', caseSensitive: false),
+        '_page1.jpg',
+      );
+
+      tempImageFile = File(jpgPath);
+      await tempImageFile.writeAsBytes(jpgBytes, flush: true);
+    } catch (e) {
+      debugPrint('Failed to render PDF to image: $e');
+    }
+
+    if (tempImageFile == null || !(await tempImageFile.exists())) {
+      throw Exception('Failed to convert PDF to image for OCR');
+    }
+
+    final uploadResult = await _uploadFileToStorage(tempImageFile);
+    if (uploadResult == null) throw Exception('File upload failed.');
+
+    final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
+    final result = await ocr.parseImage(gcsPath);
+    _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+  } catch (e, s) {
+    debugPrint('Error processing file: $e\n$s');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error processing file: $e')),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
+}
+
 
   Future<void> _pickImage({required bool fromCamera}) async {
     final picker = ImagePicker();
