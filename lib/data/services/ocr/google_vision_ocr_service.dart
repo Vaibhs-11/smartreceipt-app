@@ -10,47 +10,63 @@ class GoogleVisionOcrService implements OcrService {
   GoogleVisionOcrService(this.apiKey);
 
   @override
-  Future<OcrResult> parseImage(String imagePath) async {
-    final bytes = await File(imagePath).readAsBytes();
-    final base64Image = base64Encode(bytes);
+Future<OcrResult> parseImage(String imagePathOrUrl) async {
+  final url = Uri.parse(
+    'https://vision.googleapis.com/v1/images:annotate?key=$apiKey',
+  );
 
-    final url = Uri.parse(
-      'https://vision.googleapis.com/v1/images:annotate?key=$apiKey',
-    );
+  Map<String, dynamic> imagePayload;
 
-    final requestPayload = {
-      "requests": [
-        {
-          "image": {"content": base64Image},
-          "features": [
-            {"type": "DOCUMENT_TEXT_DETECTION"}
-          ]
-        }
-      ]
+  if (imagePathOrUrl.startsWith('http')) {
+    // Remote file (Firebase Storage download URL)
+    imagePayload = {
+      "source": {"imageUri": imagePathOrUrl}
     };
-
-    final response = await http.post(
-      url,
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode(requestPayload),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception('Vision API error: ${response.body}');
+  } else {
+    // Local file path
+    final file = File(imagePathOrUrl);
+    if (!await file.exists()) {
+      throw Exception('Local file not found: $imagePathOrUrl');
     }
-
-    final body = jsonDecode(response.body);
-    final responses = body['responses'] as List?;
-    if (responses == null || responses.isEmpty) {
-      throw Exception('No OCR response from Vision API');
-    }
-
-    // Prefer fullTextAnnotation for receipts
-    final rawText = responses[0]['fullTextAnnotation']?['text'] ??
-        (responses[0]['textAnnotations']?[0]?['description'] ?? "");
-
-    return _parseReceipt(rawText);
+    final bytes = await file.readAsBytes();
+    final base64Image = base64Encode(bytes);
+    imagePayload = {"content": base64Image};
   }
+
+  final requestPayload = {
+    "requests": [
+      {
+        "image": imagePayload,
+        "features": [
+          {"type": "DOCUMENT_TEXT_DETECTION"}
+        ]
+      }
+    ]
+  };
+
+  final response = await http.post(
+    url,
+    headers: {"Content-Type": "application/json"},
+    body: jsonEncode(requestPayload),
+  );
+
+  if (response.statusCode != 200) {
+    throw Exception('Vision API error: ${response.body}');
+  }
+
+  final body = jsonDecode(response.body);
+  final responses = body['responses'] as List?;
+  if (responses == null || responses.isEmpty) {
+    throw Exception('No OCR response from Vision API');
+  }
+
+  // Prefer fullTextAnnotation for receipts
+  final rawText = responses[0]['fullTextAnnotation']?['text'] ??
+      (responses[0]['textAnnotations']?[0]?['description'] ?? "");
+
+  return _parseReceipt(rawText);
+}
+
 
   @override
   Future<OcrResult> parsePdf(String pdfPath) async {
