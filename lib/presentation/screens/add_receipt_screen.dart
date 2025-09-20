@@ -146,48 +146,63 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final OcrService ocr = ref.read(ocrServiceProvider);
 
     if (!isPdf) {
-      // Image flow (unchanged)
+      // --- Image flow ---
       final uploadResult = await _uploadFileToStorage(file);
       if (uploadResult == null) throw Exception('File upload failed.');
+
       final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
       final result = await ocr.parseImage(gcsPath);
       _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
       return;
     }
 
-    // PDF flow: try extracting text locally first (Syncfusion)
+    // --- PDF flow: try extracting text locally first (Syncfusion) ---
     String extractedText = '';
     try {
       final Uint8List bytes = await file.readAsBytes();
       final sfpdf.PdfDocument document = sfpdf.PdfDocument(inputBytes: bytes);
       final sfpdf.PdfTextExtractor extractor = sfpdf.PdfTextExtractor(document);
-      extractedText = extractor.extractText() ?? '';
+
+      final buffer = StringBuffer();
+      for (int i = 0; i < document.pages.count; i++) {
+        final pageText = extractor.extractText(
+          startPageIndex: i,
+          endPageIndex: i,
+        );
+        if (pageText != null && pageText.trim().isNotEmpty) {
+          buffer.writeln(pageText);
+        }
+      }
+
+      extractedText = buffer.toString();
       document.dispose();
     } catch (e) {
       debugPrint('PDF text extraction failed locally: $e');
     }
 
     if (extractedText.trim().isNotEmpty) {
-      // Text-selectable PDF: upload PDF as-is and parse extracted text
+      debugPrint(
+        'Extracted text from PDF: ${extractedText.substring(0, extractedText.length > 200 ? 200 : extractedText.length)}...',
+      );
       final uploadResult = await _uploadFileToStorage(file);
       if (uploadResult == null) throw Exception('File upload failed.');
+
       final parsed = await ocr.parseRawText(extractedText);
       _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
       return;
     }
 
-    // Non-selectable (scanned) PDF: render first page to image (pdfx), upload, then OCR
+    // --- Non-selectable (scanned) PDF: render first page to image (pdfx) ---
     File? tempImageFile;
     try {
       final pdfx.PdfDocument pdf = await pdfx.PdfDocument.openFile(file.path);
       final pdfx.PdfPage page = await pdf.getPage(1);
 
-      // Render page -> jpeg bytes
       final pdfx.PdfPageImage? pageImage = await page.render(
-        width: page.width, // doubles are accepted
+        width: page.width,
         height: page.height,
         format: pdfx.PdfPageImageFormat.jpeg,
-        backgroundColor: '#FFFFFF', // optional
+        backgroundColor: '#FFFFFF',
       );
 
       if (pageImage == null || pageImage.bytes.isEmpty) {
@@ -197,8 +212,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       }
 
       final Uint8List jpgBytes = pageImage.bytes;
-
-      // cleanup pdfx objects
       await page.close();
       await pdf.close();
 

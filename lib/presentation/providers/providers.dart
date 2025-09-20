@@ -41,7 +41,7 @@ final currentUidProvider = Provider<String?>((ref) {
 });
 
 final ocrServiceProvider = Provider<OcrService>((ref) {
-  const useStub = bool.fromEnvironment('USE_OCR_STUB', defaultValue: true);
+  const useStub = bool.fromEnvironment('USE_OCR_STUB', defaultValue: false);
   if (useStub) {
     return GoogleVisionOcrStub();
   } else {

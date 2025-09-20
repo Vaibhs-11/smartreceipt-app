@@ -1,4 +1,4 @@
-# SmartReceipt — Mobile-first receipt scanning & organisation app
+    # SmartReceipt — Mobile-first receipt scanning & organisation app
 
 This is a Flutter project skeleton implementing a scalable, clean architecture for SmartReceipt. It runs locally without any API keys using stubbed services and can be wired to Firebase, Google Vision, and OpenAI later.
 
