@@ -175,14 +175,16 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       }
 
       extractedText = buffer.toString();
+      print('PDF text extraction result: length=${extractedText.length}');
       document.dispose();
     } catch (e) {
       debugPrint('PDF text extraction failed locally: $e');
     }
-
+    print('>>> Entering _processAndUploadFile for file: ${file.path}');
     if (extractedText.trim().isNotEmpty) {
       debugPrint(
-        'Extracted text from PDF: ${extractedText.substring(0, extractedText.length > 200 ? 200 : extractedText.length)}...',
+        'Extracted text from PDF (first 200 chars): '
+        '${extractedText.substring(0, extractedText.length > 200 ? 200 : extractedText.length)}...',
       );
       final uploadResult = await _uploadFileToStorage(file);
       if (uploadResult == null) throw Exception('File upload failed.');
@@ -190,11 +192,14 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       final parsed = await ocr.parseRawText(extractedText);
       _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
       return;
+    } else {
+      debugPrint('No selectable text found in PDF. Falling back to Vision.');
     }
 
     // --- Non-selectable (scanned) PDF: render first page to image (pdfx) ---
     File? tempImageFile;
     try {
+      print('>>> Entering no selectable PDF flow for file: ${file.path}');
       final pdfx.PdfDocument pdf = await pdfx.PdfDocument.openFile(file.path);
       final pdfx.PdfPage page = await pdf.getPage(1);
 
