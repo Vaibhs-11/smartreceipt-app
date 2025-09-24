@@ -3,6 +3,32 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:meta/meta.dart';
 
 @immutable
+class ReceiptItem extends Equatable {
+  final String name;
+  final double price;
+
+  const ReceiptItem({
+    required this.name,
+    required this.price,
+  });
+
+  Map<String, Object?> toMap() => {
+        'name': name,
+        'price': price,
+      };
+
+  factory ReceiptItem.fromMap(Map<String, Object?> map) {
+    return ReceiptItem(
+      name: map['name'] as String? ?? '',
+      price: (map['price'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  @override
+  List<Object?> get props => [name, price];
+}
+
+@immutable
 class Receipt extends Equatable {
   const Receipt({
     required this.id,
@@ -16,6 +42,7 @@ class Receipt extends Equatable {
     this.extractedText,
     this.expiryDate,
     this.fileUrl,
+    this.items = const <ReceiptItem>[],
   });
 
   final String id;
@@ -25,10 +52,11 @@ class Receipt extends Equatable {
   final String currency;
   final String? notes;
   final List<String> tags;
-  final String? imagePath;
+  final String? imagePath;      // local path if saved on device
   final String? extractedText;
   final DateTime? expiryDate;
-  final String? fileUrl; // ✅ Added missing field
+  final String? fileUrl;        // cloud URL (Firebase Storage, etc.)
+  final List<ReceiptItem> items;
 
   Receipt copyWith({
     String? id,
@@ -41,7 +69,8 @@ class Receipt extends Equatable {
     String? imagePath,
     String? extractedText,
     DateTime? expiryDate,
-    String? fileUrl, // ✅ Include in copyWith
+    String? fileUrl,
+    List<ReceiptItem>? items,
   }) {
     return Receipt(
       id: id ?? this.id,
@@ -55,6 +84,7 @@ class Receipt extends Equatable {
       extractedText: extractedText ?? this.extractedText,
       expiryDate: expiryDate ?? this.expiryDate,
       fileUrl: fileUrl ?? this.fileUrl,
+      items: items ?? this.items,
     );
   }
 
@@ -71,6 +101,7 @@ class Receipt extends Equatable {
       'extractedText': extractedText,
       'expiryDate': expiryDate != null ? Timestamp.fromDate(expiryDate!) : null,
       'fileUrl': fileUrl,
+      'items': items.map((i) => i.toMap()).toList(),
     };
   }
 
@@ -89,24 +120,41 @@ class Receipt extends Equatable {
           ? (map['expiryDate'] as Timestamp).toDate()
           : null,
       fileUrl: map['fileUrl'] as String?,
+      items: (map['items'] as List<dynamic>?)
+              ?.map((i) => ReceiptItem.fromMap(Map<String, Object?>.from(i)))
+              .toList() ??
+          const [],
     );
   }
 
+  /// Factory used by your repository
   factory Receipt.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
-    return Receipt.fromMap({
-      'id': doc.id,
-      'storeName': data['storeName'],
-      'date': data['date'],
-      'total': data['total'],
-      'currency': data['currency'],
-      'notes': data['notes'],
-      'tags': data['tags'],
-      'imagePath': data['imagePath'],
-      'extractedText': data['extractedText'],
-      'expiryDate': data['expiryDate'],
-      'fileUrl': data['fileUrl'],
-    });
+    return Receipt.fromFirestore(doc);
+  }
+
+  factory Receipt.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    if (data == null) {
+      throw StateError("Missing data for receipt ID: ${doc.id}");
+    }
+
+    return Receipt(
+      id: doc.id,
+      storeName: data['storeName'] as String? ?? "Unknown Store",
+      date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      total: (data['total'] as num?)?.toDouble() ?? 0.0,
+      currency: data['currency'] as String? ?? "USD",
+      notes: data['notes'] as String?,
+      tags: (data['tags'] as List<dynamic>?)?.cast<String>() ?? const [],
+      imagePath: data['imagePath'] as String?,
+      extractedText: data['extractedText'] as String?,
+      expiryDate: (data['expiryDate'] as Timestamp?)?.toDate(),
+      fileUrl: data['fileUrl'] as String?,
+      items: (data['items'] as List<dynamic>?)
+              ?.map((i) => ReceiptItem.fromMap(Map<String, Object?>.from(i)))
+              .toList() ??
+          const [],
+    );
   }
 
   @override
@@ -122,28 +170,6 @@ class Receipt extends Equatable {
         extractedText,
         expiryDate,
         fileUrl,
+        items,
       ];
-factory Receipt.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-  final data = doc.data();
-  if (data == null) {
-    throw StateError("Missing data for receipt ID: ${doc.id}");
-  }
-
-  return Receipt(
-    id: doc.id,
-    storeName: data['storeName'] as String? ?? "Unknown Store",
-    date: data['date'] != null
-        ? DateTime.tryParse(data['date'].toString()) ?? DateTime.now()
-        : DateTime.now(),
-    total: (data['amount'] as num?)?.toDouble() ?? 0.0,
-    currency: data['currency'] as String? ?? "USD",
-    notes: data['notes'] as String?,
-    tags: (data['tags'] as List<dynamic>?)?.cast<String>() ?? const [],
-    imagePath: data['fileUrl'] as String?, // matches addReceipt()
-    extractedText: data['extractedText'] as String?,
-    expiryDate: data['expiryDate'] != null
-        ? DateTime.tryParse(data['expiryDate'].toString())
-        : null,
-  );
-}
 }

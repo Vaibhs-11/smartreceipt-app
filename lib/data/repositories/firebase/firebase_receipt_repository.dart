@@ -13,11 +13,11 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   final FirebaseStorage _storage;
 
   CollectionReference<Map<String, dynamic>> get _receipts {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) {
-    throw Exception("No user logged in");
-  }
-  return _db.collection('users').doc(user.uid).collection('receipts');
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw Exception("No user logged in");
+    }
+    return _db.collection('users').doc(user.uid).collection('receipts');
   }
 
   @override
@@ -27,13 +27,29 @@ class FirebaseReceiptRepository implements ReceiptRepository {
 
   @override
   Future<void> deleteReceipt(String id) async {
+    final doc = await _receipts.doc(id).get();
+
+    // Delete associated file from Firebase Storage if exists
+    final fileUrl = doc.data()?['fileUrl'] as String?;
+    if (fileUrl != null && fileUrl.isNotEmpty) {
+      try {
+        await _storage.refFromURL(fileUrl).delete();
+      } catch (e) {
+        print("Warning: Failed to delete file from storage for receipt $id: $e");
+      }
+    }
+
     await _receipts.doc(id).delete();
   }
 
   @override
   Future<List<Receipt>> getAllReceipts() async {
-    final QuerySnapshot<Map<String, dynamic>> snap = await _receipts.orderBy('date', descending: true).get();
-    return snap.docs.map((d) => Receipt.fromDocument(d)).toList();
+    final QuerySnapshot<Map<String, dynamic>> snap =
+        await _receipts.orderBy('date', descending: true).get();
+    return snap.docs
+        .map((d) => Receipt.fromDocument(d))
+        .toList()
+        .cast<Receipt>(); // ensure type safety
   }
 
   @override

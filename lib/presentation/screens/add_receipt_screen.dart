@@ -15,7 +15,6 @@ import 'package:smartreceipt/domain/entities/ocr_result.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 import 'package:pdfx/pdfx.dart' as pdfx;
-import 'package:image/image.dart' as img;
 
 class UploadedFile {
   final String downloadUrl;
@@ -37,7 +36,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   final TextEditingController _notesCtrl = TextEditingController();
   final TextEditingController _dateCtrl = TextEditingController();
   final TextEditingController _expiryCtrl = TextEditingController();
+  final TextEditingController _itemNameCtrl = TextEditingController();
+  final TextEditingController _itemPriceCtrl = TextEditingController();
+
   final String receiptId = const Uuid().v4();
+  List<ReceiptItem> _items = [];
+
   String _currency = AppConstants.supportedCurrencies.first;
   DateTime _date = DateTime.now();
   DateTime? _expiry;
@@ -52,10 +56,62 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _notesCtrl.dispose();
     _dateCtrl.dispose();
     _expiryCtrl.dispose();
+    _itemNameCtrl.dispose();
+    _itemPriceCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _pickDate(TextEditingController controller, {bool isExpiry = false}) async {
+  Widget _buildItemList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Items",
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        ..._items.map((item) => ListTile(
+              title: Text(item.name),
+              trailing: Text('$_currency ${item.price.toStringAsFixed(2)}'),
+              leading: const Icon(Icons.check_circle_outline),
+            )),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _itemNameCtrl,
+                decoration: const InputDecoration(labelText: "Item name"),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _itemPriceCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: "Price"),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_circle, color: Colors.green),
+              onPressed: () {
+                final name = _itemNameCtrl.text.trim();
+                final price = double.tryParse(_itemPriceCtrl.text.trim());
+                if (name.isNotEmpty && price != null) {
+                  setState(() {
+                    _items.add(ReceiptItem(name: name, price: price));
+                    _itemNameCtrl.clear();
+                    _itemPriceCtrl.clear();
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickDate(TextEditingController controller,
+      {bool isExpiry = false}) async {
     final picked = await showDatePicker(
       context: context,
       initialDate: isExpiry ? (_expiry ?? DateTime.now()) : _date,
@@ -89,6 +145,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       imagePath: _imagePath,
       extractedText: _extractedText,
       expiryDate: _expiry,
+      items: _items,
     );
     final add = ref.read(addReceiptUseCaseProviderOverride);
     await add(receipt);
@@ -127,7 +184,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         _imagePath = uploadedUrl;
       }
       if (result.storeName != null) _storeCtrl.text = result.storeName!;
-      if (result.total != null) _totalCtrl.text = result.total!.toStringAsFixed(2);
+      if (result.total != null) {
+        _totalCtrl.text = result.total!.toStringAsFixed(2);
+      }
       if (result.date != null) {
         _date = result.date!;
         _dateCtrl.text = DateFormat.yMMMd().format(_date);
@@ -138,123 +197,111 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _processAndUploadFile(File file) async {
-  setState(() => _isLoading = true);
+    setState(() => _isLoading = true);
 
-  try {
-    final String lowerPath = file.path.toLowerCase();
-    final bool isPdf = lowerPath.endsWith('.pdf');
-    final OcrService ocr = ref.read(ocrServiceProvider);
+    try {
+      final String lowerPath = file.path.toLowerCase();
+      final bool isPdf = lowerPath.endsWith('.pdf');
+      final OcrService ocr = ref.read(ocrServiceProvider);
 
-    if (!isPdf) {
-      // --- Image flow ---
-      final uploadResult = await _uploadFileToStorage(file);
+      if (!isPdf) {
+        final uploadResult = await _uploadFileToStorage(file);
+        if (uploadResult == null) throw Exception('File upload failed.');
+
+        final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
+        final result = await ocr.parseImage(gcsPath);
+        _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+        return;
+      }
+
+      // Try extracting selectable text from PDF
+      String extractedText = '';
+      try {
+        final Uint8List bytes = await file.readAsBytes();
+        final sfpdf.PdfDocument document =
+            sfpdf.PdfDocument(inputBytes: bytes);
+        final sfpdf.PdfTextExtractor extractor =
+            sfpdf.PdfTextExtractor(document);
+
+        final buffer = StringBuffer();
+        for (int i = 0; i < document.pages.count; i++) {
+          final pageText = extractor.extractText(
+            startPageIndex: i,
+            endPageIndex: i,
+          );
+          if (pageText != null && pageText.trim().isNotEmpty) {
+            buffer.writeln(pageText);
+          }
+        }
+
+        extractedText = buffer.toString();
+        document.dispose();
+      } catch (e) {
+        debugPrint('PDF text extraction failed locally: $e');
+      }
+
+      if (extractedText.trim().isNotEmpty) {
+        final uploadResult = await _uploadFileToStorage(file);
+        if (uploadResult == null) throw Exception('File upload failed.');
+
+        final parsed = await ocr.parseRawText(extractedText);
+        _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
+        return;
+      }
+
+      // If PDF has no selectable text → render to image
+      File? tempImageFile;
+      try {
+        final pdfx.PdfDocument pdf = await pdfx.PdfDocument.openFile(file.path);
+        final pdfx.PdfPage page = await pdf.getPage(1);
+
+        final pdfx.PdfPageImage? pageImage = await page.render(
+          width: page.width,
+          height: page.height,
+          format: pdfx.PdfPageImageFormat.jpeg,
+          backgroundColor: '#FFFFFF',
+        );
+
+        if (pageImage == null || pageImage.bytes.isEmpty) {
+          await page.close();
+          await pdf.close();
+          throw Exception('Failed to render PDF page to image');
+        }
+
+        final Uint8List jpgBytes = pageImage.bytes;
+        await page.close();
+        await pdf.close();
+
+        final jpgPath =
+            file.path.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '_p1.jpg');
+
+        tempImageFile = File(jpgPath);
+        await tempImageFile.writeAsBytes(jpgBytes, flush: true);
+      } catch (e) {
+        debugPrint('Failed to render PDF to image: $e');
+      }
+
+      if (tempImageFile == null || !(await tempImageFile.exists())) {
+        throw Exception('Failed to convert PDF to image for OCR');
+      }
+
+      final uploadResult = await _uploadFileToStorage(tempImageFile);
       if (uploadResult == null) throw Exception('File upload failed.');
 
       final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
       final result = await ocr.parseImage(gcsPath);
       _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
-      return;
-    }
-
-    // --- PDF flow: try extracting text locally first (Syncfusion) ---
-    String extractedText = '';
-    try {
-      final Uint8List bytes = await file.readAsBytes();
-      final sfpdf.PdfDocument document = sfpdf.PdfDocument(inputBytes: bytes);
-      final sfpdf.PdfTextExtractor extractor = sfpdf.PdfTextExtractor(document);
-
-      final buffer = StringBuffer();
-      for (int i = 0; i < document.pages.count; i++) {
-        final pageText = extractor.extractText(
-          startPageIndex: i,
-          endPageIndex: i,
+    } catch (e, s) {
+      debugPrint('Error processing file: $e\n$s');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error processing file: $e')),
         );
-        if (pageText != null && pageText.trim().isNotEmpty) {
-          buffer.writeln(pageText);
-        }
       }
-
-      extractedText = buffer.toString();
-      print('PDF text extraction result: length=${extractedText.length}');
-      document.dispose();
-    } catch (e) {
-      debugPrint('PDF text extraction failed locally: $e');
-    }
-    print('>>> Entering _processAndUploadFile for file: ${file.path}');
-    if (extractedText.trim().isNotEmpty) {
-      debugPrint(
-        'Extracted text from PDF (first 200 chars): '
-        '${extractedText.substring(0, extractedText.length > 200 ? 200 : extractedText.length)}...',
-      );
-      final uploadResult = await _uploadFileToStorage(file);
-      if (uploadResult == null) throw Exception('File upload failed.');
-
-      final parsed = await ocr.parseRawText(extractedText);
-      _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
-      return;
-    } else {
-      debugPrint('No selectable text found in PDF. Falling back to Vision.');
-    }
-
-    // --- Non-selectable (scanned) PDF: render first page to image (pdfx) ---
-    File? tempImageFile;
-    try {
-      print('>>> Entering no selectable PDF flow for file: ${file.path}');
-      final pdfx.PdfDocument pdf = await pdfx.PdfDocument.openFile(file.path);
-      final pdfx.PdfPage page = await pdf.getPage(1);
-
-      final pdfx.PdfPageImage? pageImage = await page.render(
-        width: page.width,
-        height: page.height,
-        format: pdfx.PdfPageImageFormat.jpeg,
-        backgroundColor: '#FFFFFF',
-      );
-
-      if (pageImage == null || pageImage.bytes.isEmpty) {
-        await page.close();
-        await pdf.close();
-        throw Exception('Failed to render PDF page to image');
-      }
-
-      final Uint8List jpgBytes = pageImage.bytes;
-      await page.close();
-      await pdf.close();
-
-      final jpgPath = file.path.replaceAll(
-        RegExp(r'\.pdf$', caseSensitive: false),
-        '_page1.jpg',
-      );
-
-      tempImageFile = File(jpgPath);
-      await tempImageFile.writeAsBytes(jpgBytes, flush: true);
-    } catch (e) {
-      debugPrint('Failed to render PDF to image: $e');
-    }
-
-    if (tempImageFile == null || !(await tempImageFile.exists())) {
-      throw Exception('Failed to convert PDF to image for OCR');
-    }
-
-    final uploadResult = await _uploadFileToStorage(tempImageFile);
-    if (uploadResult == null) throw Exception('File upload failed.');
-
-    final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
-    final result = await ocr.parseImage(gcsPath);
-    _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
-  } catch (e, s) {
-    debugPrint('Error processing file: $e\n$s');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error processing file: $e')),
-      );
-    }
-  } finally {
-    if (mounted) {
-      setState(() => _isLoading = false);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
-}
-
 
   Future<void> _pickImage({required bool fromCamera}) async {
     final picker = ImagePicker();
@@ -277,39 +324,37 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     await _processAndUploadFile(file);
   }
 
-Future<void> _showUploadOptions() async {
-  final result = await showModalBottomSheet<String>(
-    context: context,
-    builder: (context) {
-      return SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Pick from Gallery'),
-              onTap: () => Navigator.of(context).pop('gallery'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.insert_drive_file),
-              title: const Text('Pick from Files'),
-              onTap: () => Navigator.of(context).pop('files'),
-            ),
-          ],
-        ),
-      );
-    },
-  );
+  Future<void> _showUploadOptions() async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Pick from Gallery'),
+                onTap: () => Navigator.of(context).pop('gallery'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.insert_drive_file),
+                title: const Text('Pick from Files'),
+                onTap: () => Navigator.of(context).pop('files'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  if (result == 'gallery') {
-    await _pickImage(fromCamera: false);
-  } else if (result == 'files') {
-    await _pickFile();
+    if (result == 'gallery') {
+      await _pickImage(fromCamera: false);
+    } else if (result == 'files') {
+      await _pickFile();
+    }
   }
-}
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -326,8 +371,9 @@ Future<void> _showUploadOptions() async {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Text(
-                      'Selected image: ${_imagePath}',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      'Selected image: $_imagePath',
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.grey),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -335,7 +381,8 @@ Future<void> _showUploadOptions() async {
                 TextFormField(
                   controller: _storeCtrl,
                   decoration: const InputDecoration(labelText: 'Store name'),
-                  validator: (String? v) => v == null || v.trim().isEmpty ? 'Required' : null,
+                  validator: (String? v) =>
+                      v == null || v.trim().isEmpty ? 'Required' : null,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -349,7 +396,9 @@ Future<void> _showUploadOptions() async {
                   children: <Widget>[
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : () => _pickImage(fromCamera: true),
+                        onPressed: _isLoading
+                            ? null
+                            : () => _pickImage(fromCamera: true),
                         icon: const Icon(Icons.photo_camera_outlined),
                         label: const Text('Capture'),
                       ),
@@ -370,17 +419,24 @@ Future<void> _showUploadOptions() async {
                     Expanded(
                       child: TextFormField(
                         controller: _totalCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Total amount'),
-                        validator: (String? v) => (double.tryParse(v ?? '') == null) ? 'Enter valid number' : null,
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: 'Total amount'),
+                        validator: (String? v) =>
+                            (double.tryParse(v ?? '') == null)
+                                ? 'Enter valid number'
+                                : null,
                       ),
                     ),
                     const SizedBox(width: 12),
                     DropdownButton<String>(
                       value: _currency,
-                      onChanged: (String? v) => setState(() => _currency = v ?? _currency),
+                      onChanged: (String? v) =>
+                          setState(() => _currency = v ?? _currency),
                       items: AppConstants.supportedCurrencies
-                          .map((String c) => DropdownMenuItem<String>(value: c, child: Text(c)))
+                          .map((String c) =>
+                              DropdownMenuItem<String>(value: c, child: Text(c)))
                           .toList(),
                     ),
                   ],
@@ -389,15 +445,19 @@ Future<void> _showUploadOptions() async {
                 TextFormField(
                   controller: _expiryCtrl,
                   readOnly: true,
-                  decoration: const InputDecoration(labelText: 'Expiry date (optional)'),
+                  decoration: const InputDecoration(
+                      labelText: 'Expiry date (optional)'),
                   onTap: () => _pickDate(_expiryCtrl, isExpiry: true),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _notesCtrl,
-                  decoration: const InputDecoration(labelText: 'Notes (optional)'),
+                  decoration:
+                      const InputDecoration(labelText: 'Notes (optional)'),
                   maxLines: 3,
                 ),
+                const SizedBox(height: 20),
+                _buildItemList(),
                 const SizedBox(height: 20),
                 FilledButton.icon(
                   onPressed: _isLoading ? null : _submit,

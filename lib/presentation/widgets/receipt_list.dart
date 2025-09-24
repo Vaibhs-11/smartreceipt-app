@@ -33,14 +33,21 @@ class ReceiptList extends StatelessWidget {
               r.storeName,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text(
-              '${DateFormat.yMMMd().format(r.date)} • ${r.currency} ${r.total.toStringAsFixed(2)}',
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                        Text(DateFormat.yMMMd().format(r.date)),
+                            Text(
+                                '${r.currency} ${r.total.toStringAsFixed(2)}',
+                                 style: const TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                        ],
             ),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
             onTap: () => Navigator.pushNamed(
               context,
               AppRoutes.receiptDetail,
-              arguments: r,
+              arguments: r.id,
             ),
           ),
         );
