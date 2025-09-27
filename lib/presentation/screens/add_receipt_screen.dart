@@ -8,10 +8,10 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:smartreceipt/core/constants/app_constants.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
+import 'package:smartreceipt/domain/entities/receipt.dart' show Receipt, ReceiptItem;
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
-import 'package:smartreceipt/domain/entities/ocr_result.dart';
+import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult, OcrReceiptItem;
 import 'package:smartreceipt/domain/services/ocr_service.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 import 'package:pdfx/pdfx.dart' as pdfx;
@@ -177,24 +177,30 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   void _handleOcrResult(OcrResult result, {String? uploadedUrl}) {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-      if (uploadedUrl != null) {
-        _imagePath = uploadedUrl;
-      }
-      if (result.storeName != null) _storeCtrl.text = result.storeName!;
-      if (result.total != null) {
-        _totalCtrl.text = result.total!.toStringAsFixed(2);
-      }
-      if (result.date != null) {
-        _date = result.date!;
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        if (uploadedUrl != null) {
+          _imagePath = uploadedUrl;
+        }
+        _storeCtrl.text = result.storeName;
+        _totalCtrl.text = result.total.toStringAsFixed(2);
+        _date = result.date;
         _dateCtrl.text = DateFormat.yMMMd().format(_date);
-      }
-      _extractedText =
-          'Store: ${result.storeName ?? '-'}\nDate: ${result.date != null ? DateFormat.yMMMd().format(result.date!) : '-'}\nTotal: ${result.total?.toStringAsFixed(2) ?? '-'}\n\nRaw Text:\n${result.rawText ?? ''}';
-    });
-  }
+
+        // Use helper to map OCR → domain ReceiptItem
+        if (result.items.isNotEmpty) {
+          _items = result.toReceiptItems();
+        }
+
+        _extractedText =
+            'Store: ${result.storeName}\n'
+            'Date: ${DateFormat.yMMMd().format(result.date)}\n'
+            'Total: ${result.total.toStringAsFixed(2)}\n\n'
+            'Raw Text:\n${result.rawText}';
+      });
+    }
+
 
   Future<void> _processAndUploadFile(File file) async {
     setState(() => _isLoading = true);

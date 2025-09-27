@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:smartreceipt/core/config/app_config.dart';
 import 'package:smartreceipt/data/services/cloud_ocr_service.dart';
 import 'package:smartreceipt/data/repositories/firebase/firebase_receipt_repository.dart';
@@ -10,6 +11,7 @@ import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 import 'package:smartreceipt/data/services/notifications/notifications_service.dart';
 import 'package:smartreceipt/data/services/ocr/google_vision_ocr_stub.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:smartreceipt/data/services/ocr/chatgpt_ocr_service.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
 import 'package:smartreceipt/domain/usecases/add_receipt.dart';
@@ -42,10 +44,21 @@ final currentUidProvider = Provider<String?>((ref) {
 
 final ocrServiceProvider = Provider<OcrService>((ref) {
   const useStub = bool.fromEnvironment('USE_OCR_STUB', defaultValue: false);
+
   if (useStub) {
     return GoogleVisionOcrStub();
   } else {
-    return CloudOcrService();
+    final openAiKey = dotenv.env['OPENAI_API_KEY'];
+    final visionKey = dotenv.env['GOOGLE_VISION_API_KEY'];
+
+    if (openAiKey == null || openAiKey.isEmpty) {
+      throw Exception("Missing OPENAI_API_KEY in .env");
+    }
+    if (visionKey == null || visionKey.isEmpty) {
+      throw Exception("Missing GOOGLE_VISION_API_KEY in .env");
+    }
+
+    return ChatGptOcrService(openAiKey, visionKey);
   }
 });
 
