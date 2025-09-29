@@ -1,12 +1,3 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * import {onCall} from "firebase-functions/v2/https";
- * import {onDocumentWritten} from "firebase-functions/v2/firestore";
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
-
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
@@ -22,58 +13,73 @@ const client = new ImageAnnotatorClient();
 // Set global options for all functions
 setGlobalOptions({maxInstances: 10});
 
-export const parseReceipt = onCall(async (request) => {
+export const visionOcr = onCall(async (request) => {
   // Ensure the user is authenticated.
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
 
-  const path = request.data.path;
-  if (typeof path !== "string" || !path) {
+  const {path, imageBase64, imageUrl, gcsUri} = request.data || {};
+
+  if (!path && !imageBase64 && !imageUrl && !gcsUri) {
     throw new HttpsError(
       "invalid-argument",
-      "The function must be called with a valid 'path' parameter.",
+      "Must provide either 'path', 'imageBase64', 'imageUrl', or 'gcsUri'."
     );
   }
 
-  logger.info(`Parsing receipt from path: ${path}`, {uid});
-
-  const isPdf = path.toLowerCase().endsWith(".pdf");
-
   try {
-    // The request to the Vision API needs to be structured differently
-    // for PDFs vs. images when processing online.
-    let visionRequest;
-    if (isPdf) {
-      // For PDFs, Vision API needs the GCS URI.
-      const bucketName = admin.storage().bucket().name;
-      const gcsUri = `gs://${bucketName}/${path}`;
-      logger.info(`Sending PDF to Vision API with GCS URI: ${gcsUri}`);
+    let visionRequest:
+      | {image: {source: {imageUri: string}}}
+      | {image: {content: Buffer}}
+      | null = null;
+
+    if (gcsUri) {
+      // Case 1: Direct GCS URI passed in
+      logger.info(`Using provided GCS URI: ${gcsUri}`);
       visionRequest = {image: {source: {imageUri: gcsUri}}};
-    } else {
-      // For images, we can send the byte content.
-      const bucket = admin.storage().bucket();
-      const file = bucket.file(path);
-      const [buffer] = await file.download();
+    } else if (path) {
+      const isPdf = path.toLowerCase().endsWith(".pdf");
+      if (isPdf) {
+        // PDFs require a GCS URI
+        const bucketName = admin.storage().bucket().name;
+        const gcsUriFromPath = `gs://${bucketName}/${path}`;
+        logger.info(`PDF to Vision API with GCS URI: ${gcsUriFromPath}`);
+        visionRequest = {image: {source: {imageUri: gcsUriFromPath}}};
+      } else {
+        // Images from Firebase Storage (download as buffer)
+        const bucket = admin.storage().bucket();
+        const file = bucket.file(path);
+        const [buffer] = await file.download();
+        visionRequest = {image: {content: buffer}};
+      }
+    } else if (imageBase64) {
+      // Case 3: Direct base64 content from client
+      const buffer = Buffer.from(imageBase64, "base64");
       visionRequest = {image: {content: buffer}};
+    } else if (imageUrl) {
+      // Case 4: Remote image URL
+      visionRequest = {image: {source: {imageUri: imageUrl}}};
     }
 
+    // Call Vision API
+    if (!visionRequest) {
+      throw new HttpsError("invalid-argument", "No valid image provided");
+    }
     const [result] = await client.documentTextDetection(visionRequest);
-    // Log the full JSON response from the Vision API for debugging.
-    // This will appear in your Cloud Function logs in the Firebase Console.
-    logger.info("Full Vision API response:", {visionResult: result});
+
+
+    logger.info("Full Vision API response", {visionResult: result});
 
     const text = result.fullTextAnnotation?.text || "";
+    const locale =
+      result.fullTextAnnotation?.pages?.[0]?.property?.detectedLanguages?.[0]
+        ?.languageCode || null;
 
-    return {
-      text,
-      locale:
-        result.fullTextAnnotation?.pages?.[0]?.property?.detectedLanguages?.[0]
-          ?.languageCode || null,
-    };
+    return {text, locale};
   } catch (error) {
-    logger.error("Vision API failed", {error, path});
+    logger.error("Vision API failed", {error});
     throw new HttpsError(
       "internal",
       "Failed to process receipt image with Vision API",

@@ -11,6 +11,7 @@ import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 import 'package:smartreceipt/data/services/notifications/notifications_service.dart';
 import 'package:smartreceipt/data/services/ocr/google_vision_ocr_stub.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:smartreceipt/domain/entities/ocr_result.dart';
 import 'package:smartreceipt/data/services/ocr/chatgpt_ocr_service.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
@@ -42,26 +43,52 @@ final currentUidProvider = Provider<String?>((ref) {
   return auth?.uid;
 });
 
+/// Chooses which OCR service pipeline to use
 final ocrServiceProvider = Provider<OcrService>((ref) {
   const useStub = bool.fromEnvironment('USE_OCR_STUB', defaultValue: false);
 
   if (useStub) {
     return GoogleVisionOcrStub();
-  } else {
-    final openAiKey = dotenv.env['OPENAI_API_KEY'];
-    final visionKey = dotenv.env['GOOGLE_VISION_API_KEY'];
-
-    if (openAiKey == null || openAiKey.isEmpty) {
-      throw Exception("Missing OPENAI_API_KEY in .env");
-    }
-    if (visionKey == null || visionKey.isEmpty) {
-      throw Exception("Missing GOOGLE_VISION_API_KEY in .env");
-    }
-
-    return ChatGptOcrService(openAiKey, visionKey);
   }
+
+  final openAiKey = dotenv.env['OPENAI_API_KEY'];
+
+  if (openAiKey == null || openAiKey.isEmpty) {
+    throw Exception("Missing OPENAI_API_KEY in .env");
+  }
+
+  // ✅ CloudOcrService now uses Firebase Functions by default
+  return _OcrPipeline(
+    vision: CloudOcrService(),
+    parser: ChatGptOcrService(openAiApiKey: openAiKey),
+  );
 });
 
+/// Pipeline: Vision extracts → ChatGPT parses
+class _OcrPipeline implements OcrService {
+  final CloudOcrService vision;
+  final ChatGptOcrService parser;
+
+  _OcrPipeline({required this.vision, required this.parser});
+
+  @override
+  Future<OcrResult> parseImage(String imagePathOrUrl) async {
+    final visionResult = await vision.parseImage(imagePathOrUrl);
+    return parser.parseRawText(visionResult.rawText);
+  }
+
+  @override
+  Future<OcrResult> parseRawText(String rawText) {
+    return parser.parseRawText(rawText);
+  }
+
+  @override
+  Future<OcrResult> parsePdf(String pdfPath) async {
+    throw UnimplementedError(
+      "Extract PDF text in UI, then call parseRawText().",
+    );
+  }
+}
 
 final Provider<AiTaggingService> aiTaggingServiceProvider =
     Provider<AiTaggingService>((ref) => OpenAiTaggerStub());
