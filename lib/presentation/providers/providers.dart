@@ -6,7 +6,8 @@ import 'package:smartreceipt/data/repositories/firebase/firebase_receipt_reposit
 import 'package:smartreceipt/data/services/ai/ai_tagging_service.dart';
 import 'package:smartreceipt/data/services/ai/openai_tagger_stub.dart';
 import 'package:smartreceipt/data/services/auth/auth_service.dart';
-import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart' as fb_impl;
+import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart'
+    as fb_impl;
 import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 import 'package:smartreceipt/data/services/notifications/notifications_service.dart';
 import 'package:smartreceipt/data/services/ocr/google_vision_ocr_stub.dart';
@@ -22,7 +23,6 @@ import 'package:smartreceipt/domain/usecases/get_receipts.dart';
 // Services (stubbed by default)
 final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
   final AppConfig config = ref.read(appConfigProvider);
-  //if (config.useStubs) return AuthServiceStub();
   return fb_impl.FirebaseAuthService();
 });
 
@@ -57,7 +57,6 @@ final ocrServiceProvider = Provider<OcrService>((ref) {
     throw Exception("Missing OPENAI_API_KEY in .env");
   }
 
-  // ✅ CloudOcrService now uses Firebase Functions by default
   return _OcrPipeline(
     vision: CloudOcrService(),
     parser: ChatGptOcrService(openAiApiKey: openAiKey),
@@ -96,27 +95,25 @@ final Provider<AiTaggingService> aiTaggingServiceProvider =
 final Provider<NotificationsService> notificationsServiceProvider =
     Provider<NotificationsService>((ref) => NotificationsServiceStub());
 
-// Repository (local memory stub for MVP offline)
+// Repository (use Firebase by default)
 final Provider<ReceiptRepository> receiptRepositoryProviderOverride =
     Provider<ReceiptRepository>((ref) {
-  // The AppConfig logic is great for switching environments, but to ensure
-  // we are connecting to Firestore, we will directly return the
-  // FirebaseReceiptRepository for now.
-  // final AppConfig config = ref.read(appConfigProvider);
-  // if (config.useStubs) return LocalReceiptRepository();
   return FirebaseReceiptRepository();
 });
 
 // Use-cases
 final AutoDisposeProvider<AddReceiptUseCase> addReceiptUseCaseProviderOverride =
     Provider.autoDispose<AddReceiptUseCase>((ref) {
-  final ReceiptRepository repository = ref.read(receiptRepositoryProviderOverride);
+  final ReceiptRepository repository =
+      ref.read(receiptRepositoryProviderOverride);
   return AddReceiptUseCase(repository);
 });
 
-final AutoDisposeProvider<GetReceiptsUseCase> getReceiptsUseCaseProviderOverride =
+final AutoDisposeProvider<GetReceiptsUseCase>
+    getReceiptsUseCaseProviderOverride =
     Provider.autoDispose<GetReceiptsUseCase>((ref) {
-  final ReceiptRepository repository = ref.read(receiptRepositoryProviderOverride);
+  final ReceiptRepository repository =
+      ref.read(receiptRepositoryProviderOverride);
   return GetReceiptsUseCase(repository);
 });
 
@@ -127,13 +124,51 @@ final getReceiptByIdUseCaseProvider =
   return GetReceiptByIdUseCase(repository);
 });
 
-// Receipt list provider
-final receiptsProvider = FutureProvider<List<Receipt>>((ref) async {
-  final getReceipts = ref.read(getReceiptsUseCaseProviderOverride);
-  return getReceipts();
+/// ReceiptsNotifier for Riverpod 1.x
+class ReceiptsNotifier extends StateNotifier<AsyncValue<List<Receipt>>> {
+  ReceiptsNotifier(this._read) : super(const AsyncValue.loading()) {
+    _loadReceipts();
+  }
+
+  final Reader _read;
+
+  Future<void> _loadReceipts() async {
+    try {
+      final getReceipts = _read(getReceiptsUseCaseProviderOverride);
+      final receipts = await getReceipts();
+      state = AsyncValue.data(receipts);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> deleteReceipt(String id) async {
+    try {
+      final repo = _read(receiptRepositoryProviderOverride);
+      await repo.deleteReceipt(id);
+
+      // Optimistically update state
+      state = AsyncValue.data(
+        state.value?.where((r) => r.id != id).toList() ?? [],
+      );
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> refreshReceipts() async {
+    state = const AsyncValue.loading();
+    await _loadReceipts();
+  }
+}
+
+/// Receipt list provider (Riverpod 1.x style)
+final receiptsProvider = StateNotifierProvider<ReceiptsNotifier,
+    AsyncValue<List<Receipt>>>((ref) {
+  return ReceiptsNotifier(ref.read);
 });
 
-// Single receipt detail provider
+/// Single receipt detail provider
 final receiptDetailProvider =
     FutureProvider.autoDispose.family<Receipt?, String>((ref, receiptId) {
   final getReceipt = ref.read(getReceiptByIdUseCaseProvider);

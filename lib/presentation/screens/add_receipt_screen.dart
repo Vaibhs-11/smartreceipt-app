@@ -1,3 +1,7 @@
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -5,8 +9,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart' show Receipt, ReceiptItem;
 import 'package:smartreceipt/presentation/providers/providers.dart';
@@ -31,24 +33,27 @@ class AddReceiptScreen extends ConsumerStatefulWidget {
 
 class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  // Basic controllers
   final TextEditingController _storeCtrl = TextEditingController();
   final TextEditingController _totalCtrl = TextEditingController();
   final TextEditingController _notesCtrl = TextEditingController();
   final TextEditingController _dateCtrl = TextEditingController();
+
+  // New-item controllers (kept only for the "add row")
   final TextEditingController _itemNameCtrl = TextEditingController();
   final TextEditingController _itemPriceCtrl = TextEditingController();
 
   final String receiptId = const Uuid().v4();
   List<ReceiptItem> _items = [];
 
-  // Track checkboxes temporarily (until ReceiptItem is extended with taxDeductible)
-  Map<int, bool> _taxSelections = {};
-
   String _currency = AppConstants.supportedCurrencies.first;
   DateTime _date = DateTime.now();
   String? _imagePath;
   String? _extractedText;
   bool _isLoading = false;
+
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -64,65 +69,73 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _dateCtrl.dispose();
     _itemNameCtrl.dispose();
     _itemPriceCtrl.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  Widget _buildItemList() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text("Items",
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        ..._items.asMap().entries.map((entry) {
-          final index = entry.key;
-          final item = entry.value;
-          return CheckboxListTile(
-            value: item.taxDeductible,
-            onChanged: (val) {
-              setState(() {
-                _items[index] =
-                    item.copyWith(taxDeductible: val ?? false);
-              });
-            },
-            title: Text(item.name),
-            secondary: Text('$_currency ${item.price.toStringAsFixed(2)}'),
-          );
-        }),
-        Row(
+  /// Helper to build a card for a single item. Uses initialValue + ValueKey
+  /// so it rebuilds correctly when OCR results replace the items list.
+  Widget _buildItemCard(int index) {
+    final item = _items[index];
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
           children: [
-            Expanded(
-              child: TextField(
-                controller: _itemNameCtrl,
-                decoration: const InputDecoration(labelText: "Item name"),
-              ),
+            Row(
+              children: [
+                // Name field
+                Expanded(
+                  flex: 3,
+                  child: TextFormField(
+                    key: ValueKey('item-name-$index-${item.name}-${item.price}'),
+                    initialValue: item.name,
+                    decoration: const InputDecoration(labelText: 'Item name'),
+                    onChanged: (val) {
+                      setState(() {
+                        _items[index] = item.copyWith(name: val.trim());
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Price field
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    key: ValueKey('item-price-$index-${item.name}-${item.price}'),
+                    initialValue: item.price.toStringAsFixed(2),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Price'),
+                    onChanged: (val) {
+                      final p = double.tryParse(val.trim());
+                      if (p != null) {
+                        setState(() {
+                          _items[index] = item.copyWith(price: p);
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: _itemPriceCtrl,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: "Price"),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.add_circle, color: Colors.green),
-              onPressed: () {
-                final name = _itemNameCtrl.text.trim();
-                final price = double.tryParse(_itemPriceCtrl.text.trim());
-                if (name.isNotEmpty && price != null) {
-                  setState(() {
-                    _items.add(ReceiptItem(name: name, price: price));
-                    _itemNameCtrl.clear();
-                    _itemPriceCtrl.clear();
-                  });
-                }
+            CheckboxListTile(
+              value: item.taxClaimable,
+              onChanged: (val) {
+                setState(() {
+                  _items[index] = item.copyWith(taxClaimable: val ?? false);
+                });
               },
+              title: const Text('Mark as tax claimable'),
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
             ),
           ],
         ),
-      ],
+      ),
     );
   }
 
@@ -199,8 +212,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       _dateCtrl.text = DateFormat.yMMMd().format(_date);
 
       if (result.items.isNotEmpty) {
-        _items = result.toReceiptItems();
-        _taxSelections.clear();
+        _items = result.toReceiptItems(); // assumes new model includes taxClaimable default
       }
 
       _extractedText =
@@ -371,118 +383,202 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
   }
 
+  void _addNewItemFromInputs() {
+    final name = _itemNameCtrl.text.trim();
+    final price = double.tryParse(_itemPriceCtrl.text.trim());
+    if (name.isNotEmpty && price != null) {
+      setState(() {
+        _items.add(ReceiptItem(name: name, price: price, taxClaimable: false));
+        _itemNameCtrl.clear();
+        _itemPriceCtrl.clear();
+      });
+
+      // After a new item is added, scroll to bottom so user can see it.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent + 150,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Add Receipt')),
-      body: Stack(
-        children: [
-          Form(
+Widget build(BuildContext context) {
+  // bottom padding to lift Save button above keyboard when open
+  final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
+  final double bottomPadding = math.max(bottomInset, 12);
+
+  return Scaffold(
+    appBar: AppBar(title: const Text('Add Receipt')),
+    resizeToAvoidBottomInset: true,
+    body: Stack(
+      children: [
+        SafeArea(
+          child: Form(
             key: _formKey,
-            child: ListView(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              children: <Widget>[
-                if (_imagePath != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'Selected image: $_imagePath',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_imagePath != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'Selected image: $_imagePath',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  TextFormField(
+                    controller: _storeCtrl,
+                    decoration: const InputDecoration(labelText: 'Store name'),
+                    validator: (String? v) =>
+                        v == null || v.trim().isEmpty ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _dateCtrl,
+                    readOnly: true,
+                    decoration: const InputDecoration(labelText: 'Date'),
+                    onTap: () => _pickDate(_dateCtrl),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed:
+                              _isLoading ? null : () => _pickImage(fromCamera: true),
+                          icon: const Icon(Icons.photo_camera_outlined),
+                          label: const Text('Capture'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isLoading ? null : _showUploadOptions,
+                          icon: const Icon(Icons.upload),
+                          label: const Text('Upload'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: TextFormField(
+                          controller: _totalCtrl,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          decoration:
+                              const InputDecoration(labelText: 'Total amount'),
+                          validator: (String? v) =>
+                              (double.tryParse(v ?? '') == null)
+                                  ? 'Enter valid number'
+                                  : null,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      DropdownButton<String>(
+                        value: _currency,
+                        onChanged: (String? v) =>
+                            setState(() => _currency = v ?? _currency),
+                        items: AppConstants.supportedCurrencies
+                            .map((String c) =>
+                                DropdownMenuItem<String>(value: c, child: Text(c)))
+                            .toList(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _notesCtrl,
+                    decoration: const InputDecoration(labelText: 'Notes (optional)'),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('Items',
                       style:
-                          const TextStyle(fontSize: 12, color: Colors.grey),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Review items carefully. Edit names/prices if needed.\n'
+                      'Tick the checkbox for tax claimable purchases.',
+                      style: TextStyle(fontSize: 12, color: Colors.black87),
                     ),
                   ),
-                TextFormField(
-                  controller: _storeCtrl,
-                  decoration: const InputDecoration(labelText: 'Store name'),
-                  validator: (String? v) =>
-                      v == null || v.trim().isEmpty ? 'Required' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _dateCtrl,
-                  readOnly: true,
-                  decoration: const InputDecoration(labelText: 'Date'),
-                  onTap: () => _pickDate(_dateCtrl),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isLoading
-                            ? null
-                            : () => _pickImage(fromCamera: true),
-                        icon: const Icon(Icons.photo_camera_outlined),
-                        label: const Text('Capture'),
+                  const SizedBox(height: 12),
+
+                  // Build item cards
+                  ..._items.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    return _buildItemCard(index);
+                  }).toList(),
+
+                  const SizedBox(height: 12),
+                  // Add new item row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _itemNameCtrl,
+                          decoration: const InputDecoration(labelText: 'Item name'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : _showUploadOptions,
-                        icon: const Icon(Icons.upload),
-                        label: const Text('Upload'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _itemPriceCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: const InputDecoration(labelText: 'Price'),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: TextFormField(
-                        controller: _totalCtrl,
-                        keyboardType:
-                            const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
-                            labelText: 'Total amount'),
-                        validator: (String? v) =>
-                            (double.tryParse(v ?? '') == null)
-                                ? 'Enter valid number'
-                                : null,
+                      IconButton(
+                        icon: const Icon(Icons.add_circle, color: Colors.green),
+                        onPressed: _addNewItemFromInputs,
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    DropdownButton<String>(
-                      value: _currency,
-                      onChanged: (String? v) =>
-                          setState(() => _currency = v ?? _currency),
-                      items: AppConstants.supportedCurrencies
-                          .map((String c) =>
-                              DropdownMenuItem<String>(value: c, child: Text(c)))
-                          .toList(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _notesCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Notes (optional)'),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 20),
-                _buildItemList(),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  onPressed: _isLoading ? null : _submit,
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('Save'),
-                ),
-              ],
-            ),
-          ),
-          if (_isLoading)
-            Container(
-              color: Colors.black.withOpacity(0.5),
-              child: const Center(
-                child: CircularProgressIndicator(),
+                    ],
+                  ),
+                  const SizedBox(height: 100), // spacer so last row not hidden
+                ],
               ),
             ),
-        ],
+          ),
+        ),
+        if (_isLoading)
+          Container(
+            color: Colors.black.withOpacity(0.45),
+            child: const Center(child: CircularProgressIndicator()),
+          ),
+      ],
+    ),
+    bottomNavigationBar: SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
+        child: SizedBox(
+          height: 52,
+          child: ElevatedButton.icon(
+            onPressed: _isLoading ? null : _submit,
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('Save'),
+          ),
+        ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

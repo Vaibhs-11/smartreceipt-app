@@ -1,17 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 class FirebaseReceiptRepository implements ReceiptRepository {
-  FirebaseReceiptRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})
-      : _db = firestore ?? FirebaseFirestore.instance,
+  FirebaseReceiptRepository({
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
+  })  : _db = firestore ?? FirebaseFirestore.instance,
         _storage = storage ?? FirebaseStorage.instance;
 
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
 
+  /// Scoped collection: /users/{uid}/receipts
   CollectionReference<Map<String, dynamic>> get _receipts {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -27,7 +30,12 @@ class FirebaseReceiptRepository implements ReceiptRepository {
 
   @override
   Future<void> deleteReceipt(String id) async {
-    final doc = await _receipts.doc(id).get();
+    final docRef = _receipts.doc(id);
+    final doc = await docRef.get();
+
+    if (!doc.exists) {
+      throw Exception("Receipt $id not found");
+    }
 
     // Delete associated file from Firebase Storage if exists
     final fileUrl = doc.data()?['fileUrl'] as String?;
@@ -35,26 +43,26 @@ class FirebaseReceiptRepository implements ReceiptRepository {
       try {
         await _storage.refFromURL(fileUrl).delete();
       } catch (e) {
-        print("Warning: Failed to delete file from storage for receipt $id: $e");
+        // Non-fatal: log error but continue deleting Firestore doc
+        print(
+          "⚠️ Warning: Failed to delete file from storage for receipt $id: $e",
+        );
       }
     }
 
-    await _receipts.doc(id).delete();
+    // Delete receipt document from Firestore
+    await docRef.delete();
   }
 
   @override
   Future<List<Receipt>> getAllReceipts() async {
-    final QuerySnapshot<Map<String, dynamic>> snap =
-        await _receipts.orderBy('date', descending: true).get();
-    return snap.docs
-        .map((d) => Receipt.fromDocument(d))
-        .toList()
-        .cast<Receipt>(); // ensure type safety
+    final snap = await _receipts.orderBy('date', descending: true).get();
+    return snap.docs.map((d) => Receipt.fromDocument(d)).toList();
   }
 
   @override
   Future<Receipt?> getReceiptById(String id) async {
-    final DocumentSnapshot<Map<String, dynamic>> doc = await _receipts.doc(id).get();
+    final doc = await _receipts.doc(id).get();
     if (!doc.exists || doc.data() == null) return null;
     return Receipt.fromDocument(doc);
   }
