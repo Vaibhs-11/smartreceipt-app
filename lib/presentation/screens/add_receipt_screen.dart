@@ -11,7 +11,7 @@ import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart' show Receipt, ReceiptItem;
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
-import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult, OcrReceiptItem;
+import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult;
 import 'package:smartreceipt/domain/services/ocr_service.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 import 'package:pdfx/pdfx.dart' as pdfx;
@@ -35,19 +35,26 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   final TextEditingController _totalCtrl = TextEditingController();
   final TextEditingController _notesCtrl = TextEditingController();
   final TextEditingController _dateCtrl = TextEditingController();
-  final TextEditingController _expiryCtrl = TextEditingController();
   final TextEditingController _itemNameCtrl = TextEditingController();
   final TextEditingController _itemPriceCtrl = TextEditingController();
 
   final String receiptId = const Uuid().v4();
   List<ReceiptItem> _items = [];
 
+  // Track checkboxes temporarily (until ReceiptItem is extended with taxDeductible)
+  Map<int, bool> _taxSelections = {};
+
   String _currency = AppConstants.supportedCurrencies.first;
   DateTime _date = DateTime.now();
-  DateTime? _expiry;
   String? _imagePath;
   String? _extractedText;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _dateCtrl.text = DateFormat.yMMMd().format(_date);
+  }
 
   @override
   void dispose() {
@@ -55,7 +62,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _totalCtrl.dispose();
     _notesCtrl.dispose();
     _dateCtrl.dispose();
-    _expiryCtrl.dispose();
     _itemNameCtrl.dispose();
     _itemPriceCtrl.dispose();
     super.dispose();
@@ -68,11 +74,21 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         const Text("Items",
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        ..._items.map((item) => ListTile(
-              title: Text(item.name),
-              trailing: Text('$_currency ${item.price.toStringAsFixed(2)}'),
-              leading: const Icon(Icons.check_circle_outline),
-            )),
+        ..._items.asMap().entries.map((entry) {
+          final index = entry.key;
+          final item = entry.value;
+          return CheckboxListTile(
+            value: item.taxDeductible,
+            onChanged: (val) {
+              setState(() {
+                _items[index] =
+                    item.copyWith(taxDeductible: val ?? false);
+              });
+            },
+            title: Text(item.name),
+            secondary: Text('$_currency ${item.price.toStringAsFixed(2)}'),
+          );
+        }),
         Row(
           children: [
             Expanded(
@@ -110,11 +126,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     );
   }
 
-  Future<void> _pickDate(TextEditingController controller,
-      {bool isExpiry = false}) async {
+  Future<void> _pickDate(TextEditingController controller) async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: isExpiry ? (_expiry ?? DateTime.now()) : _date,
+      initialDate: _date,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
@@ -123,11 +138,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final String formatted = DateFormat.yMMMd().format(picked);
     setState(() {
       controller.text = formatted;
-      if (isExpiry) {
-        _expiry = picked;
-      } else {
-        _date = picked;
-      }
+      _date = picked;
     });
   }
 
@@ -144,7 +155,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
       imagePath: _imagePath,
       extractedText: _extractedText,
-      expiryDate: _expiry,
       items: _items,
     );
     final add = ref.read(addReceiptUseCaseProviderOverride);
@@ -177,30 +187,29 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   void _handleOcrResult(OcrResult result, {String? uploadedUrl}) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        if (uploadedUrl != null) {
-          _imagePath = uploadedUrl;
-        }
-        _storeCtrl.text = result.storeName;
-        _totalCtrl.text = result.total.toStringAsFixed(2);
-        _date = result.date;
-        _dateCtrl.text = DateFormat.yMMMd().format(_date);
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      if (uploadedUrl != null) {
+        _imagePath = uploadedUrl;
+      }
+      _storeCtrl.text = result.storeName;
+      _totalCtrl.text = result.total.toStringAsFixed(2);
+      _date = result.date;
+      _dateCtrl.text = DateFormat.yMMMd().format(_date);
 
-        // Use helper to map OCR → domain ReceiptItem
-        if (result.items.isNotEmpty) {
-          _items = result.toReceiptItems();
-        }
+      if (result.items.isNotEmpty) {
+        _items = result.toReceiptItems();
+        _taxSelections.clear();
+      }
 
-        _extractedText =
-            'Store: ${result.storeName}\n'
-            'Date: ${DateFormat.yMMMd().format(result.date)}\n'
-            'Total: ${result.total.toStringAsFixed(2)}\n\n'
-            'Raw Text:\n${result.rawText}';
-      });
-    }
-
+      _extractedText =
+          'Store: ${result.storeName}\n'
+          'Date: ${DateFormat.yMMMd().format(result.date)}\n'
+          'Total: ${result.total.toStringAsFixed(2)}\n\n'
+          'Raw Text:\n${result.rawText}';
+    });
+  }
 
   Future<void> _processAndUploadFile(File file) async {
     setState(() => _isLoading = true);
@@ -392,7 +401,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
-                  controller: _dateCtrl..text = DateFormat.yMMMd().format(_date),
+                  controller: _dateCtrl,
                   readOnly: true,
                   decoration: const InputDecoration(labelText: 'Date'),
                   onTap: () => _pickDate(_dateCtrl),
@@ -446,14 +455,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           .toList(),
                     ),
                   ],
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _expiryCtrl,
-                  readOnly: true,
-                  decoration: const InputDecoration(
-                      labelText: 'Expiry date (optional)'),
-                  onTap: () => _pickDate(_expiryCtrl, isExpiry: true),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(

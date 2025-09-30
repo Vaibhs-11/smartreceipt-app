@@ -17,6 +17,7 @@ class OcrResult extends Equatable {
   final double total;
   final String rawText;
   final List<OcrReceiptItem> items;
+  final String? currency;
 
   const OcrResult({
     required this.storeName,
@@ -24,6 +25,7 @@ class OcrResult extends Equatable {
     required this.total,
     required this.rawText,
     this.items = const [],
+    this.currency,
   });
 
   /// ✅ Helper: convert OCR items into domain ReceiptItems

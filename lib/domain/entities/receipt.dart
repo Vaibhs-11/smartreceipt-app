@@ -6,26 +6,42 @@ import 'package:meta/meta.dart';
 class ReceiptItem extends Equatable {
   final String name;
   final double price;
+  final bool taxDeductible; // NEW
 
   const ReceiptItem({
     required this.name,
     required this.price,
+    this.taxDeductible = false, // default false
   });
+
+  ReceiptItem copyWith({
+    String? name,
+    double? price,
+    bool? taxDeductible,
+  }) {
+    return ReceiptItem(
+      name: name ?? this.name,
+      price: price ?? this.price,
+      taxDeductible: taxDeductible ?? this.taxDeductible,
+    );
+  }
 
   Map<String, Object?> toMap() => {
         'name': name,
         'price': price,
+        'taxDeductible': taxDeductible, // NEW
       };
 
   factory ReceiptItem.fromMap(Map<String, Object?> map) {
     return ReceiptItem(
       name: map['name'] as String? ?? '',
       price: (map['price'] as num?)?.toDouble() ?? 0.0,
+      taxDeductible: map['taxDeductible'] as bool? ?? false, // NEW
     );
   }
 
   @override
-  List<Object?> get props => [name, price];
+  List<Object?> get props => [name, price, taxDeductible];
 }
 
 @immutable
@@ -52,10 +68,10 @@ class Receipt extends Equatable {
   final String currency;
   final String? notes;
   final List<String> tags;
-  final String? imagePath;      // local path if saved on device
+  final String? imagePath;
   final String? extractedText;
   final DateTime? expiryDate;
-  final String? fileUrl;        // cloud URL (Firebase Storage, etc.)
+  final String? fileUrl;
   final List<ReceiptItem> items;
 
   Receipt copyWith({
@@ -127,7 +143,6 @@ class Receipt extends Equatable {
     );
   }
 
-  /// Factory used by your repository
   factory Receipt.fromDocument(DocumentSnapshot<Map<String, dynamic>> doc) {
     return Receipt.fromFirestore(doc);
   }
