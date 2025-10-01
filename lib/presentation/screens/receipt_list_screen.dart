@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 
@@ -39,9 +40,9 @@ class ReceiptListScreen extends ConsumerWidget {
           final filtered = items.where((r) {
             if (query.isEmpty) return true;
             final matchStore = r.storeName.toLowerCase().contains(query);
-            final matchDate = r.date.toIso8601String().contains(query);
-            final matchTax = query == "tax" &&
-                r.items.any((i) => i.taxClaimable); // match if any item is tax claimable
+            final matchDate = DateFormat.yMMMd().format(r.date).toLowerCase().contains(query);
+            final matchTax =
+                query == "tax" && r.items.any((i) => i.taxClaimable);
             return matchStore || matchDate || matchTax;
           }).toList();
 
@@ -89,36 +90,14 @@ class ReceiptListScreen extends ConsumerWidget {
                 },
                 child: ListTile(
                   title: Text(receipt.storeName),
-                  subtitle: Text(receipt.date.toIso8601String()),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete),
-                    onPressed: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text("Delete Receipt"),
-                          content: const Text(
-                              "Are you sure you want to delete this receipt?"),
-                          actions: [
-                            TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text("Cancel")),
-                            TextButton(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                child: const Text("Delete")),
-                          ],
-                        ),
-                      );
-                      if (confirm == true) {
-                        ref
-                            .read(receiptsProvider.notifier)
-                            .deleteReceipt(receipt.id);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Receipt deleted")),
-                        );
-                      }
-                    },
-                  ),
+                  subtitle: Text(DateFormat.yMMMd().format(receipt.date)),
+                  onTap: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/receiptDetail',
+                      arguments: receipt.id,
+                    );
+                  },
                 ),
               );
             },
@@ -181,7 +160,7 @@ class ReceiptSearchDelegate extends SearchDelegate<String?> {
 
   @override
   Widget buildSuggestions(BuildContext context) {
-    return Center(
+    return const Center(
       child: Text("Search by store, date, or 'tax'"),
     );
   }

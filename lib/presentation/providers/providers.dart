@@ -138,7 +138,7 @@ class ReceiptsNotifier extends StateNotifier<AsyncValue<List<Receipt>>> {
       final receipts = await getReceipts();
       state = AsyncValue.data(receipts);
     } catch (e, st) {
-      state = AsyncValue.error(e, st);
+      state = AsyncValue.error(e, stackTrace: st);
     }
   }
 

@@ -57,14 +57,14 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   @override
   Future<List<Receipt>> getAllReceipts() async {
     final snap = await _receipts.orderBy('date', descending: true).get();
-    return snap.docs.map((d) => Receipt.fromDocument(d)).toList();
+    return snap.docs.map((d) => Receipt.fromFirestore(d)).toList();
   }
 
   @override
   Future<Receipt?> getReceiptById(String id) async {
     final doc = await _receipts.doc(id).get();
     if (!doc.exists || doc.data() == null) return null;
-    return Receipt.fromDocument(doc);
+    return Receipt.fromFirestore(doc);
   }
 
   @override
