@@ -41,7 +41,7 @@ class ReceiptListScreen extends ConsumerWidget {
             final matchStore = r.storeName.toLowerCase().contains(query);
             final matchDate = r.date.toIso8601String().contains(query);
             final matchTax = query == "tax" &&
-                r.items.any((i) => i.TaxClaimable); // match if any item is tax claimable
+                r.items.any((i) => i.taxClaimable); // match if any item is tax claimable
             return matchStore || matchDate || matchTax;
           }).toList();
 

@@ -152,7 +152,7 @@ class ReceiptsNotifier extends StateNotifier<AsyncValue<List<Receipt>>> {
         state.value?.where((r) => r.id != id).toList() ?? [],
       );
     } catch (e, st) {
-      state = AsyncValue.error(e, st);
+      state = AsyncValue.error(e, stackTrace: st);
     }
   }
 
