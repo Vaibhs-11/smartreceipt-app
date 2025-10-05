@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 
@@ -17,7 +18,7 @@ class ReceiptDetailScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Receipt Detail')),
       body: receiptAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
+        error: (err, _) => Center(child: Text('Error: $err')),
         data: (receipt) {
           if (receipt == null) {
             return const Center(child: Text('Receipt not found.'));
@@ -31,47 +32,25 @@ class ReceiptDetailScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                // --- Optional receipt image/file ---
+                // --- Receipt file preview or link ---
                 if (receipt.fileUrl != null && receipt.fileUrl!.isNotEmpty) ...[
-                  if (receipt.fileUrl!.toLowerCase().endsWith('.jpg') ||
-                      receipt.fileUrl!.toLowerCase().endsWith('.jpeg') ||
-                      receipt.fileUrl!.toLowerCase().endsWith('.png') ||
-                      receipt.fileUrl!.toLowerCase().endsWith('.gif') ||
-                      receipt.fileUrl!.toLowerCase().endsWith('.webp'))
-                    ClipRRect(
+                  _buildFilePreview(context, receipt.fileUrl!, receipt.storeName),
+                  const SizedBox(height: 16),
+                ] else if (receipt.imagePath != null &&
+                    receipt.imagePath!.isNotEmpty &&
+                    !receipt.imagePath!.startsWith('http')) ...[
+                  GestureDetector(
+                    onTap: () => _openFullImage(context, File(receipt.imagePath!)),
+                    child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        receipt.fileUrl!,
+                      child: Image.file(
+                        File(receipt.imagePath!),
                         height: 200,
                         width: double.infinity,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) =>
-                            const Text("Could not load image"),
+                            const Text("Could not load local image"),
                       ),
-                    )
-                  else if (receipt.fileUrl!.toLowerCase().endsWith('.pdf'))
-                    ListTile(
-                      leading:
-                          const Icon(Icons.picture_as_pdf, color: Colors.red),
-                      title: const Text("Receipt PDF"),
-                      subtitle: Text(receipt.storeName),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text("PDF viewing not yet implemented")),
-                        );
-                      },
-                    ),
-                  const SizedBox(height: 16),
-                ] else if (receipt.imagePath != null &&
-                    receipt.imagePath!.isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      File(receipt.imagePath!),
-                      height: 200,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -136,6 +115,129 @@ class ReceiptDetailScreen extends ConsumerWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+   /// --- Helper for network image, PDF or fallback link ---
+  Widget _buildFilePreview(BuildContext context, String fileUrl, String storeName) {
+    final lower = fileUrl.toLowerCase();
+    final isNetwork = fileUrl.startsWith('http');
+    final isImage = lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.webp');
+    final isPdf = lower.endsWith('.pdf');
+
+    // Extract readable filename for display
+    final uri = Uri.parse(fileUrl);
+    final rawName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : fileUrl;
+    final decodedName = Uri.decodeComponent(rawName);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isNetwork && isImage)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              fileUrl,
+              height: 200,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  const Text("Could not load image preview"),
+            ),
+          )
+        else
+          const SizedBox.shrink(),
+
+        const SizedBox(height: 8),
+
+        // Always show the clickable file link
+        _buildOpenFileLink(context, fileUrl, decodedName, storeName, isPdf),
+      ],
+    );
+  }
+
+  /// --- Builds a visible, clickable link card for any file type ---
+  Widget _buildOpenFileLink(
+      BuildContext context,
+      String fileUrl,
+      String fileName,
+      String storeName,
+      bool isPdf,
+      ) {
+    final icon = isPdf ? Icons.picture_as_pdf : Icons.link;
+
+    return Card(
+      color: Colors.grey[100],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        leading: Icon(icon, color: isPdf ? Colors.red : Colors.blue),
+        title: Text(
+          fileName,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w500),
+        ),
+        subtitle: Text(
+          storeName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.open_in_new),
+        onTap: () async {
+          final uri = Uri.parse(fileUrl);
+          if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Could not open link")),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  /// Opens local image full screen
+  void _openFullImage(BuildContext context, File imageFile) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _FullImageView(imageProvider: FileImage(imageFile)),
+      ),
+    );
+  }
+
+  /// Opens network image full screen
+  void _openFullImageUrl(BuildContext context, String imageUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _FullImageView(imageProvider: NetworkImage(imageUrl)),
+      ),
+    );
+  }
+}
+
+/// --- Full Image View Screen ---
+class _FullImageView extends StatelessWidget {
+  final ImageProvider imageProvider;
+  const _FullImageView({required this.imageProvider});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(),
+      backgroundColor: Colors.black,
+      body: Center(
+        child: InteractiveViewer(
+          panEnabled: true,
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: Image(image: imageProvider),
+        ),
       ),
     );
   }

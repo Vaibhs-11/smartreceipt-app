@@ -51,6 +51,7 @@ class ReceiptListScreen extends ConsumerWidget {
           }
 
           return ListView.builder(
+            padding: const EdgeInsets.all(12),
             itemCount: filtered.length,
             itemBuilder: (context, index) {
               final receipt = filtered[index];
@@ -88,9 +89,7 @@ class ReceiptListScreen extends ConsumerWidget {
                     const SnackBar(content: Text("Receipt deleted")),
                   );
                 },
-                child: ListTile(
-                  title: Text(receipt.storeName),
-                  subtitle: Text(DateFormat.yMMMd().format(receipt.date)),
+                child: GestureDetector(
                   onTap: () {
                     Navigator.pushNamed(
                       context,
@@ -98,6 +97,54 @@ class ReceiptListScreen extends ConsumerWidget {
                       arguments: receipt.id,
                     );
                   },
+                  child: Card(
+                    elevation: 3,
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Store name + date (left-aligned)
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  receipt.storeName,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  DateFormat.yMMMd().format(receipt.date),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Total amount (right-aligned)
+                          Text(
+                            "\$${receipt.total.toStringAsFixed(2)}",
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: Colors.green[700],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               );
             },
