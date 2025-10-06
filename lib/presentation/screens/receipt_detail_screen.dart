@@ -32,29 +32,12 @@ class ReceiptDetailScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                // --- Receipt file preview or link ---
-                if (receipt.fileUrl != null && receipt.fileUrl!.isNotEmpty) ...[
-                  _buildFilePreview(context, receipt.fileUrl!, receipt.storeName),
-                  const SizedBox(height: 16),
-                ] else if (receipt.imagePath != null &&
-                    receipt.imagePath!.isNotEmpty &&
-                    !receipt.imagePath!.startsWith('http')) ...[
-                  GestureDetector(
-                    onTap: () => _openFullImage(context, File(receipt.imagePath!)),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        File(receipt.imagePath!),
-                        height: 200,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const Text("Could not load local image"),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                // --- Receipt image or link section ---
+                if (receipt.imagePath != null && receipt.imagePath!.isNotEmpty)
+                  _buildImageOrFileSection(
+                      context, receipt.imagePath!, receipt.storeName),
+
+                const SizedBox(height: 16),
 
                 // --- Store name & details ---
                 Text(
@@ -119,10 +102,11 @@ class ReceiptDetailScreen extends ConsumerWidget {
     );
   }
 
-   /// --- Helper for network image, PDF or fallback link ---
-  Widget _buildFilePreview(BuildContext context, String fileUrl, String storeName) {
-    final lower = fileUrl.toLowerCase();
-    final isNetwork = fileUrl.startsWith('http');
+  /// --- Determines whether it's a network image, local file, or PDF ---
+  Widget _buildImageOrFileSection(
+      BuildContext context, String path, String storeName) {
+    final lower = path.toLowerCase();
+    final isNetwork = path.startsWith('http');
     final isImage = lower.endsWith('.jpg') ||
         lower.endsWith('.jpeg') ||
         lower.endsWith('.png') ||
@@ -130,46 +114,64 @@ class ReceiptDetailScreen extends ConsumerWidget {
         lower.endsWith('.webp');
     final isPdf = lower.endsWith('.pdf');
 
-    // Extract readable filename for display
-    final uri = Uri.parse(fileUrl);
-    final rawName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : fileUrl;
-    final decodedName = Uri.decodeComponent(rawName);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (isNetwork && isImage)
-          ClipRRect(
+    if (isNetwork) {
+      if (isImage) {
+        // Show network image + link card
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                path,
+                height: 200,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) =>
+                    const Text("Could not load image preview"),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildOpenFileLink(context, path, storeName, isPdf),
+          ],
+        );
+      } else {
+        // Non-image (PDF etc.) → show clickable link card only
+        return _buildOpenFileLink(context, path, storeName, isPdf);
+      }
+    } else {
+      // Local file
+      if (isImage) {
+        return GestureDetector(
+          onTap: () => _openFullImage(context, File(path)),
+          child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.network(
-              fileUrl,
+            child: Image.file(
+              File(path),
               height: 200,
               width: double.infinity,
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) =>
-                  const Text("Could not load image preview"),
+                  const Text("Could not load local image"),
             ),
-          )
-        else
-          const SizedBox.shrink(),
-
-        const SizedBox(height: 8),
-
-        // Always show the clickable file link
-        _buildOpenFileLink(context, fileUrl, decodedName, storeName, isPdf),
-      ],
-    );
+          ),
+        );
+      } else {
+        return const Text("Unsupported local file type");
+      }
+    }
   }
 
-  /// --- Builds a visible, clickable link card for any file type ---
+  /// --- Builds a visible, clickable link card for any network file ---
   Widget _buildOpenFileLink(
-      BuildContext context,
-      String fileUrl,
-      String fileName,
-      String storeName,
-      bool isPdf,
-      ) {
+      BuildContext context, String fileUrl, String storeName, bool isPdf) {
     final icon = isPdf ? Icons.picture_as_pdf : Icons.link;
+
+    // Extract readable filename
+    final uri = Uri.parse(fileUrl);
+    final rawName =
+        uri.pathSegments.isNotEmpty ? uri.pathSegments.last : fileUrl;
+    final decodedName = Uri.decodeComponent(rawName);
 
     return Card(
       color: Colors.grey[100],
@@ -177,16 +179,12 @@ class ReceiptDetailScreen extends ConsumerWidget {
       child: ListTile(
         leading: Icon(icon, color: isPdf ? Colors.red : Colors.blue),
         title: Text(
-          fileName,
+          decodedName,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w500),
         ),
-        subtitle: Text(
-          storeName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        subtitle: Text(storeName),
         trailing: const Icon(Icons.open_in_new),
         onTap: () async {
           final uri = Uri.parse(fileUrl);
@@ -206,16 +204,6 @@ class ReceiptDetailScreen extends ConsumerWidget {
       context,
       MaterialPageRoute(
         builder: (_) => _FullImageView(imageProvider: FileImage(imageFile)),
-      ),
-    );
-  }
-
-  /// Opens network image full screen
-  void _openFullImageUrl(BuildContext context, String imageUrl) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _FullImageView(imageProvider: NetworkImage(imageUrl)),
       ),
     );
   }
