@@ -1,31 +1,32 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/screens/home_screen.dart';
 import 'package:smartreceipt/presentation/screens/login_screen.dart';
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authStateProvider);
 
-        if (snapshot.hasData) {
-          // User is logged in
-          debugPrint("✅ User logged in with UID: ${snapshot.data!.uid}");
-          return const HomeScreen();
-        } else {
-          // User not logged in
-          debugPrint("❌ No user logged in, redirecting to LoginScreen.");
+    return authState.when(
+      data: (user) {
+        if (user == null) {
+          debugPrint("❌ No user logged in → LoginScreen");
           return const LoginScreen();
+        } else {
+          debugPrint("✅ User logged in → HomeScreen (uid: ${user.uid})");
+          return const HomeScreen();
         }
+      },
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (err, stack) {
+        debugPrint("⚠️ AuthGate error: $err");
+        return const LoginScreen();
       },
     );
   }

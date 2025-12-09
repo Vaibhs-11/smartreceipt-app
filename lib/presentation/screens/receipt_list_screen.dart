@@ -311,100 +311,106 @@ class ReceiptSearchDelegate extends SearchDelegate<String?> {
     return const SizedBox.shrink();
   }
 
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: "Filter",
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+ @override
+Widget buildSuggestions(BuildContext context) {
+  return StatefulBuilder(
+    builder: (context, setState) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  flex: 4,
+                  child: DropdownButtonFormField<String>(
+                    isExpanded: true, // Prevents overflow on long filter names
+                    value: selectedFilter,
+                    decoration: InputDecoration(
+                      labelText: "Filter",
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: selectedFilter,
-                          isExpanded: true,
-                          items: filters
-                              .map((f) => DropdownMenuItem(
-                                    value: f,
-                                    child: Text(f.toUpperCase()),
-                                  ))
-                              .toList(),
-                          onChanged: (v) {
-                            if (v != null) {
-                              setState(() => selectedFilter = v);
-                            }
-                          },
-                        ),
-                      ),
+                      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 5,
-                    child: TextField(
-                      onChanged: (v) => query = v,
-                      decoration: const InputDecoration(
-                        labelText: "Search value",
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline),
-                    tooltip: "Add another filter",
-                    onPressed: () {
-                      if (query.trim().isNotEmpty) {
-                        setState(() {
-                          filterConditions.add({
-                            "key": selectedFilter,
-                            "value": query.trim(),
-                          });
-                          query = "";
-                        });
+                    items: filters
+                        .map(
+                          (f) => DropdownMenuItem(
+                            value: f,
+                            child: Text(f.toUpperCase()),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        setState(() => selectedFilter = v);
                       }
                     },
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (filterConditions.isNotEmpty)
-                Wrap(
-                  spacing: 6,
-                  children: filterConditions
-                      .map(
-                        (f) => Chip(
-                          label: Text("${f['key']}: ${f['value']}"),
-                          onDeleted: () => setState(() {
-                            filterConditions.remove(f);
-                          }),
-                        ),
-                      )
-                      .toList(),
+                ),   // ✅ THIS BRACKET WAS MISSING EARLIER
+
+                const SizedBox(width: 8),
+
+                Expanded(
+                  flex: 5,
+                  child: TextField(
+                    onChanged: (v) => query = v,
+                    decoration: const InputDecoration(
+                      labelText: "Search value",
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    ),
+                  ),
                 ),
-              const Spacer(),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.search),
-                label: const Text("Apply Filters"),
-                onPressed: () {
-                  buildResults(context);
-                },
+
+                const SizedBox(width: 8),
+
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline),
+                  tooltip: "Add another filter",
+                  onPressed: () {
+                    if (query.trim().isNotEmpty) {
+                      setState(() {
+                        filterConditions.add({
+                          "key": selectedFilter,
+                          "value": query.trim(),
+                        });
+                        query = "";
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            if (filterConditions.isNotEmpty)
+              Wrap(
+                spacing: 6,
+                children: filterConditions
+                    .map(
+                      (f) => Chip(
+                        label: Text("${f['key']}: ${f['value']}"),
+                        onDeleted: () => setState(() {
+                          filterConditions.remove(f);
+                        }),
+                      ),
+                    )
+                    .toList(),
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+
+            const Spacer(),
+
+            ElevatedButton.icon(
+              icon: const Icon(Icons.search),
+              label: const Text("Apply Filters"),
+              onPressed: () => buildResults(context),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
 }

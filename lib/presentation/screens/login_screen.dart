@@ -29,9 +29,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       // On success, AuthGate would typically handle navigation.
       // Since it's not set up as the root, we navigate manually.
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
-      }
+      //if (mounted) {
+      //  Navigator.pushReplacementNamed(context, AppRoutes.home);
+      //}
     } catch (e) {
       // The controller will set authState.error, which shows the inline error message.
       // We can also show a SnackBar for more prominent feedback.
