@@ -156,24 +156,33 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    final navigator = Navigator.of(context);
-    final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
-    final Receipt receipt = Receipt(
-      id: receiptId,
-      storeName: _storeCtrl.text.trim(),
-      date: _date,
-      total: total,
-      currency: _currency,
-      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-      imagePath: _imagePath,
-      extractedText: _extractedText,
-      items: _items,
-    );
-    final add = ref.read(addReceiptUseCaseProviderOverride);
-    await add(receipt);
-    if (mounted) navigator.pop();
+  if (!(_formKey.currentState?.validate() ?? false)) return;
+
+  final navigator = Navigator.of(context);
+  final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
+
+  final receipt = Receipt(
+    id: receiptId,
+    storeName: _storeCtrl.text.trim(),
+    date: _date,
+    total: total,
+    currency: _currency,
+    notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+    imagePath: _imagePath,
+    extractedText: _extractedText,
+    items: _items,
+  );
+
+  // Correct provider
+  final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
+
+  await addReceipt(receipt);
+
+  if (mounted) {
+    navigator.pop();
   }
+ }
+
 
   Future<UploadedFile?> _uploadFileToStorage(File file) async {
     final user = FirebaseAuth.instance.currentUser;

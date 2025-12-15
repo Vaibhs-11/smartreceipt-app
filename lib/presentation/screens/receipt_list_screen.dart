@@ -130,14 +130,16 @@ class ReceiptListScreen extends ConsumerWidget {
                           ) ??
                           false;
                     },
-                    onDismissed: (_) {
-                      ref
-                          .read(receiptsProvider.notifier)
+                    onDismissed: (_) async {
+                      await ref
+                          .read(receiptRepositoryProviderOverride)
                           .deleteReceipt(receipt.id);
+
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text("Receipt deleted")),
                       );
                     },
+
                     child: Card(
                       elevation: 2,
                       margin: const EdgeInsets.symmetric(vertical: 8),

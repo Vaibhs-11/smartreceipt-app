@@ -1,28 +1,24 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+// providers.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:smartreceipt/core/config/app_config.dart';
-import 'package:smartreceipt/data/services/cloud_ocr_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smartreceipt/data/repositories/firebase/firebase_receipt_repository.dart';
-import 'package:smartreceipt/data/services/ai/ai_tagging_service.dart';
-import 'package:smartreceipt/data/services/ai/openai_tagger_stub.dart';
 import 'package:smartreceipt/data/services/auth/auth_service.dart';
 import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart'
     as fb_impl;
-import 'package:smartreceipt/presentation/providers/auth_controller.dart';
-import 'package:smartreceipt/data/services/notifications/notifications_service.dart';
-import 'package:smartreceipt/data/services/ocr/google_vision_ocr_stub.dart';
-import 'package:smartreceipt/domain/services/ocr_service.dart';
-import 'package:smartreceipt/domain/entities/ocr_result.dart';
+import 'package:smartreceipt/data/services/cloud_ocr_service.dart';
 import 'package:smartreceipt/data/services/ocr/chatgpt_ocr_service.dart';
+import 'package:smartreceipt/domain/entities/ocr_result.dart';
+import 'package:smartreceipt/domain/services/ocr_service.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
 import 'package:smartreceipt/domain/usecases/add_receipt.dart';
 import 'package:smartreceipt/domain/usecases/get_receipt_by_id.dart';
 import 'package:smartreceipt/domain/usecases/get_receipts.dart';
+import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 
-// Services (stubbed by default)
 final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
-  final AppConfig config = ref.read(appConfigProvider);
   return fb_impl.FirebaseAuthService();
 });
 
@@ -43,14 +39,8 @@ final currentUidProvider = Provider<String?>((ref) {
   return auth?.uid;
 });
 
-/// Chooses which OCR service pipeline to use
+/// Chooses the production OCR service pipeline (Vision + GPT parsing)
 final ocrServiceProvider = Provider<OcrService>((ref) {
-  const useStub = bool.fromEnvironment('USE_OCR_STUB', defaultValue: false);
-
-  if (useStub) {
-    return GoogleVisionOcrStub();
-  }
-
   final openAiKey = dotenv.env['OPENAI_API_KEY'];
 
   if (openAiKey == null || openAiKey.isEmpty) {
@@ -89,12 +79,6 @@ class _OcrPipeline implements OcrService {
   }
 }
 
-final Provider<AiTaggingService> aiTaggingServiceProvider =
-    Provider<AiTaggingService>((ref) => OpenAiTaggerStub());
-
-final Provider<NotificationsService> notificationsServiceProvider =
-    Provider<NotificationsService>((ref) => NotificationsServiceStub());
-
 // Repository (use Firebase by default)
 final Provider<ReceiptRepository> receiptRepositoryProviderOverride =
     Provider<ReceiptRepository>((ref) {
@@ -124,49 +108,31 @@ final getReceiptByIdUseCaseProvider =
   return GetReceiptByIdUseCase(repository);
 });
 
-/// ReceiptsNotifier for Riverpod 1.x
-class ReceiptsNotifier extends StateNotifier<AsyncValue<List<Receipt>>> {
-  ReceiptsNotifier(this._read) : super(const AsyncValue.loading()) {
-    _loadReceipts();
+/// ---------------------------------------------------------------------------
+/// NEW: Stream-based receipts provider (fixes sync delays completely)
+/// ---------------------------------------------------------------------------
+final receiptsProvider = StreamProvider.autoDispose<List<Receipt>>((ref) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) {
+    return const Stream<List<Receipt>>.empty();
   }
 
-  final Reader _read;
+  final collection = FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('receipts')
+      .withConverter<Receipt>(
+        fromFirestore: (snapshot, _) => Receipt.fromFirestore(snapshot),
+        toFirestore: (receipt, _) => receipt.toMap(),
+      )
+      .orderBy('createdAt', descending: true);
 
-  Future<void> _loadReceipts() async {
-    try {
-      final getReceipts = _read(getReceiptsUseCaseProviderOverride);
-      final receipts = await getReceipts();
-      state = AsyncValue.data(receipts);
-    } catch (e, st) {
-      state = AsyncValue.error(e, stackTrace: st);
-    }
-  }
-
-  Future<void> deleteReceipt(String id) async {
-    try {
-      final repo = _read(receiptRepositoryProviderOverride);
-      await repo.deleteReceipt(id);
-
-      // Optimistically update state
-      state = AsyncValue.data(
-        state.value?.where((r) => r.id != id).toList() ?? [],
-      );
-    } catch (e, st) {
-      state = AsyncValue.error(e, stackTrace: st);
-    }
-  }
-
-  Future<void> refreshReceipts() async {
-    state = const AsyncValue.loading();
-    await _loadReceipts();
-  }
-}
-
-/// Receipt list provider (Riverpod 1.x style)
-final receiptsProvider = StateNotifierProvider<ReceiptsNotifier,
-    AsyncValue<List<Receipt>>>((ref) {
-  return ReceiptsNotifier(ref.read);
+  return collection.snapshots().map((snapshot) {
+    return snapshot.docs.map((doc) => doc.data()).toList();
+  });
 });
+
+
 
 /// Single receipt detail provider
 final receiptDetailProvider =
