@@ -22,7 +22,7 @@ Future<void> main() async {
     try {
       await dotenv.load(fileName: 'config/env.example');
     } catch (_) {
-      // Proceed without env; AppConfig will use safe defaults via maybeGet
+      // Proceed without env; runtime will rely on Firebase defaults
     }
   }
 
