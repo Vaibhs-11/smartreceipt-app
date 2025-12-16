@@ -403,31 +403,201 @@ $rawText
 
   /// Infer currency code from receipt text or parsed currency. Attempts a few heuristics.
   String _inferCurrency(String rawText, String? parsedCurrency) {
-    if (parsedCurrency != null && parsedCurrency.trim().isNotEmpty) {
-      return parsedCurrency.toUpperCase();
-    }
+    final String? normalizedParsed =
+        parsedCurrency != null && parsedCurrency.trim().isNotEmpty
+            ? parsedCurrency.toUpperCase()
+            : null;
 
     final lower = rawText.toLowerCase();
 
     // Explicit currency codes
-    final codeRe = RegExp(r'\b(AUD|USD|GBP|EUR|CAD|NZD|SGD|INR|JPY|CNY)\b', caseSensitive: false);
-    final cm = codeRe.firstMatch(rawText);
-    if (cm != null) return cm.group(1)!.toUpperCase();
+    final codeRe = RegExp(
+      r'\b(AUD|USD|GBP|EUR|CAD|NZD|SGD|INR|JPY|CNY)\b',
+      caseSensitive: false,
+    );
+    final match = codeRe.firstMatch(rawText);
+    if (match != null) return match.group(1)!.toUpperCase();
 
-    // Domain hints
-    if (lower.contains('.au') || lower.contains('myer.com.au') || lower.contains('abn')) return 'AUD';
-    if (lower.contains('.co.nz') || lower.contains('.nz')) return 'NZD';
-    if (lower.contains('.ca') || lower.contains('gst/hst') || lower.contains('hst')) return 'CAD';
-    if (lower.contains('£') || lower.contains('pound')) return 'GBP';
-    if (lower.contains('eur') || lower.contains('€')) return 'EUR';
-    if (lower.contains('sgd') || lower.contains('.sg')) return 'SGD';
-    if (lower.contains('inr') || RegExp(r'\bINR\b', caseSensitive: false).hasMatch(rawText)) return 'INR';
-    if (lower.contains('cny') || lower.contains('¥') && lower.contains('cn')) return 'CNY';
+    final List<_CurrencyHint> hints = [
+      _CurrencyHint(
+        code: 'INR',
+        regexes: [
+          RegExp(r'₹'),
+          RegExp(
+            r'\b(inr|rs\.?|rs|rupees?|rup(?:ee|e|ies)?|pupees?)\b',
+            caseSensitive: false,
+          ),
+        ],
+        localeKeywords: [
+          'india',
+          'bharat',
+          'hyderabad',
+          'mumbai',
+          'delhi',
+          'bangalore',
+          'chennai',
+          'telangana',
+          'gachibowli',
+        ],
+        phonePatterns: [
+          RegExp(r'\+?91[\s-]?\d{6,}'),
+        ],
+      ),
+      _CurrencyHint(
+        code: 'AUD',
+        regexes: [
+          RegExp(r'\baud\b', caseSensitive: false),
+          RegExp(r'australian dollars?', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'australia',
+          '.au',
+          'sydney',
+          'melbourne',
+          'brisbane',
+          'abn',
+        ],
+        phonePatterns: [
+          RegExp(r'\+?61[\s-]?\d{4,}'),
+        ],
+      ),
+      _CurrencyHint(
+        code: 'NZD',
+        regexes: [
+          RegExp(r'\bnzd\b', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'new zealand',
+          '.nz',
+          'auckland',
+          'wellington',
+        ],
+      ),
+      _CurrencyHint(
+        code: 'CAD',
+        regexes: [
+          RegExp(r'\bcad\b', caseSensitive: false),
+          RegExp(r'canadian dollars?', caseSensitive: false),
+          RegExp(r'gst/?hst', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'canada',
+          '.ca',
+          'toronto',
+          'vancouver',
+          'montreal',
+        ],
+        phonePatterns: [
+          RegExp(r'\+?1[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{4}'),
+        ],
+      ),
+      _CurrencyHint(
+        code: 'SGD',
+        regexes: [
+          RegExp(r'\bsgd\b', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'singapore',
+          '.sg',
+        ],
+        phonePatterns: [
+          RegExp(r'\+?65[\s-]?\d{4}[\s-]?\d{4}'),
+        ],
+      ),
+      _CurrencyHint(
+        code: 'GBP',
+        regexes: [
+          RegExp(r'£'),
+          RegExp(r'\bgbp\b', caseSensitive: false),
+          RegExp(r'\bpounds?\b', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'united kingdom',
+          'uk',
+          'england',
+          'scotland',
+          'wales',
+          '.uk',
+        ],
+      ),
+      _CurrencyHint(
+        code: 'EUR',
+        regexes: [
+          RegExp(r'€'),
+          RegExp(r'\beur\b', caseSensitive: false),
+          RegExp(r'\beuros?\b', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'europe',
+          'germany',
+          'france',
+          'spain',
+          'italy',
+          'netherlands',
+        ],
+      ),
+      _CurrencyHint(
+        code: 'USD',
+        regexes: [
+          RegExp(r'\busd\b', caseSensitive: false),
+          RegExp(r'us dollars?', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'united states',
+          'usa',
+          'united states of america',
+          '.us',
+          'new york',
+          'california',
+        ],
+        phonePatterns: [
+          RegExp(r'\+?1[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{4}'),
+        ],
+      ),
+      _CurrencyHint(
+        code: 'JPY',
+        regexes: [
+          RegExp(r'¥'),
+          RegExp(r'\byen\b', caseSensitive: false),
+          RegExp(r'\bjpy\b', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'japan',
+          '.jp',
+          'tokyo',
+          'osaka',
+        ],
+      ),
+      _CurrencyHint(
+        code: 'CNY',
+        regexes: [
+          RegExp(r'\bcny\b', caseSensitive: false),
+          RegExp(r'\byuan\b', caseSensitive: false),
+          RegExp(r'\brenminbi\b', caseSensitive: false),
+          RegExp(r'\brmb\b', caseSensitive: false),
+        ],
+        localeKeywords: [
+          'china',
+          '.cn',
+          'beijing',
+          'shanghai',
+          'guangzhou',
+        ],
+      ),
+    ];
 
-    // GST without country -> likely Australia
-    if (lower.contains('gst') || lower.contains('abn')) return 'AUD';
+    for (final hint in hints) {
+      if (hint.matches(rawText, lower)) {
+        return hint.code;
+      }
+    }
 
-    // Fallback: USD (if we cannot infer)
+    // No heuristic hit; use GPT-provided value if present.
+    if (normalizedParsed != null) {
+      return normalizedParsed;
+    }
+
+    // Fallback: USD (if we cannot infer or GPT gave nothing meaningful)
     return 'USD';
   }
 }
@@ -445,4 +615,34 @@ class _MoneyMatch {
   final int lineIndex;
   final String lineText;
   _MoneyMatch({required this.value, required this.lineIndex, required this.lineText});
+}
+
+class _CurrencyHint {
+  const _CurrencyHint({
+    required this.code,
+    this.regexes = const [],
+    this.localeKeywords = const [],
+    this.phonePatterns = const [],
+  });
+
+  final String code;
+  final List<RegExp> regexes;
+  final List<String> localeKeywords;
+  final List<RegExp> phonePatterns;
+
+  bool matches(String rawText, String lowerText) {
+    if (regexes.any((regex) => regex.hasMatch(rawText))) {
+      return true;
+    }
+
+    if (localeKeywords.any((keyword) => lowerText.contains(keyword))) {
+      return true;
+    }
+
+    if (phonePatterns.any((pattern) => pattern.hasMatch(rawText))) {
+      return true;
+    }
+
+    return false;
+  }
 }

@@ -47,6 +47,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   final String receiptId = const Uuid().v4();
   List<ReceiptItem> _items = [];
 
+  final List<String> _currencyOptions =
+      List<String>.from(AppConstants.supportedCurrencies);
   String _currency = AppConstants.supportedCurrencies.first;
   DateTime _date = DateTime.now();
   String? _imagePath;
@@ -222,6 +224,14 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
       if (result.items.isNotEmpty) {
         _items = result.toReceiptItems(); // assumes new model includes taxClaimable default
+      }
+
+      final String? parsedCurrency = result.currency?.trim().toUpperCase();
+      if (parsedCurrency != null && parsedCurrency.isNotEmpty) {
+        if (!_currencyOptions.contains(parsedCurrency)) {
+          _currencyOptions.add(parsedCurrency);
+        }
+        _currency = parsedCurrency;
       }
 
       _extractedText =
@@ -499,7 +509,7 @@ Widget build(BuildContext context) {
                         value: _currency,
                         onChanged: (String? v) =>
                             setState(() => _currency = v ?? _currency),
-                        items: AppConstants.supportedCurrencies
+                        items: _currencyOptions
                             .map((String c) =>
                                 DropdownMenuItem<String>(value: c, child: Text(c)))
                             .toList(),

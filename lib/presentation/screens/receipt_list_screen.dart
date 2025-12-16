@@ -74,8 +74,20 @@ class ReceiptListScreen extends ConsumerWidget {
                       .contains(query);
                   break;
                 case "tax claimable":
-                  matches =
-                      query == "true" && r.items.any((i) => i.taxClaimable);
+                  final normalized = query.toLowerCase();
+                  final bool anyTaxClaimable =
+                      r.items.any((i) => i.taxClaimable);
+                  if (normalized == "true" ||
+                      normalized == "yes" ||
+                      normalized == "1") {
+                    matches = anyTaxClaimable;
+                  } else if (normalized == "false" ||
+                      normalized == "no" ||
+                      normalized == "0") {
+                    matches = !anyTaxClaimable;
+                  } else {
+                    matches = false;
+                  }
                   break;
               }
 
@@ -164,12 +176,25 @@ class ReceiptListScreen extends ConsumerWidget {
                         subtitle: Text(
                           DateFormat.yMMMd().format(receipt.date),
                         ),
-                        trailing: Text(
-                          "\$${receipt.total.toStringAsFixed(2)}",
-                          style: TextStyle(
-                            color: Colors.green[700],
-                            fontWeight: FontWeight.bold,
-                          ),
+                        trailing: Builder(
+                          builder: (_) {
+                            String formattedAmount;
+                            try {
+                              formattedAmount = NumberFormat.simpleCurrency(
+                                      name: receipt.currency)
+                                  .format(receipt.total);
+                            } catch (_) {
+                              formattedAmount =
+                                  '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
+                            }
+                            return Text(
+                              formattedAmount,
+                              style: TextStyle(
+                                color: Colors.green[700],
+                                fontWeight: FontWeight.bold,
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -179,20 +204,25 @@ class ReceiptListScreen extends ConsumerWidget {
 
               // Clear Search FAB (only visible when searching)
               if (isSearching)
-                Positioned(
-                  bottom: 20,
-                  right: 20,
-                  child: FloatingActionButton.extended(
-                    heroTag: "clearSearchFab",
-                    backgroundColor:
-                        Theme.of(context).colorScheme.secondaryContainer,
-                    foregroundColor:
-                        Theme.of(context).colorScheme.onSecondaryContainer,
-                    onPressed: () {
-                      ref.read(searchQueryProvider.notifier).state = "";
-                    },
-                    icon: const Icon(Icons.clear),
-                    label: const Text("Clear Search"),
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: FloatingActionButton.extended(
+                        heroTag: "clearSearchFab",
+                        backgroundColor:
+                            Theme.of(context).colorScheme.secondaryContainer,
+                        foregroundColor: Theme.of(context)
+                            .colorScheme
+                            .onSecondaryContainer,
+                        onPressed: () {
+                          ref.read(searchQueryProvider.notifier).state = "";
+                        },
+                        icon: const Icon(Icons.clear),
+                        label: const Text("Clear Search"),
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -260,6 +290,7 @@ class ReceiptSearchDelegate extends SearchDelegate<String?> {
   ReceiptSearchDelegate(this.ref);
 
   String selectedFilter = "store";
+  String _taxClaimableSelection = 'true';
   final List<String> filters = [
     "store",
     "date",
@@ -345,7 +376,14 @@ Widget buildSuggestions(BuildContext context) {
                         .toList(),
                     onChanged: (v) {
                       if (v != null) {
-                        setState(() => selectedFilter = v);
+                        setState(() {
+                          selectedFilter = v;
+                          if (selectedFilter == "tax claimable") {
+                            query = _taxClaimableSelection;
+                          } else {
+                            query = "";
+                          }
+                        });
                       }
                     },
                   ),
@@ -355,14 +393,41 @@ Widget buildSuggestions(BuildContext context) {
 
                 Expanded(
                   flex: 5,
-                  child: TextField(
-                    onChanged: (v) => query = v,
-                    decoration: const InputDecoration(
-                      labelText: "Search value",
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.fromLTRB(12, 8, 12, 8),
-                    ),
-                  ),
+                  child: selectedFilter == "tax claimable"
+                      ? DropdownButtonFormField<String>(
+                          value: _taxClaimableSelection,
+                          decoration: const InputDecoration(
+                            labelText: "Tax Claimable?",
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.fromLTRB(12, 8, 12, 8),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'true',
+                              child: Text('Yes'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'false',
+                              child: Text('No'),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) {
+                              setState(() {
+                                _taxClaimableSelection = v;
+                                query = v;
+                              });
+                            }
+                          },
+                        )
+                      : TextField(
+                          onChanged: (v) => query = v,
+                          decoration: const InputDecoration(
+                            labelText: "Search value",
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.fromLTRB(12, 8, 12, 8),
+                          ),
+                        ),
                 ),
 
                 const SizedBox(width: 8),
