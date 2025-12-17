@@ -15,7 +15,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
     return openDatabase(
       dbPath,
       password: 'smartreceipt_dev',
-      version: 2, // Incremented version to trigger upgrade/create
+      version: 3, // schema now tracks processed/original image metadata
       onCreate: (Database db, int version) async {
         await db.execute('''
         CREATE TABLE receipts (
@@ -27,6 +27,9 @@ class SqliteReceiptRepository implements ReceiptRepository {
           notes TEXT,
           tags TEXT,
           imagePath TEXT,
+          originalImagePath TEXT,
+          processedImagePath TEXT,
+          imageProcessingStatus TEXT,
           extractedText TEXT,
           expiryDate TEXT
         );
@@ -34,7 +37,16 @@ class SqliteReceiptRepository implements ReceiptRepository {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          await db.execute('ALTER TABLE receipts ADD COLUMN extractedText TEXT;');
+          await db
+              .execute('ALTER TABLE receipts ADD COLUMN extractedText TEXT;');
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+              'ALTER TABLE receipts ADD COLUMN originalImagePath TEXT;');
+          await db.execute(
+              'ALTER TABLE receipts ADD COLUMN processedImagePath TEXT;');
+          await db.execute(
+              'ALTER TABLE receipts ADD COLUMN imageProcessingStatus TEXT;');
         }
       },
     );
@@ -45,7 +57,8 @@ class SqliteReceiptRepository implements ReceiptRepository {
   @override
   Future<void> addReceipt(Receipt receipt) async {
     final Database db = await _dbFuture;
-    await db.insert('receipts', _toDbMap(receipt), conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert('receipts', _toDbMap(receipt),
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   @override
@@ -57,15 +70,16 @@ class SqliteReceiptRepository implements ReceiptRepository {
   @override
   Future<List<Receipt>> getAllReceipts() async {
     final Database db = await _dbFuture;
-    final List<Map<String, Object?>> rows = await db.query('receipts', orderBy: 'date DESC');
+    final List<Map<String, Object?>> rows =
+        await db.query('receipts', orderBy: 'date DESC');
     return rows.map(_fromDbMap).toList();
   }
 
   @override
   Future<Receipt?> getReceiptById(String id) async {
     final Database db = await _dbFuture;
-    final List<Map<String, Object?>> rows =
-        await db.query('receipts', where: 'id = ?', whereArgs: <Object?>[id], limit: 1);
+    final List<Map<String, Object?>> rows = await db.query('receipts',
+        where: 'id = ?', whereArgs: <Object?>[id], limit: 1);
     if (rows.isEmpty) return null;
     return _fromDbMap(rows.first);
   }
@@ -73,7 +87,8 @@ class SqliteReceiptRepository implements ReceiptRepository {
   @override
   Future<void> updateReceipt(Receipt receipt) async {
     final Database db = await _dbFuture;
-    await db.update('receipts', _toDbMap(receipt), where: 'id = ?', whereArgs: <Object?>[receipt.id]);
+    await db.update('receipts', _toDbMap(receipt),
+        where: 'id = ?', whereArgs: <Object?>[receipt.id]);
   }
 
   Map<String, Object?> _toDbMap(Receipt r) => <String, Object?>{
@@ -85,6 +100,9 @@ class SqliteReceiptRepository implements ReceiptRepository {
         'notes': r.notes,
         'tags': jsonEncode(r.tags),
         'imagePath': r.imagePath,
+        'originalImagePath': r.originalImagePath,
+        'processedImagePath': r.processedImagePath,
+        'imageProcessingStatus': r.imageProcessingStatus,
         'extractedText': r.extractedText,
         'expiryDate': r.expiryDate?.toIso8601String(),
       };
@@ -102,6 +120,9 @@ class SqliteReceiptRepository implements ReceiptRepository {
       notes: map['notes'] as String?,
       tags: tags,
       imagePath: map['imagePath'] as String?,
+      originalImagePath: map['originalImagePath'] as String?,
+      processedImagePath: map['processedImagePath'] as String?,
+      imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
       expiryDate: (map['expiryDate'] as String?) != null
           ? DateTime.parse(map['expiryDate']! as String)

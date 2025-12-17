@@ -1,28 +1,36 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 import {ImageAnnotatorClient} from "@google-cloud/vision";
 import * as admin from "firebase-admin";
+import sharp from "sharp";
+import * as path from "path";
+import * as fs from "fs/promises";
 
-// Initialize Firebase Admin SDK
+// ----------------------
+// Initialization
+// ----------------------
+
 admin.initializeApp();
-
-// Initialize Vision AI Client
 const client = new ImageAnnotatorClient();
 
-// Set global options for all functions
 setGlobalOptions({maxInstances: 10});
 
+// ----------------------
+// Existing Vision OCR Callable (UNCHANGED)
+// ----------------------
+
 export const visionOcr = onCall(async (request) => {
-  // Ensure the user is authenticated.
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
 
-  const {path, imageBase64, imageUrl, gcsUri} = request.data || {};
+  const {path: imagePath, imageBase64, imageUrl, gcsUri} =
+    request.data || {};
 
-  if (!path && !imageBase64 && !imageUrl && !gcsUri) {
+  if (!imagePath && !imageBase64 && !imageUrl && !gcsUri) {
     throw new HttpsError(
       "invalid-argument",
       "Must provide either 'path', 'imageBase64', 'imageUrl', or 'gcsUri'."
@@ -36,46 +44,37 @@ export const visionOcr = onCall(async (request) => {
       | null = null;
 
     if (gcsUri) {
-      // Case 1: Direct GCS URI passed in
-      logger.info(`Using provided GCS URI: ${gcsUri}`);
       visionRequest = {image: {source: {imageUri: gcsUri}}};
-    } else if (path) {
-      const isPdf = path.toLowerCase().endsWith(".pdf");
+    } else if (imagePath) {
+      const isPdf = imagePath.toLowerCase().endsWith(".pdf");
       if (isPdf) {
-        // PDFs require a GCS URI
         const bucketName = admin.storage().bucket().name;
-        const gcsUriFromPath = `gs://${bucketName}/${path}`;
-        logger.info(`PDF to Vision API with GCS URI: ${gcsUriFromPath}`);
-        visionRequest = {image: {source: {imageUri: gcsUriFromPath}}};
+        visionRequest = {
+          image: {source: {imageUri: `gs://${bucketName}/${imagePath}`}},
+        };
       } else {
-        // Images from Firebase Storage (download as buffer)
-        const bucket = admin.storage().bucket();
-        const file = bucket.file(path);
+        const file = admin.storage().bucket().file(imagePath);
         const [buffer] = await file.download();
         visionRequest = {image: {content: buffer}};
       }
     } else if (imageBase64) {
-      // Case 3: Direct base64 content from client
-      const buffer = Buffer.from(imageBase64, "base64");
-      visionRequest = {image: {content: buffer}};
+      visionRequest = {
+        image: {content: Buffer.from(imageBase64, "base64")},
+      };
     } else if (imageUrl) {
-      // Case 4: Remote image URL
       visionRequest = {image: {source: {imageUri: imageUrl}}};
     }
 
-    // Call Vision API
     if (!visionRequest) {
       throw new HttpsError("invalid-argument", "No valid image provided");
     }
+
     const [result] = await client.documentTextDetection(visionRequest);
-
-
-    logger.info("Full Vision API response", {visionResult: result});
 
     const text = result.fullTextAnnotation?.text || "";
     const locale =
-      result.fullTextAnnotation?.pages?.[0]?.property?.detectedLanguages?.[0]
-        ?.languageCode || null;
+      result.fullTextAnnotation?.pages?.[0]?.property
+        ?.detectedLanguages?.[0]?.languageCode || null;
 
     return {text, locale};
   } catch (error) {
@@ -87,3 +86,97 @@ export const visionOcr = onCall(async (request) => {
     );
   }
 });
+
+// ----------------------
+// NEW: Receipt Image Processing (Firestore Trigger)
+// ----------------------
+
+export const processReceiptImage = onDocumentCreated(
+  "users/{uid}/receipts/{receiptId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) {
+      return;
+    }
+
+    const data = snap.data();
+    const {uid, receiptId} = event.params;
+
+    const originalImagePath = data.originalImagePath;
+    const processedImagePath = data.processedImagePath;
+    const status = data.imageProcessingStatus;
+
+    // -------- Guard clauses --------
+    if (!originalImagePath) {
+      logger.info("No original image; skipping", {receiptId});
+      return;
+    }
+
+    if (processedImagePath) {
+      logger.info("Already processed; skipping", {receiptId});
+      return;
+    }
+
+    if (status !== "pending") {
+      logger.info("Status not pending; skipping", {receiptId, status});
+      return;
+    }
+
+    logger.info("Starting receipt image processing", {uid, receiptId});
+
+    const bucket = admin.storage().bucket();
+
+    const storagePath = originalImagePath.startsWith("http") ?
+      decodeURIComponent(
+        originalImagePath.split("/o/")[1].split("?")[0]
+      ) :
+      originalImagePath;
+
+    const tmpInput = path.join("/tmp", `${receiptId}-original`);
+    const tmpOutput = path.join("/tmp", `${receiptId}-processed.jpg`);
+
+    try {
+      await bucket.file(storagePath).download({destination: tmpInput});
+
+      await sharp(tmpInput)
+        .rotate()
+        .resize({width: 2000, withoutEnlargement: true})
+        .sharpen()
+        .jpeg({quality: 88})
+        .toFile(tmpOutput);
+
+      const processedStoragePath =
+        `receipts/${uid}/${receiptId}/processed.jpg`;
+
+      await bucket.upload(tmpOutput, {
+        destination: processedStoragePath,
+        contentType: "image/jpeg",
+      });
+
+      await snap.ref.update({
+        processedImagePath: processedStoragePath,
+        imageProcessingStatus: "completed",
+      });
+
+      logger.info("Receipt image processed successfully", {receiptId});
+    } catch (error) {
+      logger.error("Receipt image processing failed", {receiptId, error});
+
+      await snap.ref.update({
+        imageProcessingStatus: "failed",
+      });
+    } finally {
+      try {
+        await fs.unlink(tmpInput);
+      } catch (e) {
+        logger.debug("Temp input cleanup skipped");
+      }
+
+      try {
+        await fs.unlink(tmpOutput);
+      } catch (e) {
+        logger.debug("Temp output cleanup skipped");
+      }
+    }
+  }
+);

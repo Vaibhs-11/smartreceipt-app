@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -27,15 +28,42 @@ class ReceiptDetailScreen extends ConsumerWidget {
           final currencyFormatter =
               NumberFormat.currency(symbol: receipt.currency);
 
+          final displayImagePath = _resolveReceiptImagePath(receipt);
+          final showProcessingBanner = displayImagePath != null &&
+              receipt.processedImagePath == null &&
+              receipt.imageProcessingStatus == 'pending';
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 // --- Receipt image or link section ---
-                if (receipt.imagePath != null && receipt.imagePath!.isNotEmpty)
-                  _buildImageOrFileSection(
-                      context, receipt.imagePath!, receipt.storeName),
+                if (displayImagePath != null)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildImageOrFileSection(
+                          context, displayImagePath, receipt.storeName),
+                      if (showProcessingBanner) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: const [
+                            SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)),
+                            SizedBox(width: 8),
+                            Text(
+                              'Enhancing image...',
+                              style: TextStyle(fontSize: 12),
+                            )
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
 
                 const SizedBox(height: 16),
 
@@ -102,11 +130,60 @@ class ReceiptDetailScreen extends ConsumerWidget {
     );
   }
 
+  String? _resolveReceiptImagePath(Receipt receipt) {
+    final processed = receipt.processedImagePath;
+    if (processed != null && processed.trim().isNotEmpty) return processed;
+
+    final original = receipt.originalImagePath;
+    if (original != null && original.trim().isNotEmpty) return original;
+
+    final legacy = receipt.imagePath;
+    if (legacy != null && legacy.trim().isNotEmpty) return legacy;
+    return null;
+  }
+
   /// --- Determines whether it's a network image, local file, or PDF ---
   Widget _buildImageOrFileSection(
       BuildContext context, String path, String storeName) {
-    final lower = path.toLowerCase();
-    final isNetwork = path.startsWith('http');
+    if (path.startsWith('http')) {
+      return _buildRemoteImageOrFile(context, path, storeName, path);
+    }
+
+    final isLocalFile = path.startsWith('/') || path.startsWith('file://');
+    if (isLocalFile) {
+      return _buildLocalImage(context, path);
+    }
+
+    // Storage paths (e.g., receipts/{uid}/{id}/processed.jpg) must be
+    // resolved into download URLs before rendering.
+    return FutureBuilder<String>(
+      future: FirebaseStorage.instance.ref(path).getDownloadURL(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            height: 200,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.grey[200],
+            ),
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.hasError) {
+          return const Text("Unable to load receipt image");
+        }
+
+        final downloadUrl = snapshot.data!;
+        return _buildRemoteImageOrFile(context, downloadUrl, storeName, path);
+      },
+    );
+  }
+
+  Widget _buildRemoteImageOrFile(
+      BuildContext context, String url, String storeName, String typeSource) {
+    final lower = typeSource.toLowerCase();
     final isImage = lower.endsWith('.jpg') ||
         lower.endsWith('.jpeg') ||
         lower.endsWith('.png') ||
@@ -114,52 +191,46 @@ class ReceiptDetailScreen extends ConsumerWidget {
         lower.endsWith('.webp');
     final isPdf = lower.endsWith('.pdf');
 
-    if (isNetwork) {
-      if (isImage) {
-        // Show network image + link card
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                path,
-                height: 200,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    const Text("Could not load image preview"),
-              ),
-            ),
-            const SizedBox(height: 8),
-            _buildOpenFileLink(context, path, storeName, isPdf),
-          ],
-        );
-      } else {
-        // Non-image (PDF etc.) → show clickable link card only
-        return _buildOpenFileLink(context, path, storeName, isPdf);
-      }
-    } else {
-      // Local file
-      if (isImage) {
-        return GestureDetector(
-          onTap: () => _openFullImage(context, File(path)),
-          child: ClipRRect(
+    if (isImage) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.file(
-              File(path),
+            child: Image.network(
+              url,
               height: 200,
               width: double.infinity,
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) =>
-                  const Text("Could not load local image"),
+                  const Text("Could not load image preview"),
             ),
           ),
-        );
-      } else {
-        return const Text("Unsupported local file type");
-      }
+          const SizedBox(height: 8),
+          _buildOpenFileLink(context, url, storeName, isPdf),
+        ],
+      );
     }
+
+    // Non-image (PDF etc.) → show clickable link card only
+    return _buildOpenFileLink(context, url, storeName, isPdf);
+  }
+
+  Widget _buildLocalImage(BuildContext context, String path) {
+    return GestureDetector(
+      onTap: () => _openFullImage(context, File(path)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.file(
+          File(path),
+          height: 200,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) =>
+              const Text("Could not load local image"),
+        ),
+      ),
+    );
   }
 
   /// --- Builds a visible, clickable link card for any network file ---

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -10,7 +11,8 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:smartreceipt/core/constants/app_constants.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart' show Receipt, ReceiptItem;
+import 'package:smartreceipt/domain/entities/receipt.dart'
+    show Receipt, ReceiptItem;
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult;
@@ -51,7 +53,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       List<String>.from(AppConstants.supportedCurrencies);
   String _currency = AppConstants.supportedCurrencies.first;
   DateTime _date = DateTime.now();
-  String? _imagePath;
+  String? _originalImagePath;
+  String? _processedImagePath;
+  String? _imageProcessingStatus;
   String? _extractedText;
   bool _isLoading = false;
   List<String> _searchKeywords = const [];
@@ -95,7 +99,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 Expanded(
                   flex: 3,
                   child: TextFormField(
-                    key: ValueKey('item-name-$index-${item.name}-${item.price}'),
+                    key:
+                        ValueKey('item-name-$index-${item.name}-${item.price}'),
                     initialValue: item.name,
                     decoration: const InputDecoration(labelText: 'Item name'),
                     onChanged: (val) {
@@ -110,7 +115,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 Expanded(
                   flex: 2,
                   child: TextFormField(
-                    key: ValueKey('item-price-$index-${item.name}-${item.price}'),
+                    key: ValueKey(
+                        'item-price-$index-${item.name}-${item.price}'),
                     initialValue: item.price.toStringAsFixed(2),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
@@ -161,36 +167,45 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _submit() async {
-  if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-  final navigator = Navigator.of(context);
-  final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
+    final navigator = Navigator.of(context);
+    final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
 
-  final receipt = Receipt(
-    id: receiptId,
-    storeName: _storeCtrl.text.trim(),
-    date: _date,
-    total: total,
-    currency: _currency,
-    notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-    imagePath: _imagePath,
-    extractedText: _extractedText,
-    items: _items,
-    searchKeywords: _searchKeywords,
-    normalizedBrand: _normalizedBrand,
-    category: _category,
-  );
+    final receipt = Receipt(
+      id: receiptId,
+      storeName: _storeCtrl.text.trim(),
+      date: _date,
+      total: total,
+      currency: _currency,
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      imagePath: _originalImagePath,
+      originalImagePath: _originalImagePath,
+      processedImagePath: _processedImagePath,
+      imageProcessingStatus: _imageProcessingStatus,
+      extractedText: _extractedText,
+      items: _items,
+      searchKeywords: _searchKeywords,
+      normalizedBrand: _normalizedBrand,
+      category: _category,
+    );
 
-  // Correct provider
-  final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
+    // Correct provider
+    final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
 
-  await addReceipt(receipt);
+    await addReceipt(receipt);
+    if (_originalImagePath != null && _originalImagePath!.isNotEmpty) {
+      final imageProcessor = ref.read(receiptImageProcessingServiceProvider);
+      unawaited(imageProcessor.enqueueEnhancement(
+        receiptId: receiptId,
+        originalImagePath: _originalImagePath!,
+      ));
+    }
 
-  if (mounted) {
-    navigator.pop();
+    if (mounted) {
+      navigator.pop();
+    }
   }
- }
-
 
   Future<UploadedFile?> _uploadFileToStorage(File file) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -221,7 +236,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     setState(() {
       _isLoading = false;
       if (uploadedUrl != null) {
-        _imagePath = uploadedUrl;
+        _originalImagePath = uploadedUrl;
+        _processedImagePath = null;
+        _imageProcessingStatus = 'pending';
       }
       _storeCtrl.text = result.storeName;
       _totalCtrl.text = result.total.toStringAsFixed(2);
@@ -229,7 +246,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       _dateCtrl.text = DateFormat.yMMMd().format(_date);
 
       if (result.items.isNotEmpty) {
-        _items = result.toReceiptItems(); // assumes new model includes taxClaimable default
+        _items = result
+            .toReceiptItems(); // assumes new model includes taxClaimable default
       }
 
       final String? parsedCurrency = result.currency?.trim().toUpperCase();
@@ -244,8 +262,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       _normalizedBrand = result.normalizedBrand;
       _category = result.category;
 
-      _extractedText =
-          'Store: ${result.storeName}\n'
+      _extractedText = 'Store: ${result.storeName}\n'
           'Date: ${DateFormat.yMMMd().format(result.date)}\n'
           'Total: ${result.total.toStringAsFixed(2)}\n\n'
           'Raw Text:\n${result.rawText}';
@@ -274,8 +291,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       String extractedText = '';
       try {
         final Uint8List bytes = await file.readAsBytes();
-        final sfpdf.PdfDocument document =
-            sfpdf.PdfDocument(inputBytes: bytes);
+        final sfpdf.PdfDocument document = sfpdf.PdfDocument(inputBytes: bytes);
         final sfpdf.PdfTextExtractor extractor =
             sfpdf.PdfTextExtractor(document);
 
@@ -328,8 +344,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         await page.close();
         await pdf.close();
 
-        final jpgPath =
-            file.path.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '_p1.jpg');
+        final jpgPath = file.path
+            .replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '_p1.jpg');
 
         tempImageFile = File(jpgPath);
         await tempImageFile.writeAsBytes(jpgBytes, flush: true);
@@ -436,178 +452,186 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   @override
-Widget build(BuildContext context) {
-  // bottom padding to lift Save button above keyboard when open
-  final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
-  final double bottomPadding = math.max(bottomInset, 12);
+  Widget build(BuildContext context) {
+    // bottom padding to lift Save button above keyboard when open
+    final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final double bottomPadding = math.max(bottomInset, 12);
 
-  return Scaffold(
-    appBar: AppBar(title: const Text('Add Receipt')),
-    resizeToAvoidBottomInset: true,
-    body: Stack(
-      children: [
-        SafeArea(
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_imagePath != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        'Selected image: $_imagePath',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+    return Scaffold(
+      appBar: AppBar(title: const Text('Add Receipt')),
+      resizeToAvoidBottomInset: true,
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_originalImagePath != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          'Selected image: $_originalImagePath',
+                          style:
+                              const TextStyle(fontSize: 12, color: Colors.grey),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    TextFormField(
+                      controller: _storeCtrl,
+                      decoration:
+                          const InputDecoration(labelText: 'Store name'),
+                      validator: (String? v) =>
+                          v == null || v.trim().isEmpty ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _dateCtrl,
+                      readOnly: true,
+                      decoration: const InputDecoration(labelText: 'Date'),
+                      onTap: () => _pickDate(_dateCtrl),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isLoading
+                                ? null
+                                : () => _pickImage(fromCamera: true),
+                            icon: const Icon(Icons.photo_camera_outlined),
+                            label: const Text('Capture'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isLoading ? null : _showUploadOptions,
+                            icon: const Icon(Icons.upload),
+                            label: const Text('Upload'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: TextFormField(
+                            controller: _totalCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: const InputDecoration(
+                                labelText: 'Total amount'),
+                            validator: (String? v) =>
+                                (double.tryParse(v ?? '') == null)
+                                    ? 'Enter valid number'
+                                    : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        DropdownButton<String>(
+                          value: _currency,
+                          onChanged: (String? v) =>
+                              setState(() => _currency = v ?? _currency),
+                          items: _currencyOptions
+                              .map((String c) => DropdownMenuItem<String>(
+                                  value: c, child: Text(c)))
+                              .toList(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _notesCtrl,
+                      decoration:
+                          const InputDecoration(labelText: 'Notes (optional)'),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 20),
+                    const Text('Items',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Review items carefully. Edit names/prices if needed.\n'
+                        'Tick the checkbox for tax claimable purchases.',
+                        style: TextStyle(fontSize: 12, color: Colors.black87),
                       ),
                     ),
-                  TextFormField(
-                    controller: _storeCtrl,
-                    decoration: const InputDecoration(labelText: 'Store name'),
-                    validator: (String? v) =>
-                        v == null || v.trim().isEmpty ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _dateCtrl,
-                    readOnly: true,
-                    decoration: const InputDecoration(labelText: 'Date'),
-                    onTap: () => _pickDate(_dateCtrl),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed:
-                              _isLoading ? null : () => _pickImage(fromCamera: true),
-                          icon: const Icon(Icons.photo_camera_outlined),
-                          label: const Text('Capture'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _isLoading ? null : _showUploadOptions,
-                          icon: const Icon(Icons.upload),
-                          label: const Text('Upload'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: TextFormField(
-                          controller: _totalCtrl,
-                          keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
-                          decoration:
-                              const InputDecoration(labelText: 'Total amount'),
-                          validator: (String? v) =>
-                              (double.tryParse(v ?? '') == null)
-                                  ? 'Enter valid number'
-                                  : null,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      DropdownButton<String>(
-                        value: _currency,
-                        onChanged: (String? v) =>
-                            setState(() => _currency = v ?? _currency),
-                        items: _currencyOptions
-                            .map((String c) =>
-                                DropdownMenuItem<String>(value: c, child: Text(c)))
-                            .toList(),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _notesCtrl,
-                    decoration: const InputDecoration(labelText: 'Notes (optional)'),
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('Items',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Review items carefully. Edit names/prices if needed.\n'
-                      'Tick the checkbox for tax claimable purchases.',
-                      style: TextStyle(fontSize: 12, color: Colors.black87),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
-                  // Build item cards
-                  ..._items.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    return _buildItemCard(index);
-                  }).toList(),
+                    // Build item cards
+                    ..._items.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      return _buildItemCard(index);
+                    }).toList(),
 
-                  const SizedBox(height: 12),
-                  // Add new item row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _itemNameCtrl,
-                          decoration: const InputDecoration(labelText: 'Item name'),
+                    const SizedBox(height: 12),
+                    // Add new item row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _itemNameCtrl,
+                            decoration:
+                                const InputDecoration(labelText: 'Item name'),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: _itemPriceCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          decoration: const InputDecoration(labelText: 'Price'),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _itemPriceCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration:
+                                const InputDecoration(labelText: 'Price'),
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle, color: Colors.green),
-                        onPressed: _addNewItemFromInputs,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 100), // spacer so last row not hidden
-                ],
+                        IconButton(
+                          icon:
+                              const Icon(Icons.add_circle, color: Colors.green),
+                          onPressed: _addNewItemFromInputs,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(
+                        height: 100), // spacer so last row not hidden
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        if (_isLoading)
-          Container(
-            color: Colors.black.withOpacity(0.45),
-            child: const Center(child: CircularProgressIndicator()),
-          ),
-      ],
-    ),
-    bottomNavigationBar: SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
-        child: SizedBox(
-          height: 52,
-          child: ElevatedButton.icon(
-            onPressed: _isLoading ? null : _submit,
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('Save'),
+          if (_isLoading)
+            Container(
+              color: Colors.black.withOpacity(0.45),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
+          child: SizedBox(
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _isLoading ? null : _submit,
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('Save'),
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }

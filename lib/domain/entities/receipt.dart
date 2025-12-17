@@ -55,6 +55,9 @@ class Receipt extends Equatable {
     this.notes,
     this.tags = const <String>[],
     this.imagePath,
+    this.originalImagePath,
+    this.processedImagePath,
+    this.imageProcessingStatus,
     this.extractedText,
     this.expiryDate,
     this.fileUrl,
@@ -72,6 +75,9 @@ class Receipt extends Equatable {
   final String? notes;
   final List<String> tags;
   final String? imagePath;
+  final String? originalImagePath;
+  final String? processedImagePath;
+  final String? imageProcessingStatus;
   final String? extractedText;
   final DateTime? expiryDate;
   final String? fileUrl;
@@ -89,6 +95,9 @@ class Receipt extends Equatable {
     String? notes,
     List<String>? tags,
     String? imagePath,
+    String? originalImagePath,
+    String? processedImagePath,
+    String? imageProcessingStatus,
     String? extractedText,
     DateTime? expiryDate,
     String? fileUrl,
@@ -106,6 +115,10 @@ class Receipt extends Equatable {
       notes: notes ?? this.notes,
       tags: tags ?? this.tags,
       imagePath: imagePath ?? this.imagePath,
+      originalImagePath: originalImagePath ?? this.originalImagePath,
+      processedImagePath: processedImagePath ?? this.processedImagePath,
+      imageProcessingStatus:
+          imageProcessingStatus ?? this.imageProcessingStatus,
       extractedText: extractedText ?? this.extractedText,
       expiryDate: expiryDate ?? this.expiryDate,
       fileUrl: fileUrl ?? this.fileUrl,
@@ -125,6 +138,9 @@ class Receipt extends Equatable {
       'notes': notes,
       'tags': tags,
       'imagePath': imagePath,
+      'originalImagePath': originalImagePath,
+      'processedImagePath': processedImagePath,
+      'imageProcessingStatus': imageProcessingStatus,
       'extractedText': extractedText,
       'expiryDate': expiryDate != null ? Timestamp.fromDate(expiryDate!) : null,
       'fileUrl': fileUrl,
@@ -146,6 +162,9 @@ class Receipt extends Equatable {
       notes: map['notes'] as String?,
       tags: (map['tags'] as List<Object?>?)?.cast<String>() ?? const [],
       imagePath: map['imagePath'] as String?,
+      originalImagePath: map['originalImagePath'] as String?,
+      processedImagePath: map['processedImagePath'] as String?,
+      imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
       expiryDate: (map['expiryDate'] as Timestamp?)?.toDate(),
       fileUrl: map['fileUrl'] as String?,
@@ -176,6 +195,9 @@ class Receipt extends Equatable {
       notes: data['notes'] as String?,
       tags: (data['tags'] as List<dynamic>?)?.cast<String>() ?? const [],
       imagePath: data['imagePath'] as String?,
+      originalImagePath: data['originalImagePath'] as String?,
+      processedImagePath: data['processedImagePath'] as String?,
+      imageProcessingStatus: data['imageProcessingStatus'] as String?,
       extractedText: data['extractedText'] as String?,
       expiryDate: (data['expiryDate'] as Timestamp?)?.toDate(),
       fileUrl: data['fileUrl'] as String?,
@@ -201,6 +223,9 @@ class Receipt extends Equatable {
         notes,
         tags,
         imagePath,
+        originalImagePath,
+        processedImagePath,
+        imageProcessingStatus,
         extractedText,
         expiryDate,
         fileUrl,

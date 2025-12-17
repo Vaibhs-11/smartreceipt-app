@@ -9,6 +9,7 @@ import 'package:smartreceipt/data/services/auth/firebase_auth_service.dart'
     as fb_impl;
 import 'package:smartreceipt/data/services/cloud_ocr_service.dart';
 import 'package:smartreceipt/data/services/ocr/chatgpt_ocr_service.dart';
+import 'package:smartreceipt/data/services/image_processing/receipt_image_processing_service.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
@@ -20,6 +21,11 @@ import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 
 final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
   return fb_impl.FirebaseAuthService();
+});
+
+final receiptImageProcessingServiceProvider =
+    Provider<ReceiptImageProcessingService>((ref) {
+  return ReceiptImageProcessingService();
 });
 
 // Stream of the current user (null when logged out)
@@ -131,8 +137,6 @@ final receiptsProvider = StreamProvider.autoDispose<List<Receipt>>((ref) {
     return snapshot.docs.map((doc) => doc.data()).toList();
   });
 });
-
-
 
 /// Single receipt detail provider
 final receiptDetailProvider =
