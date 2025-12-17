@@ -24,7 +24,7 @@ class ChatGptOcrService implements OcrService {
   Future<OcrResult> parseRawText(String rawText) async {
     final url = Uri.parse("https://api.openai.com/v1/chat/completions");
 
-    // Improved prompt: be strict, do not round, include currency and candidate totals.
+    // Improved prompt: be strict, do not round, include currency, candidate totals, and enrichment metadata.
     final prompt = """
 You are a strict receipt parser. Extract these exact values from the receipt text below.
 - storeName: primary store name (top of receipt).
@@ -33,6 +33,11 @@ You are a strict receipt parser. Extract these exact values from the receipt tex
 - total: the exact final total amount that is the bill value (do not round or "guess" — pick the amount that is clearly labelled TOTAL, Grand Total, Invoice Total, or the final billed amount).
 - currency: currency code (e.g. AUD, USD, GBP) if present. If not present, try to infer from the receipt (domain .au -> AUD, presence of 'GST' or 'ABN' -> AUD, 'HST' -> CAD, etc).
 - ALSO return a list named 'totals' containing candidate amounts with their context text, and indicate which candidate you selected using 'selectedTotalIndex' (0-based). This helps downstream validation.
+
+Additionally, derive these receipt-level metadata fields:
+- normalizedBrand: the most likely brand name, corrected for OCR errors. Return null if unsure.
+- category: a high-level description such as "gaming console", "electronics", "groceries", "grooming", "coffee machine" etc. Return null if unsure.
+- searchKeywords: list of lowercased keywords for search (brand, model/family, category, other concrete hints). Do not invent facts, and do not include duplicates.
 
 Rules:
 - If a currency symbol (AUD, A\$, \$, USD, EUR, etc.) is present, use it.
@@ -56,7 +61,10 @@ Return JSON only, no markdown fences, no other text. Example response format:
   ],
   "selectedTotalIndex": 0,
   "total": 17.34,
-  "currency": "AUD"
+  "currency": "AUD",
+  "normalizedBrand": "Sony",
+  "category": "gaming console",
+  "searchKeywords": ["sony", "playstation", "ps5", "gaming console"]
 }
 
 Important instructions for the model:
@@ -107,6 +115,14 @@ $rawText
     final rawDate = (parsed["date"] as String?) ?? "";
     final parsedDate = _tryParseDate(rawDate);
     final parsedCurrency = (parsed["currency"] as String?)?.trim();
+    final normalizedBrand = _normalizeOptionalString(
+      parsed["normalizedBrand"] as String?,
+    );
+    final category = _normalizeOptionalString(
+      parsed["category"] as String?,
+    );
+
+    final searchKeywords = _extractSearchKeywords(parsed["searchKeywords"]);
 
     // Items
     List<OcrReceiptItem> items = [];
@@ -159,6 +175,18 @@ $rawText
     // Determine currency: prefer GPT; if missing, infer from rawText
     final currency = _inferCurrency(rawText, parsedCurrency);
 
+    // Ensure normalized brand / category keywords appear in search keywords
+    void ensureKeyword(String? value) {
+      final normalized = value?.trim().toLowerCase();
+      if (normalized == null || normalized.isEmpty) return;
+      if (!searchKeywords.contains(normalized)) {
+        searchKeywords.add(normalized);
+      }
+    }
+
+    ensureKeyword(normalizedBrand);
+    ensureKeyword(category);
+
     return OcrResult(
       storeName: storeName ?? "Unknown Store",
       date: parsedDate ?? DateTime.now(),
@@ -166,6 +194,9 @@ $rawText
       rawText: rawText,
       items: items,
       currency: currency,
+      searchKeywords: searchKeywords,
+      normalizedBrand: normalizedBrand,
+      category: category,
     );
   }
 
@@ -188,6 +219,28 @@ $rawText
     // If wrapped in single backticks or other wrappers, attempt to strip common wrappers
     s = s.trim();
     return s;
+  }
+
+  String? _normalizeOptionalString(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
+  }
+
+  List<String> _extractSearchKeywords(dynamic raw) {
+    final List<String> keywords = [];
+    final Set<String> seen = {};
+    if (raw is List) {
+      for (final entry in raw) {
+        if (entry == null) continue;
+        final normalized = entry.toString().trim().toLowerCase();
+        if (normalized.isEmpty) continue;
+        if (seen.add(normalized)) {
+          keywords.add(normalized);
+        }
+      }
+    }
+    return keywords;
   }
 
   double? _numFromDynamic(dynamic v) {

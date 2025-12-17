@@ -18,6 +18,9 @@ class OcrResult extends Equatable {
   final String rawText;
   final List<OcrReceiptItem> items;
   final String? currency;
+  final List<String> searchKeywords;
+  final String? normalizedBrand;
+  final String? category;
 
   const OcrResult({
     required this.storeName,
@@ -26,6 +29,9 @@ class OcrResult extends Equatable {
     required this.rawText,
     this.items = const [],
     this.currency,
+    this.searchKeywords = const [],
+    this.normalizedBrand,
+    this.category,
   });
 
   /// ✅ Helper: convert OCR items into domain ReceiptItems
@@ -37,5 +43,15 @@ class OcrResult extends Equatable {
   }
 
   @override
-  List<Object?> get props => [storeName, date, total, rawText, items];
+  List<Object?> get props => [
+        storeName,
+        date,
+        total,
+        rawText,
+        items,
+        currency,
+        searchKeywords,
+        normalizedBrand,
+        category,
+      ];
 }

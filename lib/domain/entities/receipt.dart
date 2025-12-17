@@ -59,6 +59,9 @@ class Receipt extends Equatable {
     this.expiryDate,
     this.fileUrl,
     this.items = const <ReceiptItem>[],
+    this.searchKeywords = const <String>[],
+    this.normalizedBrand,
+    this.category,
   });
 
   final String id; // Firestore doc ID
@@ -73,6 +76,9 @@ class Receipt extends Equatable {
   final DateTime? expiryDate;
   final String? fileUrl;
   final List<ReceiptItem> items;
+  final List<String> searchKeywords;
+  final String? normalizedBrand;
+  final String? category;
 
   Receipt copyWith({
     String? id,
@@ -87,6 +93,9 @@ class Receipt extends Equatable {
     DateTime? expiryDate,
     String? fileUrl,
     List<ReceiptItem>? items,
+    List<String>? searchKeywords,
+    String? normalizedBrand,
+    String? category,
   }) {
     return Receipt(
       id: id ?? this.id,
@@ -101,6 +110,9 @@ class Receipt extends Equatable {
       expiryDate: expiryDate ?? this.expiryDate,
       fileUrl: fileUrl ?? this.fileUrl,
       items: items ?? this.items,
+      searchKeywords: searchKeywords ?? this.searchKeywords,
+      normalizedBrand: normalizedBrand ?? this.normalizedBrand,
+      category: category ?? this.category,
     );
   }
 
@@ -117,6 +129,9 @@ class Receipt extends Equatable {
       'expiryDate': expiryDate != null ? Timestamp.fromDate(expiryDate!) : null,
       'fileUrl': fileUrl,
       'items': items.map((i) => i.toMap()).toList(),
+      'searchKeywords': searchKeywords,
+      'normalizedBrand': normalizedBrand,
+      'category': category,
     };
   }
 
@@ -138,6 +153,10 @@ class Receipt extends Equatable {
               ?.map((i) => ReceiptItem.fromMap(Map<String, Object?>.from(i)))
               .toList() ??
           const [],
+      searchKeywords:
+          (map['searchKeywords'] as List<dynamic>?)?.cast<String>() ?? const [],
+      normalizedBrand: map['normalizedBrand'] as String?,
+      category: map['category'] as String?,
     );
   }
 
@@ -164,6 +183,11 @@ class Receipt extends Equatable {
               ?.map((i) => ReceiptItem.fromMap(Map<String, Object?>.from(i)))
               .toList() ??
           const [],
+      searchKeywords:
+          (data['searchKeywords'] as List<dynamic>?)?.cast<String>() ??
+              const [],
+      normalizedBrand: data['normalizedBrand'] as String?,
+      category: data['category'] as String?,
     );
   }
 
@@ -181,5 +205,8 @@ class Receipt extends Equatable {
         expiryDate,
         fileUrl,
         items,
+        searchKeywords,
+        normalizedBrand,
+        category,
       ];
 }

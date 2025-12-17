@@ -54,6 +54,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   String? _imagePath;
   String? _extractedText;
   bool _isLoading = false;
+  List<String> _searchKeywords = const [];
+  String? _normalizedBrand;
+  String? _category;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -173,6 +176,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     imagePath: _imagePath,
     extractedText: _extractedText,
     items: _items,
+    searchKeywords: _searchKeywords,
+    normalizedBrand: _normalizedBrand,
+    category: _category,
   );
 
   // Correct provider
@@ -233,6 +239,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         }
         _currency = parsedCurrency;
       }
+
+      _searchKeywords = List<String>.from(result.searchKeywords);
+      _normalizedBrand = result.normalizedBrand;
+      _category = result.category;
 
       _extractedText =
           'Store: ${result.storeName}\n'
