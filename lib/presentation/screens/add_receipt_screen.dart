@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart'
@@ -19,6 +18,7 @@ import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult;
 import 'package:smartreceipt/domain/services/ocr_service.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 import 'package:pdfx/pdfx.dart' as pdfx;
+import 'package:smartreceipt/services/receipt_image_source_service.dart';
 
 class UploadedFile {
   final String downloadUrl;
@@ -26,8 +26,20 @@ class UploadedFile {
   UploadedFile({required this.downloadUrl, required this.gcsUri});
 }
 
+enum AddReceiptInitialAction { pickGallery, pickFiles }
+
+class AddReceiptScreenArgs {
+  final String? initialImagePath;
+  final AddReceiptInitialAction? initialAction;
+
+  const AddReceiptScreenArgs({this.initialImagePath, this.initialAction});
+}
+
 class AddReceiptScreen extends ConsumerStatefulWidget {
-  const AddReceiptScreen({super.key});
+  final String? initialImagePath;
+  final AddReceiptInitialAction? initialAction;
+
+  const AddReceiptScreen({super.key, this.initialImagePath, this.initialAction});
 
   @override
   ConsumerState<AddReceiptScreen> createState() => _AddReceiptScreenState();
@@ -61,6 +73,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   List<String> _searchKeywords = const [];
   String? _normalizedBrand;
   String? _category;
+  bool _initialArgsHandled = false;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -68,6 +81,17 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   void initState() {
     super.initState();
     _dateCtrl.text = DateFormat.yMMMd().format(_date);
+    _handleInitialArgs();
+  }
+
+  @override
+  void didUpdateWidget(covariant AddReceiptScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialImagePath != oldWidget.initialImagePath ||
+        widget.initialAction != oldWidget.initialAction) {
+      _initialArgsHandled = false;
+      _handleInitialArgs();
+    }
   }
 
   @override
@@ -164,6 +188,41 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       controller.text = formatted;
       _date = picked;
     });
+  }
+
+  void _handleInitialArgs() {
+    if (_initialArgsHandled) return;
+
+    final path = widget.initialImagePath;
+    if (path != null && path.isNotEmpty) {
+      final file = File(path);
+      if (!file.existsSync()) {
+        debugPrint('Initial image path does not exist: $path');
+      } else {
+        _initialArgsHandled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _processAndUploadFile(file);
+        });
+        return;
+      }
+    }
+
+    final action = widget.initialAction;
+    if (action != null) {
+      _initialArgsHandled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        switch (action) {
+          case AddReceiptInitialAction.pickGallery:
+            _handleGalleryPick();
+            break;
+          case AddReceiptInitialAction.pickFiles:
+            _pickFile();
+            break;
+        }
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -375,14 +434,59 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
   }
 
-  Future<void> _pickImage({required bool fromCamera}) async {
-    final picker = ImagePicker();
-    final XFile? file = await (fromCamera
-        ? picker.pickImage(source: ImageSource.camera)
-        : picker.pickImage(source: ImageSource.gallery));
-    if (file == null) return;
+  Future<void> _handleCameraCapture() async {
+    final service = ref.read(receiptImageSourceServiceProvider);
+    final result = await service.pickFromCamera();
+    await _handleImageSourceResult(result, fromCamera: true);
+  }
 
-    await _processAndUploadFile(File(file.path));
+  Future<void> _handleGalleryPick() async {
+    final service = ref.read(receiptImageSourceServiceProvider);
+    final result = await service.pickFromGallery();
+    await _handleImageSourceResult(result);
+  }
+
+  Future<void> _handleImageSourceResult(
+    ReceiptImagePickResult result, {
+    bool fromCamera = false,
+  }) async {
+    if (result.file != null) {
+      await _processAndUploadFile(result.file!);
+      return;
+    }
+
+    final failure = result.failure;
+    if (failure == null || !mounted) return;
+
+    if (fromCamera) {
+      if (failure.code == ReceiptImageSourceError.permissionDenied) {
+        _showImageSourceError(failure);
+        return;
+      }
+
+      final selection = await ref
+          .read(receiptImageSourceServiceProvider)
+          .showCameraFallbackDialog(context);
+      if (!mounted || selection == null) return;
+      switch (selection) {
+        case CameraFallbackSelection.gallery:
+          await _handleGalleryPick();
+          break;
+        case CameraFallbackSelection.files:
+          await _pickFile();
+          break;
+      }
+      return;
+    }
+
+    _showImageSourceError(failure);
+  }
+
+  void _showImageSourceError(ReceiptImageSourceFailure failure) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(failure.message)),
+    );
   }
 
   Future<void> _pickFile() async {
@@ -422,7 +526,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (!mounted) return;
 
     if (result == 'gallery') {
-      await _pickImage(fromCamera: false);
+      await _handleGalleryPick();
     } else if (result == 'files') {
       await _pickFile();
     }
@@ -502,7 +606,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           child: OutlinedButton.icon(
                             onPressed: _isLoading
                                 ? null
-                                : () => _pickImage(fromCamera: true),
+                                : () => _handleCameraCapture(),
                             icon: const Icon(Icons.photo_camera_outlined),
                             label: const Text('Capture'),
                           ),

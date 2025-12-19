@@ -70,7 +70,15 @@ class SmartReceiptApp extends ConsumerWidget {
         return MaterialPageRoute(builder: (_) => const SignupScreen());
 
       case AppRoutes.addReceipt:
-        return MaterialPageRoute(builder: (_) => const AddReceiptScreen());
+        final args = settings.arguments is AddReceiptScreenArgs
+            ? settings.arguments as AddReceiptScreenArgs
+            : null;
+        return MaterialPageRoute(
+          builder: (_) => AddReceiptScreen(
+            initialImagePath: args?.initialImagePath,
+            initialAction: args?.initialAction,
+          ),
+        );
 
       case AppRoutes.scanReceipt:
         return MaterialPageRoute(builder: (_) => const ScanReceiptScreen());

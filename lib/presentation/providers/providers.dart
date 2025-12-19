@@ -18,6 +18,7 @@ import 'package:smartreceipt/domain/usecases/add_receipt.dart';
 import 'package:smartreceipt/domain/usecases/get_receipt_by_id.dart';
 import 'package:smartreceipt/domain/usecases/get_receipts.dart';
 import 'package:smartreceipt/presentation/providers/auth_controller.dart';
+import 'package:smartreceipt/services/receipt_image_source_service.dart';
 
 final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
   return fb_impl.FirebaseAuthService();
@@ -26,6 +27,11 @@ final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
 final receiptImageProcessingServiceProvider =
     Provider<ReceiptImageProcessingService>((ref) {
   return ReceiptImageProcessingService();
+});
+
+final receiptImageSourceServiceProvider =
+    Provider<ReceiptImageSourceService>((ref) {
+  return ReceiptImageSourceService();
 });
 
 // Stream of the current user (null when logged out)

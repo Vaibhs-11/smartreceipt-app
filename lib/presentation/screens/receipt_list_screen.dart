@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:smartreceipt/presentation/routes/app_routes.dart';
+import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
+import 'package:smartreceipt/services/receipt_image_source_service.dart';
 
 class ReceiptSearchFilters {
   static const _unset = Object();
@@ -98,6 +101,18 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("My Receipts"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.photo_camera_outlined),
+            tooltip: 'Capture receipt',
+            onPressed: _handleCameraShortcut,
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Sign out',
+            onPressed: () => ref.read(authServiceProvider).signOut(),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -426,6 +441,57 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
 
       return true;
     }).toList();
+  }
+
+  Future<void> _handleCameraShortcut() async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final imageService = ref.read(receiptImageSourceServiceProvider);
+    final result = await imageService.pickFromCamera();
+    if (!mounted) return;
+
+    if (result.file != null) {
+      await navigator.pushNamed(
+        AppRoutes.addReceipt,
+        arguments:
+            AddReceiptScreenArgs(initialImagePath: result.file!.path),
+      );
+      return;
+    }
+
+    final failure = result.failure;
+    if (failure == null) return;
+
+    if (failure.code == ReceiptImageSourceError.permissionDenied) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(failure.message)),
+      );
+      return;
+    }
+
+    final selection = await imageService.showCameraFallbackDialog(context);
+    if (!mounted || selection == null) return;
+
+    AddReceiptScreenArgs? args;
+    switch (selection) {
+      case CameraFallbackSelection.gallery:
+        args = const AddReceiptScreenArgs(
+          initialAction: AddReceiptInitialAction.pickGallery,
+        );
+        break;
+      case CameraFallbackSelection.files:
+        args = const AddReceiptScreenArgs(
+          initialAction: AddReceiptInitialAction.pickFiles,
+        );
+        break;
+    }
+
+    if (args != null) {
+      await navigator.pushNamed(
+        AppRoutes.addReceipt,
+        arguments: args,
+      );
+    }
   }
 
   bool _matchesQuery(Receipt receipt, String query) {
