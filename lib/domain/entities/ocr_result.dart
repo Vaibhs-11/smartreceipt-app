@@ -12,6 +12,8 @@ class OcrReceiptItem extends Equatable {
 }
 
 class OcrResult extends Equatable {
+  final bool isReceipt;
+  final String? receiptRejectionReason;
   final String storeName;
   final DateTime date;
   final double total;
@@ -23,6 +25,8 @@ class OcrResult extends Equatable {
   final String? category;
 
   const OcrResult({
+    this.isReceipt = true,
+    this.receiptRejectionReason,
     required this.storeName,
     required this.date,
     required this.total,
@@ -49,6 +53,8 @@ class OcrResult extends Equatable {
         total,
         rawText,
         items,
+        isReceipt,
+        receiptRejectionReason,
         currency,
         searchKeywords,
         normalizedBrand,

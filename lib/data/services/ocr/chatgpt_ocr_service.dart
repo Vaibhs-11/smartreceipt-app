@@ -24,9 +24,12 @@ class ChatGptOcrService implements OcrService {
   Future<OcrResult> parseRawText(String rawText) async {
     final url = Uri.parse("https://api.openai.com/v1/chat/completions");
 
-    // Improved prompt: be strict, do not round, include currency, candidate totals, and enrichment metadata.
+    // Improved prompt: be strict, do not round, include currency, candidate totals, enrichment metadata,
+    // and a hard classification flag for whether the content is a receipt.
     final prompt = """
 You are a strict receipt parser. Extract these exact values from the receipt text below.
+- isReceipt: boolean, true ONLY when this is a purchase receipt/tax invoice. If text is unrelated (bank statements, invoices, tickets, ads, random text), set false.
+- receiptRejectionReason: short explanation when isReceipt is false (e.g. "bank statement, not a receipt"). Keep it concise; null when isReceipt is true.
 - storeName: primary store name (top of receipt).
 - date: purchase date in YYYY-MM-DD format.
 - items: list of item objects with exact item name and exact numeric price (use decimals as shown).
@@ -49,6 +52,8 @@ Rules:
 Return JSON only, no markdown fences, no other text. Example response format:
 
 {
+  "isReceipt": true,
+  "receiptRejectionReason": null,
   "storeName": "Example Store",
   "date": "2025-08-17",
   "items": [
@@ -72,6 +77,7 @@ Important instructions for the model:
 - If multiple "totals" exist, prefer the one explicitly labelled TOTAL, GRAND TOTAL, or the one on the 'TOTAL' line. If still ambiguous, prefer the amount that represents the final billed amount (not a partial refund or "Paid" rounding).
 - If you cannot find a date in YYYY-MM-DD, try to parse dd/mm/yyyy, dd/mm/yy and convert it to YYYY-MM-DD. If unable to parse, return an empty string for date.
 - If currency is missing, you may leave it empty; the client will try to infer from the receipt text.
+- If you determine the content is not a receipt, set isReceipt to false, provide receiptRejectionReason, and keep monetary fields at 0 and strings empty when unsure.
 
 Receipt Text:
 $rawText
@@ -111,6 +117,10 @@ $rawText
     }
 
     // Extract values from parsed JSON
+    final bool isReceipt = _parseBool(parsed["isReceipt"]) ?? true;
+    final rejectionReason = _normalizeOptionalString(
+      parsed["receiptRejectionReason"] as String?,
+    );
     final storeName = (parsed["storeName"] as String?)?.trim();
     final rawDate = (parsed["date"] as String?) ?? "";
     final parsedDate = _tryParseDate(rawDate);
@@ -193,6 +203,8 @@ $rawText
       total: finalTotal,
       rawText: rawText,
       items: items,
+      isReceipt: isReceipt,
+      receiptRejectionReason: rejectionReason,
       currency: currency,
       searchKeywords: searchKeywords,
       normalizedBrand: normalizedBrand,
@@ -219,6 +231,15 @@ $rawText
     // If wrapped in single backticks or other wrappers, attempt to strip common wrappers
     s = s.trim();
     return s;
+  }
+
+  bool? _parseBool(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    final normalized = value.toString().trim().toLowerCase();
+    if (normalized == 'true') return true;
+    if (normalized == 'false') return false;
+    return null;
   }
 
   String? _normalizeOptionalString(String? value) {

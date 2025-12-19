@@ -80,6 +80,7 @@ Future<OcrResult> parseImage(String imagePathOrUrl) async {
     final total = extractTotal(rawText) ?? 0.0;
 
     return OcrResult(
+      isReceipt: true,
       storeName: storeName,
       date: date,
       total: total,
@@ -317,4 +318,3 @@ class _MoneyMatch {
   final String lineText;
   _MoneyMatch({required this.value, required this.lineIndex, required this.lineText});
 }
-

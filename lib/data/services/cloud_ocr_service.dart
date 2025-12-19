@@ -21,6 +21,7 @@ class CloudOcrService implements OcrService {
     final rawText = await _callVisionViaCloudFunction(imagePathOrUrl);
 
     return OcrResult(
+      isReceipt: true,
       storeName: "",
       date: DateTime.now(),
       total: 0.0,
@@ -43,6 +44,7 @@ class CloudOcrService implements OcrService {
     final rawText = data['text'] ?? "";
 
     return OcrResult(
+      isReceipt: true,
       storeName: "",
       date: DateTime.now(),
       total: 0.0,

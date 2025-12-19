@@ -28,6 +28,8 @@ class UploadedFile {
 
 enum AddReceiptInitialAction { pickGallery, pickFiles }
 
+enum _NonReceiptAction { camera, gallery, files, none }
+
 class AddReceiptScreenArgs {
   final String? initialImagePath;
   final AddReceiptInitialAction? initialAction;
@@ -70,6 +72,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   String? _imageProcessingStatus;
   String? _extractedText;
   bool _isLoading = false;
+  bool _receiptRejected = false;
+  String? _receiptRejectionReason;
   List<String> _searchKeywords = const [];
   String? _normalizedBrand;
   String? _category;
@@ -226,6 +230,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _submit() async {
+    if (_receiptRejected) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final navigator = Navigator.of(context);
@@ -294,6 +299,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (!mounted) return;
     setState(() {
       _isLoading = false;
+      _receiptRejected = false;
+      _receiptRejectionReason = null;
       if (uploadedUrl != null) {
         _originalImagePath = uploadedUrl;
         _processedImagePath = null;
@@ -328,8 +335,106 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     });
   }
 
+  Future<_NonReceiptAction?> _handleNonReceipt(OcrResult result) async {
+    if (!mounted) return null;
+    setState(() {
+      _receiptRejected = true;
+      _receiptRejectionReason = result.receiptRejectionReason;
+    });
+    return _showNotReceiptDialog(result.receiptRejectionReason);
+  }
+
+  Future<bool> _maybeAcceptReceiptResult(
+    OcrResult result, {
+    String? uploadedUrl,
+  }) async {
+    if (!result.isReceipt) {
+      final nextAction = await _handleNonReceipt(result);
+      if (nextAction != null &&
+          nextAction != _NonReceiptAction.none &&
+          mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          switch (nextAction) {
+            case _NonReceiptAction.camera:
+              _handleCameraCapture();
+              break;
+            case _NonReceiptAction.gallery:
+              _handleGalleryPick();
+              break;
+            case _NonReceiptAction.files:
+              _pickFile();
+              break;
+            case _NonReceiptAction.none:
+              break;
+          }
+        });
+      }
+      return false;
+    }
+
+    _handleOcrResult(result, uploadedUrl: uploadedUrl);
+    return true;
+  }
+
+  Future<_NonReceiptAction?> _showNotReceiptDialog(String? reason) {
+    if (!mounted) return Future.value(_NonReceiptAction.none);
+    return showDialog<_NonReceiptAction>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Not a receipt'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Sorry — we couldn’t confidently identify this image as a receipt, so we’re unable to store it. Please try uploading a clearer photo of a receipt.',
+              ),
+              if (reason != null && reason.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    'Details: $reason',
+                    style: Theme.of(dialogContext).textTheme.bodySmall,
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_NonReceiptAction.none),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_NonReceiptAction.files),
+              child: const Text('Pick from Files'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_NonReceiptAction.gallery),
+              child: const Text('Pick from Gallery'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(_NonReceiptAction.camera),
+              child: const Text('Retry with Camera'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _processAndUploadFile(File file) async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _receiptRejected = false;
+      _receiptRejectionReason = null;
+    });
 
     try {
       final String lowerPath = file.path.toLowerCase();
@@ -342,7 +447,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
         final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
         final result = await ocr.parseImage(gcsPath);
-        _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+        await _maybeAcceptReceiptResult(
+          result,
+          uploadedUrl: uploadResult.downloadUrl,
+        );
         return;
       }
 
@@ -376,7 +484,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         if (uploadResult == null) throw Exception('File upload failed.');
 
         final parsed = await ocr.parseRawText(extractedText);
-        _handleOcrResult(parsed, uploadedUrl: uploadResult.downloadUrl);
+        await _maybeAcceptReceiptResult(
+          parsed,
+          uploadedUrl: uploadResult.downloadUrl,
+        );
         return;
       }
 
@@ -421,7 +532,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
       final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
       final result = await ocr.parseImage(gcsPath);
-      _handleOcrResult(result, uploadedUrl: uploadResult.downloadUrl);
+      await _maybeAcceptReceiptResult(
+        result,
+        uploadedUrl: uploadResult.downloadUrl,
+      );
     } catch (e, s) {
       debugPrint('Error processing file: $e\n$s');
       if (mounted) {
@@ -729,7 +843,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           child: SizedBox(
             height: 52,
             child: ElevatedButton.icon(
-              onPressed: _isLoading ? null : _submit,
+              onPressed: _isLoading || _receiptRejected ? null : _submit,
               icon: const Icon(Icons.save_outlined),
               label: const Text('Save'),
             ),
