@@ -38,10 +38,12 @@ class CloudOcrService implements OcrService {
   @override
   Future<OcrResult> parsePdf(String gcsPath) async {
     final callable = _functions.httpsCallable('visionOcr');
-    final result = await callable.call({"path": gcsPath});
+    final result =
+        await callable.call<Map<String, dynamic>>(<String, dynamic>{"path": gcsPath});
 
-    final data = Map<String, dynamic>.from(result.data as Map);
-    final rawText = data['text'] ?? "";
+    final data =
+        Map<String, dynamic>.from(result.data as Map<dynamic, dynamic>);
+    final rawText = data['text'] as String? ?? "";
 
     return OcrResult(
       isReceipt: true,
@@ -60,13 +62,16 @@ class CloudOcrService implements OcrService {
 
     if (imagePathOrUrl.startsWith('http')) {
       // Case 1: remote URL
-      final result = await callable.call({'imageUrl': imagePathOrUrl});
+      final result =
+          await callable.call<Map<String, dynamic>>(
+              <String, dynamic>{'imageUrl': imagePathOrUrl});
       return _extractTextFromCallableResult(result);
 
     } else if (imagePathOrUrl.startsWith('receipts/')) {
       // Case 2: Firebase Storage relative path → convert to GCS URI
       final gcsUri = "gs://$_bucket/$imagePathOrUrl";
-      final result = await callable.call({'gcsUri': gcsUri});
+      final result =
+          await callable.call<Map<String, dynamic>>(<String, dynamic>{'gcsUri': gcsUri});
       return _extractTextFromCallableResult(result);
 
     } else {
@@ -77,12 +82,15 @@ class CloudOcrService implements OcrService {
       }
       final bytes = await file.readAsBytes();
       final base64Image = base64Encode(bytes);
-      final result = await callable.call({'imageBase64': base64Image});
+      final result =
+          await callable.call<Map<String, dynamic>>(
+              <String, dynamic>{'imageBase64': base64Image});
       return _extractTextFromCallableResult(result);
     }
   }
 
-  String _extractTextFromCallableResult(HttpsCallableResult result) {
+  String _extractTextFromCallableResult(
+      HttpsCallableResult<dynamic> result) {
     final data = result.data;
     if (data is Map && data['text'] != null) {
       return data['text'] as String;

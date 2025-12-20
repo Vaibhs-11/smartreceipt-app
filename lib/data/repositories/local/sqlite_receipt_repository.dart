@@ -67,7 +67,6 @@ class SqliteReceiptRepository implements ReceiptRepository {
     await db.delete('receipts', where: 'id = ?', whereArgs: <Object?>[id]);
   }
 
-  @override
   Future<List<Receipt>> getAllReceipts() async {
     final Database db = await _dbFuture;
     final List<Map<String, Object?>> rows =
@@ -89,6 +88,21 @@ class SqliteReceiptRepository implements ReceiptRepository {
     final Database db = await _dbFuture;
     await db.update('receipts', _toDbMap(receipt),
         where: 'id = ?', whereArgs: <Object?>[receipt.id]);
+  }
+
+  @override
+  Future<int> getReceiptCount() async {
+    final Database db = await _dbFuture;
+    final result = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM receipts'),
+        ) ??
+        0;
+    return result;
+  }
+
+  @override
+  Future<List<Receipt>> getReceipts() {
+    return getAllReceipts();
   }
 
   Map<String, Object?> _toDbMap(Receipt r) => <String, Object?>{

@@ -17,6 +17,17 @@ const client = new ImageAnnotatorClient();
 
 setGlobalOptions({maxInstances: 10});
 
+type AccountStatus = "free" | "trial" | "paid";
+
+interface UserDoc {
+  accountStatus?: AccountStatus;
+  trialEndsAt?: admin.firestore.Timestamp;
+  subscriptionEndsAt?: admin.firestore.Timestamp;
+  trialDowngradeRequired?: boolean;
+}
+
+const firestore = admin.firestore();
+
 // ----------------------
 // Existing Vision OCR Callable (UNCHANGED)
 // ----------------------
@@ -180,3 +191,250 @@ export const processReceiptImage = onDocumentCreated(
     }
   }
 );
+
+// ----------------------
+// Account helpers
+// ----------------------
+
+const asAccountStatus = (raw?: string | null): AccountStatus => {
+  switch ((raw ?? "").toLowerCase()) {
+  case "trial":
+    return "trial";
+  case "paid":
+    return "paid";
+  case "free":
+  default:
+    return "free";
+  }
+};
+
+const isExpired = (user: UserDoc, now: Date): boolean => {
+  const account = asAccountStatus(user.accountStatus || "free");
+  if (account === "trial" && user.trialEndsAt) {
+    return now > user.trialEndsAt.toDate();
+  }
+  if (account === "paid" && user.subscriptionEndsAt) {
+    return now > user.subscriptionEndsAt.toDate();
+  }
+  return false;
+};
+
+const canAddReceipt = (
+  user: UserDoc,
+  receiptCount: number,
+  now: Date
+): boolean => {
+  const status = asAccountStatus(user.accountStatus || "free");
+  if (user.trialDowngradeRequired) return false;
+  if (status === "paid" && (!user.subscriptionEndsAt ||
+    now < user.subscriptionEndsAt.toDate())) {
+    return true;
+  }
+  if (status === "trial" && (!user.trialEndsAt ||
+    now < user.trialEndsAt.toDate())) {
+    return true;
+  }
+  return receiptCount < 3;
+};
+
+const resolveStoragePath = (
+  value: unknown,
+  uid: string,
+  bucketName: string
+): string | null => {
+  if (!value || typeof value !== "string") return null;
+  const pathStr = value as string;
+  if (pathStr.startsWith("gs://")) {
+    const withoutScheme = pathStr.replace(`gs://${bucketName}/`, "");
+    if (withoutScheme.startsWith(`receipts/${uid}`)) {
+      return withoutScheme;
+    }
+    return null;
+  }
+
+  if (pathStr.startsWith("http")) {
+    try {
+      const decoded = decodeURIComponent(pathStr.split("/o/")[1].split("?")[0]);
+      if (decoded.startsWith(`receipts/${uid}`)) {
+        return decoded;
+      }
+    } catch (e) {
+      logger.warn("Failed to parse storage URL", {value, e});
+    }
+    return null;
+  }
+
+  if (pathStr.startsWith(`receipts/${uid}`)) return pathStr;
+  return null;
+};
+
+// ----------------------
+// NEW: Downgrade callable
+// ----------------------
+
+export const finalizeDowngradeToFree = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "User must be authenticated");
+  }
+
+  const keepIds = request.data?.keepReceiptIds as unknown;
+  if (!Array.isArray(keepIds) || keepIds.length !== 3) {
+    throw new HttpsError(
+      "invalid-argument",
+      "keepReceiptIds must be an array of exactly three receipt IDs"
+    );
+  }
+
+  const keep = new Set(
+    (keepIds as unknown[]).map((id) => String(id))
+  );
+  if (keep.size !== 3) {
+    throw new HttpsError(
+      "invalid-argument",
+      "keepReceiptIds must be unique"
+    );
+  }
+
+  const userRef = firestore.collection("users").doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new HttpsError("failed-precondition", "User record not found");
+  }
+
+  const userData = userSnap.data() as UserDoc;
+  const now = new Date();
+  const expired = isExpired(userData, now);
+  if (!userData.trialDowngradeRequired && !expired) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Downgrade is not required"
+    );
+  }
+
+  const receiptsSnap = await userRef.collection("receipts").get();
+  const allReceipts = receiptsSnap.docs;
+  if (allReceipts.length < keep.size) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Selected receipts are not valid"
+    );
+  }
+
+  for (const id of keep) {
+    const exists = allReceipts.find((doc) => doc.id === id);
+    if (!exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Selected receipts are not valid"
+      );
+    }
+  }
+
+  const bucket = admin.storage().bucket();
+  for (const doc of allReceipts) {
+    if (keep.has(doc.id)) continue;
+    const data = doc.data();
+    const paths = [
+      data.originalImagePath,
+      data.processedImagePath,
+      data.imagePath,
+      data.fileUrl,
+    ];
+    for (const p of paths) {
+      const resolved = resolveStoragePath(p, uid, bucket.name);
+      if (resolved) {
+        try {
+          await bucket.file(resolved).delete({ignoreNotFound: true});
+        } catch (e) {
+          logger.warn("Failed to delete storage file", {resolved, e});
+        }
+      }
+    }
+    await doc.ref.delete();
+  }
+
+  await userRef.set(
+    {
+      accountStatus: "free",
+      trialDowngradeRequired: false,
+    },
+    {merge: true}
+  );
+
+  return {
+    kept: Array.from(keep),
+    deleted: allReceipts.length - keep.size,
+  };
+});
+
+// ----------------------
+// NEW: Receipt creation gate
+// ----------------------
+
+export const createReceipt = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "User must be authenticated");
+  }
+
+  const receipt = request.data?.receipt as Record<string, unknown> | undefined;
+  const receiptId = request.data?.receiptId as string | undefined;
+  if (!receipt || !receiptId) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Missing receipt payload or receiptId"
+    );
+  }
+
+  const userRef = firestore.collection("users").doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new HttpsError("failed-precondition", "User not found");
+  }
+
+  const userData = userSnap.data() as UserDoc;
+  const now = new Date();
+  const countSnap = await userRef.collection("receipts").count().get();
+  const currentCount = countSnap.data().count ?? 0;
+
+  if (!canAddReceipt(userData, currentCount, now)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Receipt limit reached or downgrade required"
+    );
+  }
+
+  const dateValue = receipt["date"];
+  let parsedDate: Date | null = null;
+  if (typeof dateValue === "string") {
+    parsedDate = new Date(dateValue);
+  } else if (dateValue && typeof dateValue === "object" &&
+    "seconds" in (dateValue as Record<string, unknown>)) {
+    const seconds = Number(
+      (dateValue as Record<string, unknown>)["seconds"]
+    );
+    parsedDate = new Date(seconds * 1000);
+  }
+
+  const expiryValue = receipt["expiryDate"];
+  let parsedExpiry: Date | null = null;
+  if (typeof expiryValue === "string") {
+    parsedExpiry = new Date(expiryValue);
+  }
+
+  const payload: Record<string, unknown> = {
+    ...receipt,
+    date: parsedDate ?
+      admin.firestore.Timestamp.fromDate(parsedDate) :
+      admin.firestore.Timestamp.fromDate(new Date()),
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (parsedExpiry) {
+    payload["expiryDate"] = admin.firestore.Timestamp.fromDate(parsedExpiry);
+  }
+
+  await userRef.collection("receipts").doc(receiptId).set(payload);
+  return {ok: true};
+});

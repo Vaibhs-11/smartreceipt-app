@@ -33,6 +33,8 @@ class FirebaseAuthService implements AuthService {
       "email": cred.user!.email,
       "createdAt": FieldValue.serverTimestamp(),
       "isAnonymous": true,
+      "accountStatus": "free",
+      "trialDowngradeRequired": false,
     }, SetOptions(merge: true));
 
     return _mapUser(cred.user);
@@ -63,6 +65,8 @@ class FirebaseAuthService implements AuthService {
       "email": cred.user!.email,
       "createdAt": FieldValue.serverTimestamp(),
       "isAnonymous": false,
+      "accountStatus": "free",
+      "trialDowngradeRequired": false,
     }, SetOptions(merge: true));
 
     return _mapUser(cred.user);

@@ -108,6 +108,13 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
             onPressed: _handleCameraShortcut,
           ),
           IconButton(
+            icon: const Icon(Icons.account_circle_outlined),
+            tooltip: 'Account',
+            onPressed: () {
+              Navigator.pushNamed(context, AppRoutes.account);
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
             onPressed: () => ref.read(authServiceProvider).signOut(),

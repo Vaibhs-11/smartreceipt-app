@@ -1,8 +1,8 @@
 // login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/signup_screen.dart';
 
 
@@ -79,16 +79,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     decoration: const InputDecoration(
                       labelText: "Password",
                       border: OutlineInputBorder(),
-                    ),
-                    obscureText: true,
-                    onSubmitted: (_) => _submit(),
-                    enabled: !isLoading,
                   ),
-                  if (authState.hasError && !isLoading)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 16.0),
-                      child: Text(authState.error.toString(),
-                          style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  obscureText: true,
+                  onSubmitted: (_) => _submit(),
+                  enabled: !isLoading,
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: isLoading ? null : _forgotPassword,
+                    child: const Text('Forgot password?'),
+                  ),
+                ),
+                if (authState.hasError && !isLoading)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Text(authState.error.toString(),
+                        style: TextStyle(color: Theme.of(context).colorScheme.error)),
                     ),
                   const SizedBox(height: 24),
                   SizedBox(
@@ -117,6 +124,61 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _forgotPassword() async {
+    final emailController = TextEditingController(text: _emailController.text);
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Reset password'),
+            content: TextField(
+              controller: emailController,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                hintText: 'you@example.com',
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Send reset link'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    final email = emailController.text.trim();
+    if (email.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your email.')),
+      );
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+    } catch (_) {
+      // Swallow errors to avoid leaking account existence info.
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'If an account exists for this email, a password reset link has been sent.',
         ),
       ),
     );

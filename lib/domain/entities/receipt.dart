@@ -169,7 +169,8 @@ class Receipt extends Equatable {
       expiryDate: (map['expiryDate'] as Timestamp?)?.toDate(),
       fileUrl: map['fileUrl'] as String?,
       items: (map['items'] as List<dynamic>?)
-              ?.map((i) => ReceiptItem.fromMap(Map<String, Object?>.from(i)))
+              ?.map((i) => ReceiptItem.fromMap(
+                  Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
               .toList() ??
           const [],
       searchKeywords:
@@ -202,7 +203,8 @@ class Receipt extends Equatable {
       expiryDate: (data['expiryDate'] as Timestamp?)?.toDate(),
       fileUrl: data['fileUrl'] as String?,
       items: (data['items'] as List<dynamic>?)
-              ?.map((i) => ReceiptItem.fromMap(Map<String, Object?>.from(i)))
+              ?.map((i) => ReceiptItem.fromMap(
+                  Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
               .toList() ??
           const [],
       searchKeywords:

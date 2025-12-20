@@ -10,8 +10,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:smartreceipt/core/constants/app_constants.dart';
+import 'package:smartreceipt/domain/entities/app_user.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart'
     show Receipt, ReceiptItem;
+import 'package:smartreceipt/domain/policies/account_policies.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult;
@@ -19,6 +21,8 @@ import 'package:smartreceipt/domain/services/ocr_service.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:smartreceipt/services/receipt_image_source_service.dart';
+import 'package:smartreceipt/presentation/screens/trial_ended_gate_screen.dart';
+import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
 
 class UploadedFile {
   final String downloadUrl;
@@ -73,6 +77,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   String? _extractedText;
   bool _isLoading = false;
   bool _receiptRejected = false;
+  // Tracks "not a receipt" reason; currently unused in UI but kept for future UX.
+  // ignore: unused_field
   String? _receiptRejectionReason;
   List<String> _searchKeywords = const [];
   String? _normalizedBrand;
@@ -229,7 +235,100 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
   }
 
+  Future<bool> _ensureCanAddReceipt() async {
+    final userRepo = ref.read(userRepositoryProvider);
+    final receiptRepo = ref.read(receiptRepositoryProviderOverride);
+    final now = DateTime.now().toUtc();
+    final profile = await userRepo.getCurrentUserProfile();
+    final receiptCount = await receiptRepo.getReceiptCount();
+
+    final allowed =
+        AccountPolicies.canAddReceipt(profile, receiptCount, now);
+    if (allowed) return true;
+
+    if (AccountPolicies.isExpired(profile, now) && receiptCount <= 3) {
+      await userRepo.clearDowngradeRequired();
+      final refreshed = await userRepo.getCurrentUserProfile();
+      if (AccountPolicies.canAddReceipt(refreshed, receiptCount, now)) {
+        return true;
+      }
+    }
+
+    final needsGate = AccountPolicies.downgradeRequired(
+      profile,
+      receiptCount,
+      now,
+    );
+
+    if (needsGate && mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => TrialEndedGateScreen(
+            isSubscriptionEnded: profile.accountStatus == AccountStatus.paid,
+            receiptCount: receiptCount,
+          ),
+        ),
+        (_) => false,
+      );
+      return false;
+    }
+
+    if (mounted) {
+      await _showLimitDialog(profile, receiptCount);
+    }
+    return false;
+  }
+
+  Future<void> _showLimitDialog(
+    AppUserProfile profile,
+    int receiptCount,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Free plan limit reached'),
+        content: Text(
+          'You have $receiptCount receipts. Start a free 7-day trial '
+          'or upgrade to keep adding more.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await _startTrial();
+            },
+            child: const Text('Start trial'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+              );
+            },
+            child: const Text('Upgrade'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startTrial() async {
+    final userRepo = ref.read(userRepositoryProvider);
+    await userRepo.startTrial();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Trial started. You can now add receipts.')),
+    );
+  }
+
   Future<void> _submit() async {
+    final ok = await _ensureCanAddReceipt();
+    if (!ok) return;
     if (_receiptRejected) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -430,6 +529,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _processAndUploadFile(File file) async {
+    final allowed = await _ensureCanAddReceipt();
+    if (!allowed) return;
+
     setState(() {
       _isLoading = true;
       _receiptRejected = false;
@@ -549,12 +651,16 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _handleCameraCapture() async {
+    final allowed = await _ensureCanAddReceipt();
+    if (!allowed) return;
     final service = ref.read(receiptImageSourceServiceProvider);
     final result = await service.pickFromCamera();
     await _handleImageSourceResult(result, fromCamera: true);
   }
 
   Future<void> _handleGalleryPick() async {
+    final allowed = await _ensureCanAddReceipt();
+    if (!allowed) return;
     final service = ref.read(receiptImageSourceServiceProvider);
     final result = await service.pickFromGallery();
     await _handleImageSourceResult(result);
@@ -604,6 +710,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _pickFile() async {
+    final allowed = await _ensureCanAddReceipt();
+    if (!allowed) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
@@ -615,6 +723,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _showUploadOptions() async {
+    final allowed = await _ensureCanAddReceipt();
+    if (!allowed) return;
     final result = await showModalBottomSheet<String>(
       context: context,
       builder: (context) {

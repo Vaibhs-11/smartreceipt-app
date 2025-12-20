@@ -1,5 +1,4 @@
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter/foundation.dart';
 
 /// Simple helper that triggers a backend job to enhance receipt images.
 /// The backend should read [receiptId], fetch the original image, create an

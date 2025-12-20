@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
@@ -22,25 +23,34 @@ class FirebaseReceiptRepository implements ReceiptRepository {
     return user.uid;
   }
 
+  @override
+  Future<int> getReceiptCount() async {
+    final uid = _uid();
+    final querySnapshot = await _receiptsCollection(uid).count().get();
+    return querySnapshot.count ?? 0;
+  }
+
   // ---------------------------------------------------------------------------
   // ADD RECEIPT
   // ---------------------------------------------------------------------------
   @override
   Future<void> addReceipt(Receipt receipt) async {
-    final uid = _uid();
+    final callable = FirebaseFunctions.instance.httpsCallable('createReceipt');
+    final payload = {
+      ...receipt.toMap(),
+      'date': receipt.date.toUtc().toIso8601String(),
+      'expiryDate': receipt.expiryDate?.toUtc().toIso8601String(),
+    };
 
-    await _receiptsCollection(uid)
-        .doc(receipt.id)
-        .set({
-          ...receipt.toMap(),
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+    await callable.call<Map<String, dynamic>>(<String, dynamic>{
+      'receiptId': receipt.id,
+      'receipt': payload,
+    });
   }
 
   // ---------------------------------------------------------------------------
   // GET ALL RECEIPTS
   // ---------------------------------------------------------------------------
-  @override
   Future<List<Receipt>> getAllReceipts() async {
     final uid = _uid();
 
@@ -48,9 +58,7 @@ class FirebaseReceiptRepository implements ReceiptRepository {
         .orderBy('createdAt', descending: true)
         .get();
 
-    return query.docs
-        .map((doc) => Receipt.fromFirestore(doc))
-        .toList();
+    return query.docs.map(Receipt.fromFirestore).toList();
   }
 
   @override

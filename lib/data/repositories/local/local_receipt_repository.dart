@@ -18,7 +18,6 @@ class LocalReceiptRepository implements ReceiptRepository {
     _receipts.removeWhere((Receipt r) => r.id == id);
   }
 
-  @override
   Future<List<Receipt>> getAllReceipts() async {
     // Simulate small latency for UX parity
     await Future<void>.delayed(const Duration(milliseconds: 80));
@@ -41,6 +40,14 @@ class LocalReceiptRepository implements ReceiptRepository {
       _receipts[index] = receipt;
     }
   }
+
+  @override
+  Future<int> getReceiptCount() async {
+    return _receipts.length;
+  }
+
+  @override
+  Future<List<Receipt>> getReceipts() {
+    return getAllReceipts();
+  }
 }
-
-

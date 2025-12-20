@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'package:smartreceipt/firebase_options.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -10,6 +10,10 @@ import 'package:smartreceipt/presentation/screens/receipt_detail_screen.dart';
 import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
 import 'package:smartreceipt/presentation/screens/scan_receipt_screen.dart';
 import 'package:smartreceipt/presentation/screens/signup_screen.dart';
+import 'package:smartreceipt/presentation/screens/trial_ended_gate_screen.dart';
+import 'package:smartreceipt/presentation/screens/keep3_selection_screen.dart';
+import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
+import 'package:smartreceipt/presentation/screens/account_screen.dart';
 import 'package:smartreceipt/presentation/widgets/auth_gate.dart';
 
 Future<void> main() async {
@@ -95,6 +99,26 @@ class SmartReceiptApp extends ConsumerWidget {
       // ❌ Removed AppRoutes.login
       // ❌ Removed AppRoutes.home
       // These are now handled *exclusively* by AuthGate.
+      case AppRoutes.trialEndedGate:
+        final isSubscriptionEnded =
+            (settings.arguments as bool?) ?? false;
+        return MaterialPageRoute(
+          builder: (_) => TrialEndedGateScreen(
+            isSubscriptionEnded: isSubscriptionEnded,
+            receiptCount: 0,
+          ),
+        );
+      case AppRoutes.keep3Selection:
+        final isSubscriptionEnded =
+            (settings.arguments as bool?) ?? false;
+        return MaterialPageRoute(
+          builder: (_) =>
+              Keep3SelectionScreen(isSubscriptionEnded: isSubscriptionEnded),
+        );
+      case AppRoutes.purchase:
+        return MaterialPageRoute(builder: (_) => const PurchaseScreen());
+      case AppRoutes.account:
+        return MaterialPageRoute(builder: (_) => const AccountScreen());
 
       default:
         return _errorRoute("Route not found");

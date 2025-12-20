@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/screens/home_screen.dart';
 import 'package:smartreceipt/presentation/screens/login_screen.dart';
+import 'package:smartreceipt/presentation/widgets/account_gate.dart';
 
 class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});
@@ -18,7 +19,7 @@ class AuthGate extends ConsumerWidget {
           return const LoginScreen();
         } else {
           debugPrint("✅ User logged in → HomeScreen (uid: ${user.uid})");
-          return const HomeScreen();
+          return const AccountGate(child: HomeScreen());
         }
       },
       loading: () => const Scaffold(

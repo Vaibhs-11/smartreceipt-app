@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, create, update: if request.auth != null && request.auth.uid == userId;
+
+      match /receipts/{receiptId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if false; // receipt creation is enforced via Cloud Functions
+        allow update, delete: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}
