@@ -27,29 +27,148 @@ class ChatGptOcrService implements OcrService {
     // Improved prompt: be strict, do not round, include currency, candidate totals, enrichment metadata,
     // and a hard classification flag for whether the content is a receipt.
     final prompt = """
-You are a strict receipt parser. Extract these exact values from the receipt text below.
-- isReceipt: boolean, true ONLY when this is a purchase receipt/tax invoice. If text is unrelated (bank statements, invoices, tickets, ads, random text), set false.
-- receiptRejectionReason: short explanation when isReceipt is false (e.g. "bank statement, not a receipt"). Keep it concise; null when isReceipt is true.
-- storeName: primary store name (top of receipt).
-- date: purchase date in YYYY-MM-DD format.
-- items: list of item objects with exact item name and exact numeric price (use decimals as shown).
-- total: the exact final total amount that is the bill value (do not round or "guess" — pick the amount that is clearly labelled TOTAL, Grand Total, Invoice Total, or the final billed amount).
-- currency: currency code (e.g. AUD, USD, GBP) if present. If not present, try to infer from the receipt (domain .au -> AUD, presence of 'GST' or 'ABN' -> AUD, 'HST' -> CAD, etc).
-- ALSO return a list named 'totals' containing candidate amounts with their context text, and indicate which candidate you selected using 'selectedTotalIndex' (0-based). This helps downstream validation.
+You are a strict receipt parser.
 
-Additionally, derive these receipt-level metadata fields:
-- normalizedBrand: the most likely brand name, corrected for OCR errors. Return null if unsure.
-- category: a high-level description such as "gaming console", "electronics", "groceries", "grooming", "coffee machine" etc. Return null if unsure.
-- searchKeywords: list of lowercased keywords for search (brand, model/family, category, other concrete hints). Do not invent facts, and do not include duplicates.
+Your task is to extract structured data from the receipt text below.
+Be precise, conservative, and deterministic.
 
-Rules:
-- If a currency symbol (AUD, A\$, \$, USD, EUR, etc.) is present, use it.
-- If only "\$" is shown, infer the local currency of the store’s country.
-- If the receipt mentions an Australian store/location (e.g. Myer, Coles, Woolworths, ABN, .com.au, etc.), default to AUD.
-- Never assume USD unless the receipt explicitly mentions USD.
+────────────────────────────────────────
+REQUIRED FIELDS
+────────────────────────────────────────
+
+Extract these exact values:
+
+- isReceipt:
+  boolean.
+  Set true ONLY when the text represents a purchase receipt or tax invoice.
+  If the text is unrelated (bank statement, invoice without purchase items,
+  tickets, ads, random text, emails), set false.
+
+- receiptRejectionReason:
+  short explanation ONLY when isReceipt is false
+  (e.g. "bank statement, not a purchase receipt").
+  Keep it concise.
+  Set null when isReceipt is true.
+
+- storeName:
+  primary store name (typically at the top of the receipt).
+
+- date:
+  purchase date in YYYY-MM-DD format.
+  If not already in this format, try parsing dd/mm/yyyy or dd/mm/yy.
+  If unable to determine a date, return an empty string.
+
+- items:
+  list of item objects.
+  Each item must include:
+    - name: exact item name as shown on the receipt
+    - price: exact numeric price (preserve decimals exactly as written)
+
+- total:
+  the exact final billed amount.
+  Choose the amount explicitly labelled TOTAL, GRAND TOTAL,
+  INVOICE TOTAL, or the final amount payable.
+  Do NOT round.
+  Do NOT guess.
+
+- totals:
+  list of candidate totals with context.
+  Each entry must include:
+    - label
+    - amount
+    - context (the receipt line or nearby text)
+
+- selectedTotalIndex:
+  0-based index into the totals array indicating which total you selected.
+
+- currency:
+  currency code (e.g. AUD, USD, GBP).
+  If missing, try to infer from context:
+    - .au domain, ABN, GST → AUD
+    - HST → CAD
+  Never assume USD unless explicitly stated.
+
+────────────────────────────────────────
+RECEIPT-LEVEL ENRICHMENT (SEARCH METADATA)
+────────────────────────────────────────
+
+Additionally, derive these receipt-level metadata fields.
+These are used ONLY for search enrichment, not for financial accuracy.
+
+You must be conservative, but you MAY use widely known consumer product knowledge
+when confidence is high.
+
+- normalizedBrand:
+  The most likely brand name, corrected for OCR errors.
+  You MAY normalize when the text strongly implies a known brand.
+  Examples:
+    - "BRAU" → "Braun"
+    - "Playstation" → "Sony"
+  Return null if not reasonably confident.
+
+- category:
+  A concrete, high-level product type.
+  Prefer specific product types over generic categories.
+
+  Examples of preferred categories:
+    - "coffee machine"
+    - "espresso machine"
+    - "gaming console"
+    - "electric shaver"
+    - "groceries"
+    - "clothing"
+
+  You MAY use widely known consumer product knowledge when the
+  brand + product line strongly imply the product type.
+  Examples:
+    - Breville "Oracle" → coffee machine / espresso machine
+    - Sony "PlayStation" → gaming console
+    - Braun "Series 9" → electric shaver
+
+  Return null ONLY when the product type cannot be reasonably inferred.
+
+- searchKeywords:
+  A list of lowercased keywords useful for search.
+  These keywords should reflect how a user would naturally search.
+
+  Include:
+    - normalized brand (if available)
+    - product family or model (e.g. "oracle", "series 9", "ps5")
+    - inferred product type
+    - common user intent synonyms when strongly implied
+      (e.g. "coffee machine", "espresso machine", "gaming console")
+
+  Rules:
+    - You MAY include keywords even if the exact words are not printed,
+      as long as they are strongly implied by the product.
+    - Do NOT invent facts.
+    - Do NOT include duplicates.
+    - Lowercase all keywords.
+    - Prefer singular nouns (e.g. "coffee machine", not "coffee machines").
+
+────────────────────────────────────────
+IMPORTANT RULES
+────────────────────────────────────────
+
+- Do NOT round any monetary amounts.
 - Preserve cents exactly as written.
+- Never invent prices, brands, or products.
+- If multiple totals exist, prefer the one clearly labelled TOTAL or equivalent.
+- If the content is not a receipt:
+    - set isReceipt to false
+    - provide receiptRejectionReason
+    - keep monetary fields at 0 and strings empty where unsure
 
-Return JSON only, no markdown fences, no other text. Example response format:
+────────────────────────────────────────
+OUTPUT FORMAT
+────────────────────────────────────────
+
+Return JSON ONLY.
+No markdown.
+No explanations.
+No extra text.
+
+Example response format:
 
 {
   "isReceipt": true,
@@ -57,28 +176,28 @@ Return JSON only, no markdown fences, no other text. Example response format:
   "storeName": "Example Store",
   "date": "2025-08-17",
   "items": [
-    {"name": "ITEM A", "price": 12.34},
-    {"name": "ITEM B", "price": 5.00}
+    { "name": "ITEM A", "price": 12.34 },
+    { "name": "ITEM B", "price": 5.00 }
   ],
   "totals": [
-    {"label": "TOTAL", "amount": 17.34, "context": "TOTAL\\n\$17.34"},
-    {"label": "Paid", "amount": 17.00, "context": "Paid\\n\$17.00"}
+    { "label": "TOTAL", "amount": 17.34, "context": "TOTAL\n\$17.34" },
+    { "label": "Paid", "amount": 17.00, "context": "Paid\n\$17.00" }
   ],
   "selectedTotalIndex": 0,
   "total": 17.34,
   "currency": "AUD",
-  "normalizedBrand": "Sony",
-  "category": "gaming console",
-  "searchKeywords": ["sony", "playstation", "ps5", "gaming console"]
+  "normalizedBrand": "Breville",
+  "category": "coffee machine",
+  "searchKeywords": [
+    "breville",
+    "oracle",
+    "coffee machine",
+    "espresso machine"
+  ]
 }
-
-Important instructions for the model:
-- Do not round any amounts; return them exactly as numbers with decimals when shown.
-- If multiple "totals" exist, prefer the one explicitly labelled TOTAL, GRAND TOTAL, or the one on the 'TOTAL' line. If still ambiguous, prefer the amount that represents the final billed amount (not a partial refund or "Paid" rounding).
-- If you cannot find a date in YYYY-MM-DD, try to parse dd/mm/yyyy, dd/mm/yy and convert it to YYYY-MM-DD. If unable to parse, return an empty string for date.
-- If currency is missing, you may leave it empty; the client will try to infer from the receipt text.
-- If you determine the content is not a receipt, set isReceipt to false, provide receiptRejectionReason, and keep monetary fields at 0 and strings empty when unsure.
-
+────────────────────────────────────────
+RECEIPT TEXT
+────────────────────────────────────────
 Receipt Text:
 $rawText
 """;
