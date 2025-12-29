@@ -1,3 +1,4 @@
+import 'package:smartreceipt/domain/entities/app_config.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
 
 class AccountPolicies {
@@ -33,20 +34,30 @@ class AccountPolicies {
     AppUserProfile user,
     int receiptCount,
     DateTime nowUtc,
+    AppConfig config,
   ) {
     if (user.trialDowngradeRequired) return true;
     if (!isExpired(user, nowUtc)) return false;
-    return receiptCount > 3;
+    return receiptCount > config.freeReceiptLimit;
   }
 
   static bool canAddReceipt(
     AppUserProfile user,
     int receiptCount,
     DateTime nowUtc,
+    AppConfig config,
   ) {
     if (user.trialDowngradeRequired) return false;
-    if (isPaidActive(user, nowUtc)) return true;
-    if (isTrialActive(user, nowUtc)) return true;
-    return receiptCount < 3;
+    if (config.enablePaidTiers &&
+        (isPaidActive(user, nowUtc) || isTrialActive(user, nowUtc))) {
+      return !_isPremiumLimitReached(receiptCount, config);
+    }
+    return receiptCount < config.freeReceiptLimit;
+  }
+
+  static bool _isPremiumLimitReached(int receiptCount, AppConfig config) {
+    final limit = config.premiumReceiptLimit;
+    if (limit == -1) return false;
+    return receiptCount >= limit;
   }
 }

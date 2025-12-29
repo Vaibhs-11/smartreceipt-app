@@ -15,7 +15,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
     return openDatabase(
       dbPath,
       password: 'smartreceipt_dev',
-      version: 3, // schema now tracks processed/original image metadata
+      version: 4, // schema now tracks processed/original image metadata
       onCreate: (Database db, int version) async {
         await db.execute('''
         CREATE TABLE receipts (
@@ -31,7 +31,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
           processedImagePath TEXT,
           imageProcessingStatus TEXT,
           extractedText TEXT,
-          expiryDate TEXT
+          metadata TEXT
         );
         ''');
       },
@@ -47,6 +47,9 @@ class SqliteReceiptRepository implements ReceiptRepository {
               'ALTER TABLE receipts ADD COLUMN processedImagePath TEXT;');
           await db.execute(
               'ALTER TABLE receipts ADD COLUMN imageProcessingStatus TEXT;');
+        }
+        if (oldVersion < 4) {
+          await db.execute('ALTER TABLE receipts ADD COLUMN metadata TEXT;');
         }
       },
     );
@@ -118,13 +121,25 @@ class SqliteReceiptRepository implements ReceiptRepository {
         'processedImagePath': r.processedImagePath,
         'imageProcessingStatus': r.imageProcessingStatus,
         'extractedText': r.extractedText,
-        'expiryDate': r.expiryDate?.toIso8601String(),
+        'metadata': r.metadata != null ? jsonEncode(r.metadata) : null,
       };
 
   Receipt _fromDbMap(Map<String, Object?> map) {
     final List<String> tags = (map['tags'] as String?) != null
         ? (jsonDecode(map['tags']! as String) as List<dynamic>).cast<String>()
         : <String>[];
+    Map<String, Object?>? metadata;
+    final metadataRaw = map['metadata'] as String?;
+    if (metadataRaw != null) {
+      try {
+        final decoded = jsonDecode(metadataRaw);
+        if (decoded is Map) {
+          metadata = Map<String, Object?>.from(decoded as Map);
+        }
+      } catch (_) {
+        metadata = null;
+      }
+    }
     return Receipt(
       id: map['id']! as String,
       storeName: map['storeName']! as String,
@@ -138,9 +153,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
       processedImagePath: map['processedImagePath'] as String?,
       imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
-      expiryDate: (map['expiryDate'] as String?) != null
-          ? DateTime.parse(map['expiryDate']! as String)
-          : null,
+      metadata: metadata,
     );
   }
 }

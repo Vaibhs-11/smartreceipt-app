@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:smartreceipt/domain/entities/app_config.dart';
+import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/keep3_selection_screen.dart';
@@ -19,16 +21,20 @@ class TrialEndedGateScreen extends ConsumerWidget {
   String get _title =>
       isSubscriptionEnded ? 'Your subscription has ended' : 'Your free trial has ended';
 
-  String get _body {
-    if (receiptCount > 3) {
-      return 'To continue on the free plan, please choose exactly three receipts to keep. '
+  String _body(AppConfig appConfig) {
+    final freeLimit = appConfig.freeReceiptLimit;
+    if (receiptCount > freeLimit) {
+      return 'To continue on the free plan, please choose exactly $freeLimit receipts to keep. '
           'Upgrade to keep everything and unlock Premium.';
     }
-    return 'Choose Premium to keep all receipts, or continue on the free plan with up to three receipts.';
+    return 'Choose Premium to keep all receipts, or continue on the free plan with up to $freeLimit receipts.';
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final configAsync = ref.watch(appConfigProvider);
+    final appConfig =
+        configAsync.maybeWhen(data: (c) => c, orElse: () => const AppConfig());
     return WillPopScope(
       onWillPop: () async => false,
       child: Scaffold(
@@ -51,7 +57,7 @@ class TrialEndedGateScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                _body,
+                _body(appConfig),
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 32),
@@ -71,7 +77,7 @@ class TrialEndedGateScreen extends ConsumerWidget {
               OutlinedButton(
                 onPressed: () async {
                   final userRepo = ref.read(userRepositoryProvider);
-                  if (receiptCount > 3) {
+                  if (receiptCount > appConfig.freeReceiptLimit) {
                     Navigator.of(context).pushReplacement(
                       MaterialPageRoute(
                         builder: (_) => Keep3SelectionScreen(

@@ -14,6 +14,8 @@ import 'package:smartreceipt/domain/entities/app_user.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart'
     show Receipt, ReceiptItem;
 import 'package:smartreceipt/domain/policies/account_policies.dart';
+import 'package:smartreceipt/domain/entities/app_config.dart';
+import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult;
@@ -45,7 +47,8 @@ class AddReceiptScreen extends ConsumerStatefulWidget {
   final String? initialImagePath;
   final AddReceiptInitialAction? initialAction;
 
-  const AddReceiptScreen({super.key, this.initialImagePath, this.initialAction});
+  const AddReceiptScreen(
+      {super.key, this.initialImagePath, this.initialAction});
 
   @override
   ConsumerState<AddReceiptScreen> createState() => _AddReceiptScreenState();
@@ -184,6 +187,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     );
   }
 
+  Map<String, Object?>? _buildMetadata() {
+    final category = _category?.trim();
+    if (category == null || category.isEmpty) return null;
+    return {'category': category};
+  }
+
   Future<void> _pickDate(TextEditingController controller) async {
     final picked = await showDatePicker(
       context: context,
@@ -239,17 +248,24 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final userRepo = ref.read(userRepositoryProvider);
     final receiptRepo = ref.read(receiptRepositoryProviderOverride);
     final now = DateTime.now().toUtc();
+    final appConfig = await ref.read(appConfigProvider.future);
     final profile = await userRepo.getCurrentUserProfile();
     final receiptCount = await receiptRepo.getReceiptCount();
 
     final allowed =
-        AccountPolicies.canAddReceipt(profile, receiptCount, now);
+        AccountPolicies.canAddReceipt(profile, receiptCount, now, appConfig);
     if (allowed) return true;
 
-    if (AccountPolicies.isExpired(profile, now) && receiptCount <= 3) {
+    if (AccountPolicies.isExpired(profile, now) &&
+        receiptCount <= appConfig.freeReceiptLimit) {
       await userRepo.clearDowngradeRequired();
       final refreshed = await userRepo.getCurrentUserProfile();
-      if (AccountPolicies.canAddReceipt(refreshed, receiptCount, now)) {
+      if (AccountPolicies.canAddReceipt(
+        refreshed,
+        receiptCount,
+        now,
+        appConfig,
+      )) {
         return true;
       }
     }
@@ -258,6 +274,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       profile,
       receiptCount,
       now,
+      appConfig,
     );
 
     if (needsGate && mounted) {
@@ -274,7 +291,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
 
     if (mounted) {
-      await _showLimitDialog(profile, receiptCount);
+      await _showLimitDialog(profile, receiptCount, appConfig);
     }
     return false;
   }
@@ -282,13 +299,15 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   Future<void> _showLimitDialog(
     AppUserProfile profile,
     int receiptCount,
+    AppConfig appConfig,
   ) async {
     await showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Free plan limit reached'),
         content: Text(
-          'You have $receiptCount receipts. Start a free 7-day trial '
+          'You have $receiptCount receipts. Free plan allows up to '
+          '${appConfig.freeReceiptLimit}. Start a free 7-day trial '
           'or upgrade to keep adding more.',
         ),
         actions: [
@@ -353,7 +372,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       items: _items,
       searchKeywords: _searchKeywords,
       normalizedBrand: _normalizedBrand,
-      category: _category,
+      metadata: _buildMetadata(),
     );
 
     await addReceipt(receipt);

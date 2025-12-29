@@ -2,7 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:smartreceipt/domain/entities/app_config.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
+import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
@@ -22,6 +24,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userProfileProvider);
     final countAsync = ref.watch(receiptCountProvider);
+    final configAsync = ref.watch(appConfigProvider);
+    final appConfig =
+        configAsync.maybeWhen(data: (c) => c, orElse: () => const AppConfig());
 
     return Scaffold(
       appBar: AppBar(
@@ -40,9 +45,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               onRefresh: () async {
                 ref.refresh(userProfileProvider);
                 ref.refresh(receiptCountProvider);
+                ref.refresh(appConfigProvider);
                 await Future.wait([
                   ref.read(userProfileProvider.future),
                   ref.read(receiptCountProvider.future),
+                  ref.read(appConfigProvider.future),
                 ]);
               },
               child: SingleChildScrollView(
@@ -54,7 +61,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     _sectionTitle('Profile'),
                     _userInfo(profile),
                     const SizedBox(height: 16),
-                    _statusCard(profile, receiptCount),
+                    _statusCard(profile, receiptCount, appConfig),
                     const SizedBox(height: 24),
                     if (!profile.isAnonymous) ...[
                       _sectionTitle('Security'),
@@ -139,10 +146,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     );
   }
 
-  Widget _statusCard(AppUserProfile profile, int receiptCount) {
+  Widget _statusCard(
+      AppUserProfile profile, int receiptCount, AppConfig appConfig) {
     final now = DateTime.now().toUtc();
     final status = profile.accountStatus;
-    final remaining = (3 - receiptCount).clamp(0, 3);
+    final freeLimit = appConfig.freeReceiptLimit;
+    final remaining = freeLimit - receiptCount;
+    final remainingClamped = remaining < 0 ? 0 : remaining;
     final trialEnds = profile.trialEndsAt;
     final subsEnds = profile.subscriptionEndsAt;
 
@@ -160,7 +170,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         badgeIcon = Icons.lock_open_outlined;
         badgeColor = Colors.blue;
         title = 'You’re on the Free plan';
-        body = 'You have $remaining of 3 receipts remaining.';
+        body =
+            'You have $remainingClamped of $freeLimit receipts remaining.';
         primaryCta = FilledButton(
           onPressed: _startingTrial ? null : () => _startTrial(),
           child: _startingTrial

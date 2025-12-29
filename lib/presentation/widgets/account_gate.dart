@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smartreceipt/domain/policies/account_policies.dart';
+import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/trial_ended_gate_screen.dart';
@@ -47,6 +48,7 @@ class _AccountGateState extends ConsumerState<AccountGate>
       final userRepo = ref.read(userRepositoryProvider);
       final receiptRepo = ref.read(receiptRepositoryProviderOverride);
       final now = DateTime.now().toUtc();
+      final appConfig = await ref.read(appConfigProvider.future);
 
       final profile = await userRepo.getCurrentUserProfile();
       final receiptCount = await receiptRepo.getReceiptCount();
@@ -56,9 +58,11 @@ class _AccountGateState extends ConsumerState<AccountGate>
       final subscriptionExpired = profile.subscriptionEndsAt != null &&
           now.isAfter(profile.subscriptionEndsAt!);
 
-      if ((trialExpired || subscriptionExpired) && receiptCount <= 3) {
+      if ((trialExpired || subscriptionExpired) &&
+          receiptCount <= appConfig.freeReceiptLimit) {
         await userRepo.clearDowngradeRequired();
-      } else if ((trialExpired || subscriptionExpired) && receiptCount > 3) {
+      } else if ((trialExpired || subscriptionExpired) &&
+          receiptCount > appConfig.freeReceiptLimit) {
         await userRepo.markDowngradeRequired();
       }
 
@@ -67,6 +71,7 @@ class _AccountGateState extends ConsumerState<AccountGate>
         refreshedProfile,
         receiptCount,
         now,
+        appConfig,
       );
 
       if (needsGate && mounted) {

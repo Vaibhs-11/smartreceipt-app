@@ -2,6 +2,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:smartreceipt/domain/entities/app_config.dart';
+import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/home_screen.dart';
@@ -24,6 +26,10 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final configAsync = ref.watch(appConfigProvider);
+    final appConfig =
+        configAsync.maybeWhen(data: (c) => c, orElse: () => const AppConfig());
+    final freeLimit = appConfig.freeReceiptLimit;
     final receiptsAsync = ref.watch(receiptsProvider);
 
     return WillPopScope(
@@ -39,7 +45,7 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
         ),
         body: receiptsAsync.when(
           data: (receipts) {
-            if (receipts.length <= 3) {
+            if (receipts.length <= freeLimit) {
               // Nothing to choose, just clear gate and continue.
               if (!_autoCleared) {
                 _autoCleared = true;
@@ -57,7 +63,7 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
                       padding:
                           const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       child: Text(
-                        'Select exactly three receipts to keep on the free plan. '
+                        'Select exactly $freeLimit receipts to keep on the free plan. '
                         'All others will be permanently deleted after confirmation.',
                         style: Theme.of(context).textTheme.bodyLarge,
                       ),
@@ -86,7 +92,7 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
                                 : (val) {
                                     setState(() {
                                       if (val == true) {
-                                        if (_selected.length < 3) {
+                                        if (_selected.length < freeLimit) {
                                           _selected.add(receipt.id);
                                         }
                                       } else {
@@ -106,13 +112,13 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           ElevatedButton(
-                            onPressed: !_processing && _selected.length == 3
+                            onPressed: !_processing && _selected.length == freeLimit
                                 ? _confirmAndFinalize
                                 : null,
                             child: Text(
-                              _selected.length == 3
-                                  ? 'Keep these 3 receipts'
-                                  : 'Select 3 to keep',
+                              _selected.length == freeLimit
+                                  ? 'Keep these $freeLimit receipts'
+                                  : 'Select $freeLimit to keep',
                             ),
                           ),
                           const SizedBox(height: 8),

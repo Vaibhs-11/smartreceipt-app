@@ -39,7 +39,6 @@ class FirebaseReceiptRepository implements ReceiptRepository {
     final payload = {
       ...receipt.toMap(),
       'date': receipt.date.toUtc().toIso8601String(),
-      'expiryDate': receipt.expiryDate?.toUtc().toIso8601String(),
     };
 
     await callable.call<Map<String, dynamic>>(<String, dynamic>{
@@ -86,9 +85,7 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   Future<void> updateReceipt(Receipt receipt) async {
     final uid = _uid();
 
-    await _receiptsCollection(uid)
-        .doc(receipt.id)
-        .update(receipt.toMap());
+    await _receiptsCollection(uid).doc(receipt.id).update(receipt.toMap());
   }
 
   // ---------------------------------------------------------------------------

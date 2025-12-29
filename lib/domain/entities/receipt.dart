@@ -59,12 +59,11 @@ class Receipt extends Equatable {
     this.processedImagePath,
     this.imageProcessingStatus,
     this.extractedText,
-    this.expiryDate,
     this.fileUrl,
     this.items = const <ReceiptItem>[],
     this.searchKeywords = const <String>[],
     this.normalizedBrand,
-    this.category,
+    this.metadata,
   });
 
   final String id; // Firestore doc ID
@@ -79,12 +78,11 @@ class Receipt extends Equatable {
   final String? processedImagePath;
   final String? imageProcessingStatus;
   final String? extractedText;
-  final DateTime? expiryDate;
   final String? fileUrl;
   final List<ReceiptItem> items;
   final List<String> searchKeywords;
   final String? normalizedBrand;
-  final String? category;
+  final Map<String, Object?>? metadata;
 
   Receipt copyWith({
     String? id,
@@ -99,12 +97,11 @@ class Receipt extends Equatable {
     String? processedImagePath,
     String? imageProcessingStatus,
     String? extractedText,
-    DateTime? expiryDate,
     String? fileUrl,
     List<ReceiptItem>? items,
     List<String>? searchKeywords,
     String? normalizedBrand,
-    String? category,
+    Map<String, Object?>? metadata,
   }) {
     return Receipt(
       id: id ?? this.id,
@@ -120,12 +117,11 @@ class Receipt extends Equatable {
       imageProcessingStatus:
           imageProcessingStatus ?? this.imageProcessingStatus,
       extractedText: extractedText ?? this.extractedText,
-      expiryDate: expiryDate ?? this.expiryDate,
       fileUrl: fileUrl ?? this.fileUrl,
       items: items ?? this.items,
       searchKeywords: searchKeywords ?? this.searchKeywords,
       normalizedBrand: normalizedBrand ?? this.normalizedBrand,
-      category: category ?? this.category,
+      metadata: metadata ?? this.metadata,
     );
   }
 
@@ -142,12 +138,11 @@ class Receipt extends Equatable {
       'processedImagePath': processedImagePath,
       'imageProcessingStatus': imageProcessingStatus,
       'extractedText': extractedText,
-      'expiryDate': expiryDate != null ? Timestamp.fromDate(expiryDate!) : null,
       'fileUrl': fileUrl,
       'items': items.map((i) => i.toMap()).toList(),
       'searchKeywords': searchKeywords,
       'normalizedBrand': normalizedBrand,
-      'category': category,
+      'metadata': metadata,
     };
   }
 
@@ -166,7 +161,6 @@ class Receipt extends Equatable {
       processedImagePath: map['processedImagePath'] as String?,
       imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
-      expiryDate: (map['expiryDate'] as Timestamp?)?.toDate(),
       fileUrl: map['fileUrl'] as String?,
       items: (map['items'] as List<dynamic>?)
               ?.map((i) => ReceiptItem.fromMap(
@@ -176,7 +170,9 @@ class Receipt extends Equatable {
       searchKeywords:
           (map['searchKeywords'] as List<dynamic>?)?.cast<String>() ?? const [],
       normalizedBrand: map['normalizedBrand'] as String?,
-      category: map['category'] as String?,
+      metadata: map['metadata'] is Map
+          ? Map<String, Object?>.from(map['metadata'] as Map)
+          : null,
     );
   }
 
@@ -186,6 +182,13 @@ class Receipt extends Equatable {
     if (data == null) {
       throw StateError("Missing data for receipt ID: ${doc.id}");
     }
+
+    final rawMetadata = data['metadata'];
+    final Map<String, Object?>? metadata = rawMetadata is Map
+        ? rawMetadata.map(
+            (key, value) => MapEntry(key.toString(), value),
+          )
+        : null;
 
     return Receipt(
       id: doc.id,
@@ -200,7 +203,6 @@ class Receipt extends Equatable {
       processedImagePath: data['processedImagePath'] as String?,
       imageProcessingStatus: data['imageProcessingStatus'] as String?,
       extractedText: data['extractedText'] as String?,
-      expiryDate: (data['expiryDate'] as Timestamp?)?.toDate(),
       fileUrl: data['fileUrl'] as String?,
       items: (data['items'] as List<dynamic>?)
               ?.map((i) => ReceiptItem.fromMap(
@@ -211,7 +213,7 @@ class Receipt extends Equatable {
           (data['searchKeywords'] as List<dynamic>?)?.cast<String>() ??
               const [],
       normalizedBrand: data['normalizedBrand'] as String?,
-      category: data['category'] as String?,
+      metadata: metadata,
     );
   }
 
@@ -229,11 +231,10 @@ class Receipt extends Equatable {
         processedImagePath,
         imageProcessingStatus,
         extractedText,
-        expiryDate,
         fileUrl,
         items,
         searchKeywords,
         normalizedBrand,
-        category,
+        metadata,
       ];
 }
