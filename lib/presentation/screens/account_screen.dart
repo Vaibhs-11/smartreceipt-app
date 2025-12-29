@@ -380,9 +380,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   }
 
   Future<void> _startTrial() async {
+    final userRepo = ref.read(userRepositoryProvider);
     setState(() => _startingTrial = true);
     try {
-      await ref.read(userRepositoryProvider).startTrial();
+      await userRepo.startTrial();
       ref.refresh(userProfileProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -327,12 +327,15 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _submit() async {
+    final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
+    final imageProcessor = ref.read(receiptImageProcessingServiceProvider);
+    final navigator = Navigator.of(context);
+
     final ok = await _ensureCanAddReceipt();
     if (!ok) return;
     if (_receiptRejected) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final navigator = Navigator.of(context);
     final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
 
     final receipt = Receipt(
@@ -353,12 +356,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       category: _category,
     );
 
-    // Correct provider
-    final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
-
     await addReceipt(receipt);
     if (_originalImagePath != null && _originalImagePath!.isNotEmpty) {
-      final imageProcessor = ref.read(receiptImageProcessingServiceProvider);
       unawaited(imageProcessor.enqueueEnhancement(
         receiptId: receiptId,
         originalImagePath: _originalImagePath!,
@@ -670,6 +669,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     ReceiptImagePickResult result, {
     bool fromCamera = false,
   }) async {
+    final imageService = ref.read(receiptImageSourceServiceProvider);
+
     if (result.file != null) {
       await _processAndUploadFile(result.file!);
       return;
@@ -684,9 +685,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         return;
       }
 
-      final selection = await ref
-          .read(receiptImageSourceServiceProvider)
-          .showCameraFallbackDialog(context);
+      final selection = await imageService.showCameraFallbackDialog(context);
       if (!mounted || selection == null) return;
       switch (selection) {
         case CameraFallbackSelection.gallery:

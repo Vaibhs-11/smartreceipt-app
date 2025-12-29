@@ -3,12 +3,17 @@ import 'package:smartreceipt/domain/entities/receipt.dart' show ReceiptItem;
 
 class OcrReceiptItem extends Equatable {
   final String name;
-  final double price;
+  final double? price;
+  final String priceConfidence; // "high" or "low"
 
-  const OcrReceiptItem({required this.name, required this.price});
+  const OcrReceiptItem({
+    required this.name,
+    required this.price,
+    this.priceConfidence = "high",
+  });
 
   @override
-  List<Object?> get props => [name, price];
+  List<Object?> get props => [name, price, priceConfidence];
 }
 
 class OcrResult extends Equatable {
@@ -42,7 +47,7 @@ class OcrResult extends Equatable {
   List<ReceiptItem> toReceiptItems() {
     return items
         .map((ocrItem) =>
-            ReceiptItem(name: ocrItem.name, price: ocrItem.price))
+            ReceiptItem(name: ocrItem.name, price: ocrItem.price ?? 0.0))
         .toList();
   }
 

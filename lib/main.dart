@@ -64,8 +64,6 @@ class SmartReceiptApp extends ConsumerWidget {
   }
 
   Route<dynamic> _onGenerateRoute(RouteSettings settings) {
-    debugPrint("Navigating to: ${settings.name}");
-
     switch (settings.name) {
       case AppRoutes.onboarding:
         return MaterialPageRoute(builder: (_) => const OnboardingScreen());

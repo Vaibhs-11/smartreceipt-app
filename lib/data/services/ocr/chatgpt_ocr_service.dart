@@ -25,7 +25,7 @@ class ChatGptOcrService implements OcrService {
     final url = Uri.parse("https://api.openai.com/v1/chat/completions");
 
     // Improved prompt: be strict, do not round, include currency, candidate totals, enrichment metadata,
-    // and a hard classification flag for whether the content is a receipt.
+    // a hard classification flag for whether the content is a receipt, and safe handling for discounts.
     final prompt = """
 You are a strict receipt parser.
 
@@ -62,7 +62,16 @@ Extract these exact values:
   list of item objects.
   Each item must include:
     - name: exact item name as shown on the receipt
-    - price: exact numeric price (preserve decimals exactly as written)
+    - price: exact numeric price (preserve decimals exactly as written) OR null when uncertain
+    - priceConfidence: "high" or "low"
+      * "low" when price is missing/ambiguous, near discounts/negative amounts, or uncertain
+      * default to "high" only when a clear positive price is paired with the item name
+
+  Rules for discounts / negative amounts:
+    - Negative values (e.g., "-3.00", "3.00-", "LESS 3.00") are adjustments/discounts.
+    - Never assign negative values as an item's unit price.
+    - If only a negative/discount value is near an item, set price to null and priceConfidence to "low".
+    - Do NOT guess prices. Do NOT backfill prices from totals or other sections.
 
 - total:
   the exact final billed amount.
@@ -176,8 +185,8 @@ Example response format:
   "storeName": "Example Store",
   "date": "2025-08-17",
   "items": [
-    { "name": "ITEM A", "price": 12.34 },
-    { "name": "ITEM B", "price": 5.00 }
+    { "name": "ITEM A", "price": 12.34, "priceConfidence": "high" },
+    { "name": "ITEM B", "price": null, "priceConfidence": "low" }
   ],
   "totals": [
     { "label": "TOTAL", "amount": 17.34, "context": "TOTAL\n\$17.34" },
@@ -259,8 +268,26 @@ $rawText
       for (final e in parsed["items"] as List) {
         if (e is Map) {
           final name = (e["name"] ?? "").toString();
-          final priceNum = _numFromDynamic(e["price"]);
-          items.add(OcrReceiptItem(name: name, price: priceNum ?? 0.0));
+          double? priceNum = _numFromDynamic(e["price"]);
+          var priceConfidenceRaw = (e["priceConfidence"] ?? "").toString().toLowerCase();
+          var priceConfidence = priceConfidenceRaw == "low" ? "low" : "high";
+
+          // Treat negative or missing values as low confidence/null prices.
+          if (priceNum != null && priceNum < 0) {
+            priceNum = null;
+            priceConfidence = "low";
+          }
+          if (priceNum == null && priceConfidence == "high") {
+            priceConfidence = "low";
+          }
+
+          items.add(
+            OcrReceiptItem(
+              name: name,
+              price: priceNum,
+              priceConfidence: priceConfidence,
+            ),
+          );
         }
       }
     }

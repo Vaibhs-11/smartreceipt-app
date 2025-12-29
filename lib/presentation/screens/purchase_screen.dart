@@ -87,11 +87,11 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   }
 
   Future<void> _simulate(Duration duration) async {
+    final repo = ref.read(userRepositoryProvider);
     setState(() {
       _processing = true;
       _message = null;
     });
-    final repo = ref.read(userRepositoryProvider);
     final now = DateTime.now().toUtc();
     await repo.setPaid(now.add(duration));
 
@@ -101,6 +101,7 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
       _processing = false;
     });
 
+    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => const HomeScreen(),

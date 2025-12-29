@@ -239,10 +239,12 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
         (_) => false,
       );
     } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.message ?? 'Failed to finalize downgrade.';
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Unexpected error: $e';
       });
