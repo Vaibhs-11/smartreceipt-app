@@ -10,7 +10,10 @@ class LocalReceiptRepository implements ReceiptRepository {
 
   @override
   Future<void> addReceipt(Receipt receipt) async {
-    _receipts.add(receipt);
+    final sanitized = receipt.copyWith(
+      items: sanitizeReceiptItems(receipt.items),
+    );
+    _receipts.add(sanitized);
   }
 
   @override
@@ -35,9 +38,12 @@ class LocalReceiptRepository implements ReceiptRepository {
 
   @override
   Future<void> updateReceipt(Receipt receipt) async {
-    final int index = _receipts.indexWhere((Receipt r) => r.id == receipt.id);
+    final sanitized = receipt.copyWith(
+      items: sanitizeReceiptItems(receipt.items),
+    );
+    final int index = _receipts.indexWhere((Receipt r) => r.id == sanitized.id);
     if (index >= 0) {
-      _receipts[index] = receipt;
+      _receipts[index] = sanitized;
     }
   }
 

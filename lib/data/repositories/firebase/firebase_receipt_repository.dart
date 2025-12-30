@@ -35,14 +35,17 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   // ---------------------------------------------------------------------------
   @override
   Future<void> addReceipt(Receipt receipt) async {
+    final sanitized = receipt.copyWith(
+      items: sanitizeReceiptItems(receipt.items),
+    );
     final callable = FirebaseFunctions.instance.httpsCallable('createReceipt');
     final payload = {
-      ...receipt.toMap(),
-      'date': receipt.date.toUtc().toIso8601String(),
+      ...sanitized.toMap(),
+      'date': sanitized.date.toUtc().toIso8601String(),
     };
 
     await callable.call<Map<String, dynamic>>(<String, dynamic>{
-      'receiptId': receipt.id,
+      'receiptId': sanitized.id,
       'receipt': payload,
     });
   }
@@ -85,7 +88,13 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   Future<void> updateReceipt(Receipt receipt) async {
     final uid = _uid();
 
-    await _receiptsCollection(uid).doc(receipt.id).update(receipt.toMap());
+    final sanitized = receipt.copyWith(
+      items: sanitizeReceiptItems(receipt.items),
+    );
+
+    await _receiptsCollection(uid)
+        .doc(sanitized.id)
+        .update(sanitized.toMap());
   }
 
   // ---------------------------------------------------------------------------

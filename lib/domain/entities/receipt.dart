@@ -2,6 +2,11 @@ import 'package:equatable/equatable.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:meta/meta.dart';
 
+/// Filters out receipt items that have no price or a non-positive price.
+List<ReceiptItem> sanitizeReceiptItems(List<ReceiptItem> items) {
+  return items.where((item) => item.price > 0).toList();
+}
+
 @immutable
 class ReceiptItem extends Equatable {
   final String name;
@@ -126,6 +131,7 @@ class Receipt extends Equatable {
   }
 
   Map<String, Object?> toMap() {
+    final cleanedItems = sanitizeReceiptItems(items);
     return <String, Object?>{
       'storeName': storeName,
       'date': Timestamp.fromDate(date),
@@ -139,7 +145,7 @@ class Receipt extends Equatable {
       'imageProcessingStatus': imageProcessingStatus,
       'extractedText': extractedText,
       'fileUrl': fileUrl,
-      'items': items.map((i) => i.toMap()).toList(),
+      'items': cleanedItems.map((i) => i.toMap()).toList(),
       'searchKeywords': searchKeywords,
       'normalizedBrand': normalizedBrand,
       'metadata': metadata,
@@ -162,11 +168,13 @@ class Receipt extends Equatable {
       imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
       fileUrl: map['fileUrl'] as String?,
-      items: (map['items'] as List<dynamic>?)
-              ?.map((i) => ReceiptItem.fromMap(
-                  Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
-              .toList() ??
-          const [],
+      items: sanitizeReceiptItems(
+        (map['items'] as List<dynamic>?)
+                ?.map((i) => ReceiptItem.fromMap(
+                    Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
+                .toList() ??
+            const [],
+      ),
       searchKeywords:
           (map['searchKeywords'] as List<dynamic>?)?.cast<String>() ?? const [],
       normalizedBrand: map['normalizedBrand'] as String?,
@@ -204,11 +212,13 @@ class Receipt extends Equatable {
       imageProcessingStatus: data['imageProcessingStatus'] as String?,
       extractedText: data['extractedText'] as String?,
       fileUrl: data['fileUrl'] as String?,
-      items: (data['items'] as List<dynamic>?)
-              ?.map((i) => ReceiptItem.fromMap(
-                  Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
-              .toList() ??
-          const [],
+      items: sanitizeReceiptItems(
+        (data['items'] as List<dynamic>?)
+                ?.map((i) => ReceiptItem.fromMap(
+                    Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
+                .toList() ??
+            const [],
+      ),
       searchKeywords:
           (data['searchKeywords'] as List<dynamic>?)?.cast<String>() ??
               const [],

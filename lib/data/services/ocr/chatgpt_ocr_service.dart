@@ -292,6 +292,11 @@ $rawText
       }
     }
 
+    // Drop OCR artefacts that have no amount or a non-positive amount.
+    items = items
+        .where((item) => item.price != null && item.price! > 0)
+        .toList();
+
     // Get GPT-proposed total(s)
     double? gptTotal = _numFromDynamic(parsed["total"]);
     // Also allow selectedTotalIndex/totals structure

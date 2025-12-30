@@ -60,7 +60,10 @@ class SqliteReceiptRepository implements ReceiptRepository {
   @override
   Future<void> addReceipt(Receipt receipt) async {
     final Database db = await _dbFuture;
-    await db.insert('receipts', _toDbMap(receipt),
+    final sanitized = receipt.copyWith(
+      items: sanitizeReceiptItems(receipt.items),
+    );
+    await db.insert('receipts', _toDbMap(sanitized),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -89,8 +92,11 @@ class SqliteReceiptRepository implements ReceiptRepository {
   @override
   Future<void> updateReceipt(Receipt receipt) async {
     final Database db = await _dbFuture;
-    await db.update('receipts', _toDbMap(receipt),
-        where: 'id = ?', whereArgs: <Object?>[receipt.id]);
+    final sanitized = receipt.copyWith(
+      items: sanitizeReceiptItems(receipt.items),
+    );
+    await db.update('receipts', _toDbMap(sanitized),
+        where: 'id = ?', whereArgs: <Object?>[sanitized.id]);
   }
 
   @override

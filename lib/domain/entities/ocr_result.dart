@@ -45,7 +45,11 @@ class OcrResult extends Equatable {
 
   /// ✅ Helper: convert OCR items into domain ReceiptItems
   List<ReceiptItem> toReceiptItems() {
-    return items
+    final filtered = items
+        .where((item) => item.price != null && item.price! > 0)
+        .toList();
+
+    return filtered
         .map((ocrItem) =>
             ReceiptItem(name: ocrItem.name, price: ocrItem.price ?? 0.0))
         .toList();
