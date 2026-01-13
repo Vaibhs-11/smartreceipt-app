@@ -1,20 +1,22 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:smartreceipt/firebase_options.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
-import 'package:smartreceipt/presentation/screens/onboarding_screen.dart';
-import 'package:smartreceipt/presentation/screens/receipt_detail_screen.dart';
-import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
-import 'package:smartreceipt/presentation/screens/scan_receipt_screen.dart';
-import 'package:smartreceipt/presentation/screens/signup_screen.dart';
-import 'package:smartreceipt/presentation/screens/trial_ended_gate_screen.dart';
-import 'package:smartreceipt/presentation/screens/keep3_selection_screen.dart';
-import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
-import 'package:smartreceipt/presentation/screens/account_screen.dart';
-import 'package:smartreceipt/presentation/widgets/auth_gate.dart';
+import 'firebase_options.dart';
+import 'presentation/widgets/auth_gate.dart';
+import 'presentation/routes/app_routes.dart';
+import 'presentation/screens/onboarding_screen.dart';
+import 'presentation/screens/signup_screen.dart';
+import 'presentation/screens/add_receipt_screen.dart';
+import 'presentation/screens/scan_receipt_screen.dart';
+import 'presentation/screens/receipt_detail_screen.dart';
+import 'presentation/screens/trial_ended_gate_screen.dart';
+import 'presentation/screens/keep3_selection_screen.dart';
+import 'presentation/screens/purchase_screen.dart';
+import 'presentation/screens/account_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,18 +27,45 @@ Future<void> main() async {
   } catch (_) {
     try {
       await dotenv.load(fileName: 'config/env.example');
-    } catch (_) {
-      // Proceed without env; runtime will rely on Firebase defaults
-    }
+    } catch (_) {}
   }
 
-  // Initialize Firebase with options from firebase_options.dart
+  // Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  // 🔐 Firebase App Check
+  await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    if (kReleaseMode) {
+      // ✅ Production: Real devices only
+      await FirebaseAppCheck.instance.activate(
+        androidProvider: AndroidProvider.playIntegrity,
+      );
+    } else {
+      // 🧪 Debug / Emulator
+      await FirebaseAppCheck.instance.activate(
+        androidProvider: AndroidProvider.debug,
+      );
+    }
+  }
+
+  // 🔍 Optional: safe debug logging (never crashes)
+  if (kDebugMode) {
+    try {
+      final token = await FirebaseAppCheck.instance.getToken(false);
+      if (token != null) {
+        debugPrint('🛡️ App Check token acquired (debug)');
+      }
+    } catch (e) {
+      debugPrint('⚠️ App Check token unavailable (expected in some cases)');
+    }
+  }
+
   debugPrint(
-    "✅ Firebase Initialized for project: ${Firebase.app().options.projectId}",
+    '✅ Firebase initialized: ${Firebase.app().options.projectId}',
   );
 
   runApp(
@@ -53,12 +82,9 @@ class SmartReceiptApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       title: 'SmartReceipt',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue),
-      
-      // AuthGate controls ALL login/logout navigation
-      home: AuthGate(),   // (❌ removed const)
-      
-      // Only sub-screens belong here
+      home: AuthGate(),
       onGenerateRoute: _onGenerateRoute,
     );
   }
@@ -67,24 +93,18 @@ class SmartReceiptApp extends ConsumerWidget {
     switch (settings.name) {
       case AppRoutes.onboarding:
         return MaterialPageRoute(builder: (_) => const OnboardingScreen());
-
       case AppRoutes.signup:
         return MaterialPageRoute(builder: (_) => const SignupScreen());
-
       case AppRoutes.addReceipt:
-        final args = settings.arguments is AddReceiptScreenArgs
-            ? settings.arguments as AddReceiptScreenArgs
-            : null;
+        final args = settings.arguments as AddReceiptScreenArgs?;
         return MaterialPageRoute(
           builder: (_) => AddReceiptScreen(
             initialImagePath: args?.initialImagePath,
             initialAction: args?.initialAction,
           ),
         );
-
       case AppRoutes.scanReceipt:
         return MaterialPageRoute(builder: (_) => const ScanReceiptScreen());
-
       case AppRoutes.receiptDetail:
         final receiptId = settings.arguments as String?;
         if (receiptId != null) {
@@ -92,38 +112,30 @@ class SmartReceiptApp extends ConsumerWidget {
             builder: (_) => ReceiptDetailScreen(receiptId: receiptId),
           );
         }
-        return _errorRoute("Missing receiptId");
-
-      // ❌ Removed AppRoutes.login
-      // ❌ Removed AppRoutes.home
-      // These are now handled *exclusively* by AuthGate.
+        return _errorRoute('Missing receiptId');
       case AppRoutes.trialEndedGate:
-        final isSubscriptionEnded =
-            (settings.arguments as bool?) ?? false;
         return MaterialPageRoute(
           builder: (_) => TrialEndedGateScreen(
-            isSubscriptionEnded: isSubscriptionEnded,
+            isSubscriptionEnded: settings.arguments as bool? ?? false,
             receiptCount: 0,
           ),
         );
       case AppRoutes.keep3Selection:
-        final isSubscriptionEnded =
-            (settings.arguments as bool?) ?? false;
         return MaterialPageRoute(
-          builder: (_) =>
-              Keep3SelectionScreen(isSubscriptionEnded: isSubscriptionEnded),
+          builder: (_) => Keep3SelectionScreen(
+            isSubscriptionEnded: settings.arguments as bool? ?? false,
+          ),
         );
       case AppRoutes.purchase:
         return MaterialPageRoute(builder: (_) => const PurchaseScreen());
       case AppRoutes.account:
         return MaterialPageRoute(builder: (_) => const AccountScreen());
-
       default:
-        return _errorRoute("Route not found");
+        return _errorRoute('Route not found');
     }
   }
 
-  Route<dynamic> _errorRoute([String message = "Error"]) {
+  Route<dynamic> _errorRoute(String message) {
     return MaterialPageRoute(
       builder: (_) => Scaffold(
         appBar: AppBar(title: const Text('Error')),

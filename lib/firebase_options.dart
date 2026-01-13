@@ -63,11 +63,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyDXFLJH57vga2ybOAPFiw_McG2MkXYWAr4',
-    appId: '1:499162431381:ios:ba522cae1b4d8f5b72409c',
+    appId: '1:499162431381:ios:78d3b2c8a1a7a50872409c',
     messagingSenderId: '499162431381',
     projectId: 'smartreceipt-8faff',
     storageBucket: 'smartreceipt-8faff.firebasestorage.app',
-    iosBundleId: 'com.example.smartreceipt',
+    iosBundleId: 'com.vaibhs.smartreceipt',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -78,4 +78,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'smartreceipt-8faff.firebasestorage.app',
     iosBundleId: 'n',
   );
+
 }
