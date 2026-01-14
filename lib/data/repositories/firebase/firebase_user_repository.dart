@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
 import 'package:smartreceipt/domain/repositories/user_repository.dart';
 
@@ -16,12 +17,8 @@ class FirebaseUserRepository implements UserRepository {
     return _firestore.collection('users').doc(uid);
   }
 
-  String _uid() {
-    final user = _auth.currentUser;
-    if (user == null) {
-      throw Exception('User not logged in');
-    }
-    return user.uid;
+  String? _uid() {
+    return _auth.currentUser?.uid;
   }
 
   Future<AppUserProfile> _mapSnapshot(
@@ -55,8 +52,11 @@ class FirebaseUserRepository implements UserRepository {
   }
 
   @override
-  Future<AppUserProfile> getCurrentUserProfile() async {
+  Future<AppUserProfile?> getCurrentUserProfile() async {
     final uid = _uid();
+    if (uid == null) {
+      return null;
+    }
     final snapshot = await _userDoc(uid).get();
     return _mapSnapshot(snapshot);
   }
@@ -64,6 +64,10 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<void> startTrial() async {
     final uid = _uid();
+    if (uid == null) {
+      debugPrint('Skipping startTrial: user not logged in.');
+      return;
+    }
     final now = DateTime.now().toUtc();
     final endsAt = now.add(const Duration(days: 7));
 
@@ -81,6 +85,10 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<void> setPaid(DateTime subscriptionEndsAt) async {
     final uid = _uid();
+    if (uid == null) {
+      debugPrint('Skipping setPaid: user not logged in.');
+      return;
+    }
     await _userDoc(uid).set(
       {
         'accountStatus': AccountStatus.paid.asString,
@@ -94,6 +102,10 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<void> markDowngradeRequired() async {
     final uid = _uid();
+    if (uid == null) {
+      debugPrint('Skipping markDowngradeRequired: user not logged in.');
+      return;
+    }
     await _userDoc(uid).set(
       {
         'accountStatus': AccountStatus.free.asString,
@@ -106,6 +118,10 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<void> clearDowngradeRequired() async {
     final uid = _uid();
+    if (uid == null) {
+      debugPrint('Skipping clearDowngradeRequired: user not logged in.');
+      return;
+    }
     await _userDoc(uid).set(
       {
         'trialDowngradeRequired': false,

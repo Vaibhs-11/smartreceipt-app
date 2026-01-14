@@ -438,3 +438,33 @@ export const createReceipt = onCall(async (request) => {
   await userRef.collection("receipts").doc(receiptId).set(payload);
   return {ok: true};
 });
+
+// ----------------------
+// NEW: Account deletion callable
+// ----------------------
+
+export const deleteAccount = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "User must be authenticated");
+  }
+
+  try {
+    const userRef = firestore.collection("users").doc(uid);
+    await firestore.recursiveDelete(userRef);
+
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (error) {
+      const err = error as {code?: string; message?: string};
+      if (err.code !== "auth/user-not-found") {
+        throw error;
+      }
+    }
+
+    return {success: true};
+  } catch (error) {
+    logger.error("Account deletion failed", {uid, error});
+    throw new HttpsError("internal", "Account deletion failed");
+  }
+});

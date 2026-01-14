@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'firebase_options.dart';
-import 'presentation/widgets/auth_gate.dart';
 import 'presentation/routes/app_routes.dart';
 import 'presentation/screens/onboarding_screen.dart';
 import 'presentation/screens/signup_screen.dart';
@@ -17,6 +16,10 @@ import 'presentation/screens/trial_ended_gate_screen.dart';
 import 'presentation/screens/keep3_selection_screen.dart';
 import 'presentation/screens/purchase_screen.dart';
 import 'presentation/screens/account_screen.dart';
+import 'presentation/screens/home_screen.dart';
+import 'presentation/screens/login_screen.dart';
+import 'presentation/widgets/account_gate.dart';
+import 'presentation/providers/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -75,16 +78,42 @@ Future<void> main() async {
   );
 }
 
-class SmartReceiptApp extends ConsumerWidget {
+class SmartReceiptApp extends ConsumerStatefulWidget {
   const SmartReceiptApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SmartReceiptApp> createState() => _SmartReceiptAppState();
+}
+
+class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(authStateProvider, (prev, next) {
+      final previousUser = prev?.asData?.value;
+      final nextUser = next.asData?.value;
+      if (previousUser != null && nextUser == null) {
+        ref.refresh(userProfileProvider);
+        ref.refresh(receiptCountProvider);
+        ref.refresh(receiptsProvider);
+      }
+    });
+    final authState = ref.watch(authStateProvider);
     return MaterialApp(
       title: 'SmartReceipt',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: AuthGate(),
+      home: authState.when(
+        data: (user) {
+          if (user == null) {
+            return const LoginScreen();
+          }
+          return const AccountGate(child: HomeScreen());
+        },
+        loading: () => const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+        error: (_, __) => const LoginScreen(),
+      ),
       onGenerateRoute: _onGenerateRoute,
     );
   }

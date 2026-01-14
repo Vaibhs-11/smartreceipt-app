@@ -2,8 +2,10 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:smartreceipt/data/services/auth/auth_service.dart';
 import 'package:smartreceipt/domain/entities/app_config.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
+import 'package:smartreceipt/domain/exceptions/account_deletion_exception.dart';
 import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
@@ -19,9 +21,20 @@ class AccountScreen extends ConsumerStatefulWidget {
 class _AccountScreenState extends ConsumerState<AccountScreen> {
   bool _changingPassword = false;
   bool _startingTrial = false;
+  bool _deletingAccount = false;
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AsyncValue<AppUser?>>(authStateProvider, (_, next) {
+      final user = next.maybeWhen(data: (value) => value, orElse: () => null);
+      if (user == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        });
+      }
+    });
+
     final userAsync = ref.watch(userProfileProvider);
     final countAsync = ref.watch(receiptCountProvider);
     final configAsync = ref.watch(appConfigProvider);
@@ -37,6 +50,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text('Failed to load account: $e')),
           data: (profile) {
+            if (profile == null) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              });
+              return const SizedBox.shrink();
+            }
             final receiptCount = countAsync.maybeWhen(
               data: (v) => v,
               orElse: () => 0,
@@ -384,6 +404,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               icon: const Icon(Icons.logout),
               label: const Text('Logout'),
             ),
+            const Divider(),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red.shade700,
+              ),
+              onPressed: _deletingAccount ? null : _confirmDeleteAccount,
+              icon: _deletingAccount
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_forever_outlined),
+              label: const Text('Delete Account'),
+            ),
           ],
         ),
       ),
@@ -479,6 +514,57 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       );
     } finally {
       if (mounted) setState(() => _changingPassword = false);
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete Account'),
+            content: const Text(
+              'This will permanently delete your account and all your receipts. '
+              'This action cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red.shade700,
+                ),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+    await _deleteAccount();
+  }
+
+  Future<void> _deleteAccount() async {
+    if (_deletingAccount) return;
+    setState(() => _deletingAccount = true);
+    try {
+      final deleteAccount = ref.read(deleteAccountUseCaseProvider);
+      await deleteAccount();
+      ref.refresh(userProfileProvider);
+      ref.refresh(receiptCountProvider);
+      ref.refresh(receiptsProvider);
+    } on AccountDeletionFunctionException catch (e) {
+      debugPrint(
+        'Account deletion failed via Cloud Function '
+        '(code: ${e.code}, message: ${e.message})',
+      );
+    } catch (e) {
+      debugPrint('Account deletion failed: $e');
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
     }
   }
 }

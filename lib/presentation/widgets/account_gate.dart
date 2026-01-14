@@ -45,12 +45,19 @@ class _AccountGateState extends ConsumerState<AccountGate>
     if (_checking) return;
     _checking = true;
     try {
+      final uid = ref.read(currentUidProvider);
+      if (uid == null) {
+        return;
+      }
       final userRepo = ref.read(userRepositoryProvider);
       final receiptRepo = ref.read(receiptRepositoryProviderOverride);
       final now = DateTime.now().toUtc();
       final appConfig = await ref.read(appConfigProvider.future);
 
       final profile = await userRepo.getCurrentUserProfile();
+      if (profile == null) {
+        return;
+      }
       final receiptCount = await receiptRepo.getReceiptCount();
 
       final trialExpired =
@@ -67,6 +74,9 @@ class _AccountGateState extends ConsumerState<AccountGate>
       }
 
       final refreshedProfile = await userRepo.getCurrentUserProfile();
+      if (refreshedProfile == null) {
+        return;
+      }
       final needsGate = AccountPolicies.downgradeRequired(
         refreshedProfile,
         receiptCount,

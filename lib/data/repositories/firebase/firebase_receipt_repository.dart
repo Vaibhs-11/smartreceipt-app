@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
 
@@ -15,17 +16,16 @@ class FirebaseReceiptRepository implements ReceiptRepository {
         .collection('receipts');
   }
 
-  String _uid() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      throw Exception("User not logged in");
-    }
-    return user.uid;
+  String? _uid() {
+    return FirebaseAuth.instance.currentUser?.uid;
   }
 
   @override
   Future<int> getReceiptCount() async {
     final uid = _uid();
+    if (uid == null) {
+      return 0;
+    }
     final querySnapshot = await _receiptsCollection(uid).count().get();
     return querySnapshot.count ?? 0;
   }
@@ -35,6 +35,10 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   // ---------------------------------------------------------------------------
   @override
   Future<void> addReceipt(Receipt receipt) async {
+    if (_uid() == null) {
+      debugPrint('Skipping addReceipt: user not logged in.');
+      return;
+    }
     final sanitized = receipt.copyWith(
       items: sanitizeReceiptItems(receipt.items),
     );
@@ -55,6 +59,9 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   // ---------------------------------------------------------------------------
   Future<List<Receipt>> getAllReceipts() async {
     final uid = _uid();
+    if (uid == null) {
+      return [];
+    }
 
     final query = await _receiptsCollection(uid)
         .orderBy('createdAt', descending: true)
@@ -74,6 +81,9 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   @override
   Future<Receipt?> getReceiptById(String id) async {
     final uid = _uid();
+    if (uid == null) {
+      return null;
+    }
 
     final doc = await _receiptsCollection(uid).doc(id).get();
     if (!doc.exists) return null;
@@ -87,6 +97,10 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   @override
   Future<void> updateReceipt(Receipt receipt) async {
     final uid = _uid();
+    if (uid == null) {
+      debugPrint('Skipping updateReceipt: user not logged in.');
+      return;
+    }
 
     final sanitized = receipt.copyWith(
       items: sanitizeReceiptItems(receipt.items),
@@ -103,6 +117,10 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   @override
   Future<void> deleteReceipt(String id) async {
     final uid = _uid();
+    if (uid == null) {
+      debugPrint('Skipping deleteReceipt: user not logged in.');
+      return;
+    }
     await _receiptsCollection(uid).doc(id).delete();
   }
 }
