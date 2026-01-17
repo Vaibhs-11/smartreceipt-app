@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:smartreceipt/core/constants/app_constants.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
+import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart'
     show Receipt, ReceiptItem;
 import 'package:smartreceipt/domain/policies/account_policies.dart';
@@ -293,7 +294,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(
           builder: (_) => TrialEndedGateScreen(
-            isSubscriptionEnded: profile.accountStatus == AccountStatus.paid,
+            isSubscriptionEnded:
+                profile.subscriptionStatus == SubscriptionStatus.expired,
             receiptCount: receiptCount,
           ),
         ),
@@ -303,7 +305,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
 
     if (mounted) {
-      await _showLimitDialog(profile, receiptCount, appConfig);
+      await _showLimitDialog(
+        profile,
+        receiptCount,
+        appConfig,
+        AccountPolicies.isSubscriptionExpired(profile),
+      );
     }
     return false;
   }
@@ -312,28 +319,41 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     AppUserProfile profile,
     int receiptCount,
     AppConfig appConfig,
+    bool subscriptionExpired,
   ) async {
+    final isTrialActive =
+        AccountPolicies.isTrialActive(profile, DateTime.now().toUtc());
+    final bool showExpiredMessage =
+        subscriptionExpired && receiptCount > appConfig.freeReceiptLimit;
     await showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Free plan limit reached'),
+        title: Text(
+          showExpiredMessage
+              ? 'Subscription expired'
+              : 'Free plan limit reached',
+        ),
         content: Text(
-          'You have $receiptCount receipts. Free plan allows up to '
-          '${appConfig.freeReceiptLimit}. Start a free 7-day trial '
-          'or upgrade to keep adding more.',
+          showExpiredMessage
+              ? 'Your subscription has expired. Please delete receipts '
+                  'to continue or upgrade.'
+              : 'You have $receiptCount receipts. Free plan allows up to '
+                  '${appConfig.freeReceiptLimit}. '
+                  '${isTrialActive ? 'Upgrade to keep adding more.' : 'Start a free 7-day trial or upgrade to keep adding more.'}',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await _startTrial();
-            },
-            child: const Text('Start trial'),
-          ),
+          if (!showExpiredMessage && !isTrialActive)
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _startTrial();
+              },
+              child: const Text('Start trial'),
+            ),
           FilledButton(
             onPressed: () {
               Navigator.of(context).pop();
@@ -387,7 +407,17 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       metadata: _buildMetadata(),
     );
 
-    await addReceipt(receipt);
+    try {
+      await addReceipt(receipt);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Receipt limit reached. Please upgrade or delete.'),
+        ),
+      );
+      return;
+    }
     if (_originalImagePath != null && _originalImagePath!.isNotEmpty) {
       unawaited(imageProcessor.enqueueEnhancement(
         receiptId: receiptId,

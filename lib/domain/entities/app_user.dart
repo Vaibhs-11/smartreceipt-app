@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
+import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 
 enum AccountStatus { free, trial, paid }
 
@@ -37,10 +38,14 @@ class AppUserProfile extends Equatable {
     required this.isAnonymous,
     required this.createdAt,
     required this.accountStatus,
+    required this.subscriptionTier,
+    required this.subscriptionStatus,
     this.trialStartedAt,
     this.trialEndsAt,
     this.subscriptionEndsAt,
     this.trialDowngradeRequired = false,
+    this.subscriptionSource,
+    this.subscriptionUpdatedAt,
   });
 
   final String uid;
@@ -48,10 +53,14 @@ class AppUserProfile extends Equatable {
   final bool isAnonymous;
   final DateTime? createdAt;
   final AccountStatus accountStatus;
+  final SubscriptionTier subscriptionTier;
+  final SubscriptionStatus subscriptionStatus;
   final DateTime? trialStartedAt;
   final DateTime? trialEndsAt;
   final DateTime? subscriptionEndsAt;
   final bool trialDowngradeRequired;
+  final SubscriptionSource? subscriptionSource;
+  final DateTime? subscriptionUpdatedAt;
 
   AppUserProfile copyWith({
     String? uid,
@@ -59,10 +68,14 @@ class AppUserProfile extends Equatable {
     bool? isAnonymous,
     DateTime? createdAt,
     AccountStatus? accountStatus,
+    SubscriptionTier? subscriptionTier,
+    SubscriptionStatus? subscriptionStatus,
     DateTime? trialStartedAt,
     DateTime? trialEndsAt,
     DateTime? subscriptionEndsAt,
     bool? trialDowngradeRequired,
+    SubscriptionSource? subscriptionSource,
+    DateTime? subscriptionUpdatedAt,
   }) {
     return AppUserProfile(
       uid: uid ?? this.uid,
@@ -70,11 +83,15 @@ class AppUserProfile extends Equatable {
       isAnonymous: isAnonymous ?? this.isAnonymous,
       createdAt: createdAt ?? this.createdAt,
       accountStatus: accountStatus ?? this.accountStatus,
+      subscriptionTier: subscriptionTier ?? this.subscriptionTier,
+      subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
       trialStartedAt: trialStartedAt ?? this.trialStartedAt,
       trialEndsAt: trialEndsAt ?? this.trialEndsAt,
       subscriptionEndsAt: subscriptionEndsAt ?? this.subscriptionEndsAt,
       trialDowngradeRequired:
           trialDowngradeRequired ?? this.trialDowngradeRequired,
+      subscriptionSource: subscriptionSource ?? this.subscriptionSource,
+      subscriptionUpdatedAt: subscriptionUpdatedAt ?? this.subscriptionUpdatedAt,
     );
   }
 
@@ -85,6 +102,12 @@ class AppUserProfile extends Equatable {
       'isAnonymous': isAnonymous,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : null,
       'accountStatus': accountStatus.asString,
+      'subscriptionTier': subscriptionTier.asString,
+      'subscriptionStatus': subscriptionStatus.asString,
+      'subscriptionSource': subscriptionSource?.asString,
+      'subscriptionUpdatedAt': subscriptionUpdatedAt != null
+          ? Timestamp.fromDate(subscriptionUpdatedAt!)
+          : null,
       'trialStartedAt':
           trialStartedAt != null ? Timestamp.fromDate(trialStartedAt!) : null,
       'trialEndsAt':
@@ -102,6 +125,10 @@ class AppUserProfile extends Equatable {
     final data = doc.data() ?? <String, dynamic>{};
     final accountStatus =
         AccountStatusX.fromString(data['accountStatus'] as String?);
+    final subscriptionTier =
+        SubscriptionTierX.fromString(data['subscriptionTier'] as String?);
+    final subscriptionStatus =
+        SubscriptionStatusX.fromString(data['subscriptionStatus'] as String?);
 
     return AppUserProfile(
       uid: data['uid'] as String? ?? doc.id,
@@ -109,11 +136,17 @@ class AppUserProfile extends Equatable {
       isAnonymous: data['isAnonymous'] as bool? ?? false,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
       accountStatus: accountStatus,
+      subscriptionTier: subscriptionTier,
+      subscriptionStatus: subscriptionStatus,
       trialStartedAt: (data['trialStartedAt'] as Timestamp?)?.toDate(),
       trialEndsAt: (data['trialEndsAt'] as Timestamp?)?.toDate(),
       subscriptionEndsAt:
           (data['subscriptionEndsAt'] as Timestamp?)?.toDate(),
       trialDowngradeRequired: data['trialDowngradeRequired'] as bool? ?? false,
+      subscriptionSource:
+          SubscriptionSourceX.fromString(data['subscriptionSource'] as String?),
+      subscriptionUpdatedAt:
+          (data['subscriptionUpdatedAt'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -124,9 +157,13 @@ class AppUserProfile extends Equatable {
         isAnonymous,
         createdAt,
         accountStatus,
+        subscriptionTier,
+        subscriptionStatus,
         trialStartedAt,
         trialEndsAt,
         subscriptionEndsAt,
         trialDowngradeRequired,
+        subscriptionSource,
+        subscriptionUpdatedAt,
       ];
 }

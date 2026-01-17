@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smartreceipt/domain/policies/account_policies.dart';
+import 'package:smartreceipt/domain/services/subscription_service.dart';
 import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
@@ -51,6 +52,7 @@ class _AccountGateState extends ConsumerState<AccountGate>
       }
       final userRepo = ref.read(userRepositoryProvider);
       final receiptRepo = ref.read(receiptRepositoryProviderOverride);
+      final subscriptionService = ref.read(subscriptionServiceProvider);
       final now = DateTime.now().toUtc();
       final appConfig = await ref.read(appConfigProvider.future);
 
@@ -58,12 +60,27 @@ class _AccountGateState extends ConsumerState<AccountGate>
       if (profile == null) {
         return;
       }
+      try {
+        final entitlement = await subscriptionService.getCurrentEntitlement();
+        await userRepo.applySubscriptionEntitlement(
+          entitlement,
+          currentProfile: profile,
+        );
+      } catch (e) {
+        debugPrint('Subscription sync failed: $e');
+      }
+
+      final refreshedProfile = await userRepo.getCurrentUserProfile();
+      if (refreshedProfile == null) {
+        return;
+      }
       final receiptCount = await receiptRepo.getReceiptCount();
 
-      final trialExpired =
-          profile.trialEndsAt != null && now.isAfter(profile.trialEndsAt!);
-      final subscriptionExpired = profile.subscriptionEndsAt != null &&
-          now.isAfter(profile.subscriptionEndsAt!);
+      final trialExpired = refreshedProfile.trialEndsAt != null &&
+          now.isAfter(refreshedProfile.trialEndsAt!);
+      final subscriptionExpired = AccountPolicies.isSubscriptionExpired(
+        refreshedProfile,
+      );
 
       if ((trialExpired || subscriptionExpired) &&
           receiptCount <= appConfig.freeReceiptLimit) {
@@ -73,10 +90,6 @@ class _AccountGateState extends ConsumerState<AccountGate>
         await userRepo.markDowngradeRequired();
       }
 
-      final refreshedProfile = await userRepo.getCurrentUserProfile();
-      if (refreshedProfile == null) {
-        return;
-      }
       final needsGate = AccountPolicies.downgradeRequired(
         refreshedProfile,
         receiptCount,

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:smartreceipt/data/services/auth/auth_service.dart';
 import 'package:smartreceipt/domain/entities/app_config.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
+import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 import 'package:smartreceipt/domain/exceptions/account_deletion_exception.dart';
 import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
@@ -21,6 +22,7 @@ class AccountScreen extends ConsumerStatefulWidget {
 class _AccountScreenState extends ConsumerState<AccountScreen> {
   bool _changingPassword = false;
   bool _startingTrial = false;
+  bool _restoringPurchases = false;
   bool _deletingAccount = false;
 
   @override
@@ -169,12 +171,15 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Widget _statusCard(
       AppUserProfile profile, int receiptCount, AppConfig appConfig) {
     final now = DateTime.now().toUtc();
-    final status = profile.accountStatus;
     final freeLimit = appConfig.freeReceiptLimit;
     final remaining = freeLimit - receiptCount;
     final remainingClamped = remaining < 0 ? 0 : remaining;
     final trialEnds = profile.trialEndsAt;
-    final subsEnds = profile.subscriptionEndsAt;
+    final subscriptionActive = profile.subscriptionStatus ==
+            SubscriptionStatus.active &&
+        profile.subscriptionTier.isPaid;
+    final subscriptionExpired =
+        profile.subscriptionStatus == SubscriptionStatus.expired;
 
     String title;
     String body;
@@ -184,14 +189,77 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     Color badgeColor;
     IconData badgeIcon;
     String badgeLabel;
-    switch (status) {
-      case AccountStatus.free:
-        badgeLabel = 'Free';
-        badgeIcon = Icons.lock_open_outlined;
-        badgeColor = Colors.blue;
-        title = 'You’re on the Free plan';
-        body =
-            'You have $remainingClamped of $freeLimit receipts remaining.';
+    if (subscriptionActive) {
+      badgeLabel = profile.subscriptionTier == SubscriptionTier.yearly
+          ? 'Yearly'
+          : 'Monthly';
+      badgeIcon = Icons.workspace_premium_outlined;
+      badgeColor = Colors.green;
+      title = 'You’re on the ${badgeLabel} plan';
+      body = 'Unlimited receipts while your subscription is active.';
+      caption = Theme.of(context).platform == TargetPlatform.iOS
+          ? 'Billing managed by Apple App Store'
+          : 'Billing managed by Google Play';
+      primaryCta = TextButton(
+        onPressed: () {
+          showDialog<void>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Manage subscription'),
+              content: Text(
+                Theme.of(context).platform == TargetPlatform.iOS
+                    ? 'Manage your subscription in the App Store.'
+                    : 'Manage your subscription in Google Play.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          );
+        },
+        child: const Text('Manage subscription'),
+      );
+    } else if (profile.accountStatus == AccountStatus.trial) {
+      final daysLeft = trialEnds != null
+          ? trialEnds.difference(now).inDays.clamp(0, 999)
+          : null;
+      badgeLabel = 'Free trial';
+      badgeIcon = Icons.hourglass_empty_outlined;
+      badgeColor = Colors.orange;
+      title = 'Your trial ends in ${daysLeft ?? 'a few'} days';
+      body = 'Keep all your receipts when you upgrade to Premium.';
+      primaryCta = FilledButton(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+          );
+        },
+        child: const Text('Upgrade to Premium'),
+      );
+    } else {
+      badgeLabel = 'Free';
+      badgeIcon = Icons.lock_open_outlined;
+      badgeColor = Colors.blue;
+      title = subscriptionExpired
+          ? 'Your subscription has expired'
+          : 'You’re on the Free plan';
+      body = subscriptionExpired
+          ? 'Delete receipts to stay within $freeLimit, or upgrade to keep adding more.'
+          : 'You have $remainingClamped of $freeLimit receipts remaining.';
+      if (subscriptionExpired) {
+        primaryCta = FilledButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+            );
+          },
+          child: const Text('Upgrade'),
+        );
+      } else {
         primaryCta = FilledButton(
           onPressed: _startingTrial ? null : () => _startTrial(),
           child: _startingTrial
@@ -210,60 +278,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           },
           child: const Text('Upgrade'),
         );
-        break;
-      case AccountStatus.trial:
-        final daysLeft = trialEnds != null
-            ? trialEnds.difference(now).inDays.clamp(0, 999)
-            : null;
-        badgeLabel = 'Free trial';
-        badgeIcon = Icons.hourglass_empty_outlined;
-        badgeColor = Colors.orange;
-        title = 'Your trial ends in ${daysLeft ?? 'a few'} days';
-        body = 'Keep all your receipts when you upgrade to Premium.';
-        primaryCta = FilledButton(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PurchaseScreen()),
-            );
-          },
-          child: const Text('Upgrade to Premium'),
-        );
-        break;
-      case AccountStatus.paid:
-        final source = Theme.of(context).platform == TargetPlatform.iOS
-            ? 'Billing managed by Apple App Store'
-            : 'Billing managed by Google Play';
-        final renewal = subsEnds != null
-            ? 'Renews/ends on ${DateFormat.yMMMd().format(subsEnds.toLocal())}'
-            : 'Active subscription';
-        badgeLabel = 'Premium';
-        badgeIcon = Icons.workspace_premium_outlined;
-        badgeColor = Colors.green;
-        title = 'You’re on the Premium plan';
-        body = renewal;
-        caption = source;
-        primaryCta = TextButton(
-          onPressed: () {
-            showDialog<void>(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Manage subscription'),
-                content: Text(
-                  'Manage your subscription in the App Store / Play Store.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Close'),
-                  ),
-                ],
-              ),
-            );
-          },
-          child: const Text('Manage subscription'),
-        );
-        break;
+      }
     }
 
     return Card(
@@ -325,6 +340,18 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               const SizedBox(height: 6),
               secondaryCta!,
             ],
+            const SizedBox(height: 6),
+            TextButton.icon(
+              onPressed: _restoringPurchases ? null : _restorePurchases,
+              icon: _restoringPurchases
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.restore),
+              label: const Text('Restore purchases'),
+            ),
           ],
         ),
       ),
@@ -442,6 +469,36 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       );
     } finally {
       if (mounted) setState(() => _startingTrial = false);
+    }
+  }
+
+  Future<void> _restorePurchases() async {
+    if (_restoringPurchases) return;
+    setState(() => _restoringPurchases = true);
+    final subscriptionService = ref.read(subscriptionServiceProvider);
+    final userRepo = ref.read(userRepositoryProvider);
+    try {
+      await subscriptionService.restorePurchases();
+      final profile = await userRepo.getCurrentUserProfile();
+      if (profile != null) {
+        final entitlement = await subscriptionService.getCurrentEntitlement();
+        await userRepo.applySubscriptionEntitlement(
+          entitlement,
+          currentProfile: profile,
+        );
+      }
+      ref.refresh(userProfileProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Purchases restored.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Restore failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _restoringPurchases = false);
     }
   }
 

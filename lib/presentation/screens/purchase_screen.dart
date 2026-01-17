@@ -1,6 +1,10 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
+import 'package:smartreceipt/domain/services/subscription_service.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/home_screen.dart';
@@ -14,10 +18,36 @@ class PurchaseScreen extends ConsumerStatefulWidget {
 
 class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   bool _processing = false;
+  bool _loading = true;
   String? _message;
+  List<ProductDetails> _products = <ProductDetails>[];
+  StreamSubscription<List<PurchaseDetails>>? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    final subscriptionService = ref.read(subscriptionServiceProvider);
+    _subscription = subscriptionService.purchaseStream.listen(
+      _handlePurchaseUpdates,
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() {
+          _message = 'Purchase stream error: $error';
+        });
+      },
+    );
+    _loadProducts();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final platform = Theme.of(context).platform;
     return WillPopScope(
       onWillPop: () async => false,
       child: Scaffold(
@@ -30,21 +60,24 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Premium keeps unlimited receipts and all features. '
-                'Purchasing via App Store / Play Store will be wired later.',
+              Text(
+                platform == TargetPlatform.iOS
+                    ? 'Premium keeps unlimited receipts. Prices shown are from the App Store.'
+                    : 'Premium keeps unlimited receipts. Prices shown are from Google Play.',
               ),
               const SizedBox(height: 24),
-              _planTile(
-                title: 'Monthly',
-                price: '\$3 / month',
-                onPressed: () => _simulate(Duration(days: 30)),
-              ),
-              _planTile(
-                title: 'Yearly',
-                price: '\$25 / year',
-                onPressed: () => _simulate(Duration(days: 365)),
-              ),
+              if (_loading)
+                const Center(child: CircularProgressIndicator())
+              else if (_products.isEmpty)
+                const Text('Subscriptions are not available right now.')
+              else
+                for (final product in _products)
+                  _planTile(
+                    title: _labelForProduct(product),
+                    price: product.price,
+                    description: product.description,
+                    onPressed: () => _purchase(product),
+                  ),
               const SizedBox(height: 12),
               if (_message != null)
                 Text(
@@ -61,53 +94,129 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   Widget _planTile({
     required String title,
     required String price,
+    required String description,
     required VoidCallback onPressed,
   }) {
     return Card(
       child: ListTile(
         title: Text(title),
-        subtitle: Text(price),
+        subtitle: Text('$price · $description'),
         trailing: ElevatedButton(
           onPressed: _processing
               ? null
-              : () {
-                  if (!kDebugMode) {
-                    setState(() {
-                      _message =
-                          'In-app purchases will be added in production builds.';
-                    });
-                    return;
-                  }
-                  onPressed();
-                },
-          child: Text(kDebugMode ? 'Simulate purchase' : 'Coming soon'),
+              : onPressed,
+          child: Text(_processing ? 'Processing…' : 'Subscribe'),
         ),
       ),
     );
   }
 
-  Future<void> _simulate(Duration duration) async {
-    final repo = ref.read(userRepositoryProvider);
+  Future<void> _loadProducts() async {
+    final subscriptionService = ref.read(subscriptionServiceProvider);
+    setState(() {
+      _loading = true;
+      _message = null;
+    });
+    try {
+      final products = await subscriptionService.fetchProducts();
+      products.sort((a, b) => a.price.compareTo(b.price));
+      if (!mounted) return;
+      setState(() {
+        _products = products;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _message = 'Could not load subscriptions: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _purchase(ProductDetails product) async {
+    final subscriptionService = ref.read(subscriptionServiceProvider);
     setState(() {
       _processing = true;
       _message = null;
     });
-    final now = DateTime.now().toUtc();
-    await repo.setPaid(now.add(duration));
+    try {
+      await subscriptionService.purchase(product);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _message = 'Purchase failed: $e';
+        _processing = false;
+      });
+    }
+  }
 
-    if (!mounted) return;
-    setState(() {
-      _message = 'Premium activated (simulated).';
-      _processing = false;
-    });
+  Future<void> _handlePurchaseUpdates(
+    List<PurchaseDetails> purchases,
+  ) async {
+    if (purchases.isEmpty) return;
+    for (final purchase in purchases) {
+      if (purchase.status == PurchaseStatus.error) {
+        setState(() {
+          _message = 'Purchase error: ${purchase.error}';
+          _processing = false;
+        });
+        continue;
+      }
+      if (purchase.status == PurchaseStatus.canceled) {
+        setState(() {
+          _message = 'Purchase canceled.';
+          _processing = false;
+        });
+        continue;
+      }
+      if (purchase.status == PurchaseStatus.purchased ||
+          purchase.status == PurchaseStatus.restored) {
+        await _syncEntitlementAndExit();
+      }
 
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => const HomeScreen(),
-        settings: const RouteSettings(name: AppRoutes.home),
-      ),
-      (_) => false,
-    );
+      if (purchase.pendingCompletePurchase) {
+        await InAppPurchase.instance.completePurchase(purchase);
+      }
+    }
+  }
+
+  Future<void> _syncEntitlementAndExit() async {
+    final subscriptionService = ref.read(subscriptionServiceProvider);
+    final userRepo = ref.read(userRepositoryProvider);
+    try {
+      final profile = await userRepo.getCurrentUserProfile();
+      if (profile != null) {
+        final entitlement = await subscriptionService.getCurrentEntitlement();
+        await userRepo.applySubscriptionEntitlement(
+          entitlement,
+          currentProfile: profile,
+        );
+      }
+      ref.refresh(userProfileProvider);
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => const HomeScreen(),
+          settings: const RouteSettings(name: AppRoutes.home),
+        ),
+        (_) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _message = 'Could not verify subscription: $e';
+        _processing = false;
+      });
+    }
+  }
+
+  String _labelForProduct(ProductDetails product) {
+    final tier = SubscriptionProductIds.tierForProduct(product.id);
+    if (tier == SubscriptionTier.monthly) return 'Monthly';
+    if (tier == SubscriptionTier.yearly) return 'Yearly';
+    return product.title;
   }
 }

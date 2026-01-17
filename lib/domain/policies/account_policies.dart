@@ -1,5 +1,6 @@
 import 'package:smartreceipt/domain/entities/app_config.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
+import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 
 class AccountPolicies {
   const AccountPolicies._();
@@ -12,10 +13,12 @@ class AccountPolicies {
   }
 
   static bool isPaidActive(AppUserProfile user, DateTime nowUtc) {
-    if (user.accountStatus != AccountStatus.paid) return false;
-    final endsAt = user.subscriptionEndsAt;
-    if (endsAt == null) return true;
-    return nowUtc.isBefore(endsAt);
+    return user.subscriptionStatus == SubscriptionStatus.active &&
+        user.subscriptionTier.isPaid;
+  }
+
+  static bool isSubscriptionExpired(AppUserProfile user) {
+    return user.subscriptionStatus == SubscriptionStatus.expired;
   }
 
   static bool isExpired(AppUserProfile user, DateTime nowUtc) {
@@ -23,9 +26,7 @@ class AccountPolicies {
         user.trialEndsAt != null &&
         nowUtc.isAfter(user.trialEndsAt!);
 
-    final paidExpired = user.accountStatus == AccountStatus.paid &&
-        user.subscriptionEndsAt != null &&
-        nowUtc.isAfter(user.subscriptionEndsAt!);
+    final paidExpired = isSubscriptionExpired(user);
 
     return trialExpired || paidExpired;
   }
@@ -48,8 +49,10 @@ class AccountPolicies {
     AppConfig config,
   ) {
     if (user.trialDowngradeRequired) return false;
-    if (config.enablePaidTiers &&
-        (isPaidActive(user, nowUtc) || isTrialActive(user, nowUtc))) {
+    if (config.enablePaidTiers && isPaidActive(user, nowUtc)) {
+      return true;
+    }
+    if (config.enablePaidTiers && isTrialActive(user, nowUtc)) {
       return !_isPremiumLimitReached(receiptCount, config);
     }
     return receiptCount < config.freeReceiptLimit;

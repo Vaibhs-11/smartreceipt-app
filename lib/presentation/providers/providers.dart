@@ -14,6 +14,7 @@ import 'package:smartreceipt/data/repositories/firebase/firebase_user_repository
 import 'package:smartreceipt/domain/entities/ocr_result.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:smartreceipt/domain/services/subscription_service.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
 import 'package:smartreceipt/domain/repositories/account_repository.dart';
@@ -22,6 +23,7 @@ import 'package:smartreceipt/domain/usecases/add_receipt.dart';
 import 'package:smartreceipt/domain/usecases/delete_account.dart';
 import 'package:smartreceipt/domain/usecases/get_receipt_by_id.dart';
 import 'package:smartreceipt/domain/usecases/get_receipts.dart';
+import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/auth_controller.dart';
 import 'package:smartreceipt/services/receipt_image_source_service.dart';
 
@@ -53,6 +55,11 @@ final authControllerProvider =
 final Provider<UserRepository> userRepositoryProvider =
     Provider<UserRepository>((ref) {
   return FirebaseUserRepository();
+});
+
+final Provider<SubscriptionService> subscriptionServiceProvider =
+    Provider<SubscriptionService>((ref) {
+  return StoreSubscriptionService();
 });
 
 final Provider<AccountRepository> accountRepositoryProvider =
@@ -135,7 +142,12 @@ final AutoDisposeProvider<AddReceiptUseCase> addReceiptUseCaseProviderOverride =
     Provider.autoDispose<AddReceiptUseCase>((ref) {
   final ReceiptRepository repository =
       ref.read(receiptRepositoryProviderOverride);
-  return AddReceiptUseCase(repository);
+  final UserRepository userRepository = ref.read(userRepositoryProvider);
+  return AddReceiptUseCase(
+    repository,
+    userRepository,
+    () => ref.read(appConfigProvider.future),
+  );
 });
 
 final AutoDisposeProvider<GetReceiptsUseCase>

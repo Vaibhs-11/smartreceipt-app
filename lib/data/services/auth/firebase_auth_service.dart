@@ -35,6 +35,8 @@ class FirebaseAuthService implements AuthService {
       "isAnonymous": true,
       "accountStatus": "free",
       "trialDowngradeRequired": false,
+      "subscriptionTier": "free",
+      "subscriptionStatus": "none",
     }, SetOptions(merge: true));
 
     return _mapUser(cred.user);
@@ -67,6 +69,8 @@ class FirebaseAuthService implements AuthService {
       "isAnonymous": false,
       "accountStatus": "free",
       "trialDowngradeRequired": false,
+      "subscriptionTier": "free",
+      "subscriptionStatus": "none",
     }, SetOptions(merge: true));
 
     return _mapUser(cred.user);

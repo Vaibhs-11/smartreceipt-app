@@ -18,12 +18,16 @@ const client = new ImageAnnotatorClient();
 setGlobalOptions({maxInstances: 10});
 
 type AccountStatus = "free" | "trial" | "paid";
+type SubscriptionTier = "free" | "monthly" | "yearly";
+type SubscriptionStatus = "active" | "expired" | "none";
 
 interface UserDoc {
   accountStatus?: AccountStatus;
   trialEndsAt?: admin.firestore.Timestamp;
   subscriptionEndsAt?: admin.firestore.Timestamp;
   trialDowngradeRequired?: boolean;
+  subscriptionTier?: SubscriptionTier;
+  subscriptionStatus?: SubscriptionStatus;
 }
 
 const firestore = admin.firestore();
@@ -213,9 +217,7 @@ const isExpired = (user: UserDoc, now: Date): boolean => {
   if (account === "trial" && user.trialEndsAt) {
     return now > user.trialEndsAt.toDate();
   }
-  if (account === "paid" && user.subscriptionEndsAt) {
-    return now > user.subscriptionEndsAt.toDate();
-  }
+  if (user.subscriptionStatus === "expired") return true;
   return false;
 };
 
@@ -226,15 +228,15 @@ const canAddReceipt = (
 ): boolean => {
   const status = asAccountStatus(user.accountStatus || "free");
   if (user.trialDowngradeRequired) return false;
-  if (status === "paid" && (!user.subscriptionEndsAt ||
-    now < user.subscriptionEndsAt.toDate())) {
+  if (user.subscriptionStatus === "active" &&
+    user.subscriptionTier && user.subscriptionTier !== "free") {
     return true;
   }
   if (status === "trial" && (!user.trialEndsAt ||
     now < user.trialEndsAt.toDate())) {
     return true;
   }
-  return receiptCount < 3;
+  return receiptCount < 10;
 };
 
 const resolveStoragePath = (
@@ -279,17 +281,17 @@ export const finalizeDowngradeToFree = onCall(async (request) => {
   }
 
   const keepIds = request.data?.keepReceiptIds as unknown;
-  if (!Array.isArray(keepIds) || keepIds.length !== 3) {
+  if (!Array.isArray(keepIds) || keepIds.length !== 10) {
     throw new HttpsError(
       "invalid-argument",
-      "keepReceiptIds must be an array of exactly three receipt IDs"
+      "keepReceiptIds must be an array of exactly ten receipt IDs"
     );
   }
 
   const keep = new Set(
     (keepIds as unknown[]).map((id) => String(id))
   );
-  if (keep.size !== 3) {
+  if (keep.size !== 10) {
     throw new HttpsError(
       "invalid-argument",
       "keepReceiptIds must be unique"
@@ -358,6 +360,8 @@ export const finalizeDowngradeToFree = onCall(async (request) => {
     {
       accountStatus: "free",
       trialDowngradeRequired: false,
+      subscriptionTier: "free",
+      subscriptionStatus: userData.subscriptionStatus ?? "none",
     },
     {merge: true}
   );

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
+import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 import 'package:smartreceipt/domain/repositories/user_repository.dart';
 
 class FirebaseUserRepository implements UserRepository {
@@ -26,10 +27,14 @@ class FirebaseUserRepository implements UserRepository {
   ) async {
     if (snapshot.exists) {
       final data = snapshot.data() ?? {};
-      if (!data.containsKey('accountStatus')) {
+      if (!data.containsKey('accountStatus') ||
+          !data.containsKey('subscriptionTier') ||
+          !data.containsKey('subscriptionStatus')) {
         await snapshot.reference.set({
           'accountStatus': AccountStatus.free.asString,
           'trialDowngradeRequired': false,
+          'subscriptionTier': SubscriptionTier.free.asString,
+          'subscriptionStatus': SubscriptionStatus.none.asString,
         }, SetOptions(merge: true));
       }
       return AppUserProfile.fromFirestore(snapshot);
@@ -44,6 +49,8 @@ class FirebaseUserRepository implements UserRepository {
       'createdAt': FieldValue.serverTimestamp(),
       'accountStatus': AccountStatus.free.asString,
       'trialDowngradeRequired': false,
+      'subscriptionTier': SubscriptionTier.free.asString,
+      'subscriptionStatus': SubscriptionStatus.none.asString,
     };
 
     await snapshot.reference.set(seedData, SetOptions(merge: true));
@@ -83,20 +90,35 @@ class FirebaseUserRepository implements UserRepository {
   }
 
   @override
-  Future<void> setPaid(DateTime subscriptionEndsAt) async {
+  Future<void> applySubscriptionEntitlement(
+    SubscriptionEntitlement entitlement, {
+    AppUserProfile? currentProfile,
+  }) async {
     final uid = _uid();
     if (uid == null) {
-      debugPrint('Skipping setPaid: user not logged in.');
+      debugPrint('Skipping applySubscriptionEntitlement: user not logged in.');
       return;
     }
-    await _userDoc(uid).set(
-      {
-        'accountStatus': AccountStatus.paid.asString,
-        'subscriptionEndsAt': Timestamp.fromDate(subscriptionEndsAt.toUtc()),
-        'trialDowngradeRequired': false,
-      },
-      SetOptions(merge: true),
-    );
+
+    final isCurrentPaidActive = currentProfile != null &&
+        currentProfile.subscriptionStatus == SubscriptionStatus.active &&
+        currentProfile.subscriptionTier.isPaid;
+
+    if (entitlement.status == SubscriptionStatus.none && isCurrentPaidActive) {
+      return;
+    }
+
+    final payload = <String, Object?>{
+      'subscriptionTier': entitlement.status == SubscriptionStatus.active
+          ? entitlement.tier.asString
+          : SubscriptionTier.free.asString,
+      'subscriptionStatus': entitlement.status.asString,
+      'subscriptionSource':
+          (entitlement.source ?? currentProfile?.subscriptionSource)?.asString,
+      'subscriptionUpdatedAt': FieldValue.serverTimestamp(),
+    };
+
+    await _userDoc(uid).set(payload, SetOptions(merge: true));
   }
 
   @override

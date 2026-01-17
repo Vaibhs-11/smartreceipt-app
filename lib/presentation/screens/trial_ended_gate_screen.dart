@@ -19,11 +19,15 @@ class TrialEndedGateScreen extends ConsumerWidget {
   final int receiptCount;
 
   String get _title =>
-      isSubscriptionEnded ? 'Your subscription has ended' : 'Your free trial has ended';
+      isSubscriptionEnded ? 'Your subscription has expired' : 'Your free trial has ended';
 
   String _body(AppConfig appConfig) {
     final freeLimit = appConfig.freeReceiptLimit;
     if (receiptCount > freeLimit) {
+      if (isSubscriptionEnded) {
+        return 'Your subscription has expired. Please delete receipts to continue or upgrade. '
+            'You can keep up to $freeLimit receipts on the free plan.';
+      }
       return 'To continue on the free plan, please choose exactly $freeLimit receipts to keep. '
           'Upgrade to keep everything and unlock Premium.';
     }
