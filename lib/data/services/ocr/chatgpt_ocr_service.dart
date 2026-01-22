@@ -1,12 +1,16 @@
 // lib/data/services/ocr/chatgpt_ocr_service.dart
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart';
 import 'package:smartreceipt/domain/services/ocr_service.dart';
 
 class ChatGptOcrService implements OcrService {
   final String openAiApiKey;
+  static Future<String?>? _cachedAppVersion;
 
   ChatGptOcrService({required this.openAiApiKey});
 
@@ -292,10 +296,14 @@ $rawText
       }
     }
 
+    final int itemCountBeforeFilter = items.length;
+
     // Drop OCR artefacts that have no amount or a non-positive amount.
     items = items
         .where((item) => item.price != null && item.price! > 0)
         .toList();
+
+    final int itemCountAfterFilter = items.length;
 
     // Get GPT-proposed total(s)
     double? gptTotal = _numFromDynamic(parsed["total"]);
@@ -348,6 +356,31 @@ $rawText
     ensureKeyword(normalizedBrand);
     ensureKeyword(category);
 
+    if (!isReceipt) {
+      final appVersion = await _getAppVersion();
+      final preview = rawText.length > 400 ? rawText.substring(0, 400) : rawText;
+      // Find these logs in Firebase Console → Crashlytics → Logs.
+      FirebaseCrashlytics.instance.log(
+        'RECEIPT_REJECTED ${jsonEncode({
+          "platform": Platform.operatingSystem,
+          "appVersion": appVersion,
+          "ocrTextLength": rawText.length,
+          "ocrTextPreview": preview,
+          "receiptRejectionReason": rejectionReason,
+          "itemCountBeforeFilter": itemCountBeforeFilter,
+          "itemCountAfterFilter": itemCountAfterFilter,
+          "gptTotal": gptChosen,
+          "localExtractedTotal": localTotal,
+          "currency": currency,
+        })}',
+      );
+      FirebaseCrashlytics.instance.recordError(
+        Exception('RECEIPT_REJECTED'),
+        StackTrace.current,
+       fatal: false,
+      );
+    }
+
     return OcrResult(
       storeName: storeName ?? "Unknown Store",
       date: parsedDate ?? DateTime.now(),
@@ -361,6 +394,14 @@ $rawText
       normalizedBrand: normalizedBrand,
       category: category,
     );
+  }
+
+  static Future<String?> _getAppVersion() {
+    _cachedAppVersion ??=
+        PackageInfo.fromPlatform().then((info) => info.version).catchError((_) {
+      return null;
+    });
+    return _cachedAppVersion!;
   }
 
   // ---------------- Helper utils ----------------

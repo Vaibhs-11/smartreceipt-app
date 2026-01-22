@@ -82,17 +82,23 @@ final currentUidProvider = Provider<String?>((ref) {
   return auth?.uid;
 });
 
-/// Chooses the production OCR service pipeline (Vision + GPT parsing)
-final ocrServiceProvider = Provider<OcrService>((ref) {
-  final openAiKey = dotenv.env['OPENAI_API_KEY'];
+final cloudOcrServiceProvider = Provider<CloudOcrService>((ref) {
+  return CloudOcrService();
+});
 
+final chatGptOcrServiceProvider = Provider<ChatGptOcrService>((ref) {
+  final openAiKey = dotenv.env['OPENAI_API_KEY'];
   if (openAiKey == null || openAiKey.isEmpty) {
     throw Exception("Missing OPENAI_API_KEY in .env");
   }
+  return ChatGptOcrService(openAiApiKey: openAiKey);
+});
 
+/// Chooses the production OCR service pipeline (Vision + GPT parsing)
+final ocrServiceProvider = Provider<OcrService>((ref) {
   return _OcrPipeline(
-    vision: CloudOcrService(),
-    parser: ChatGptOcrService(openAiApiKey: openAiKey),
+    vision: ref.read(cloudOcrServiceProvider),
+    parser: ref.read(chatGptOcrServiceProvider),
   );
 });
 

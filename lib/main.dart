@@ -1,10 +1,12 @@
-import 'package:flutter/foundation.dart';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'core/firebase/app_check_initializer.dart';
 import 'firebase_options.dart';
 import 'presentation/routes/app_routes.dart';
 import 'presentation/screens/onboarding_screen.dart';
@@ -38,34 +40,17 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // 🔐 Firebase App Check
-  await FirebaseAppCheck.instance.setTokenAutoRefreshEnabled(true);
+  // Required so Crashlytics logs appear in Play Store release builds.
+  FlutterError.onError =
+      FirebaseCrashlytics.instance.recordFlutterFatalError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+  await FirebaseCrashlytics.instance
+      .setCrashlyticsCollectionEnabled(true);
 
-  if (defaultTargetPlatform == TargetPlatform.android) {
-    if (kReleaseMode) {
-      // ✅ Production: Real devices only
-      await FirebaseAppCheck.instance.activate(
-        androidProvider: AndroidProvider.playIntegrity,
-      );
-    } else {
-      // 🧪 Debug / Emulator
-      await FirebaseAppCheck.instance.activate(
-        androidProvider: AndroidProvider.debug,
-      );
-    }
-  }
-
-  // 🔍 Optional: safe debug logging (never crashes)
-  if (kDebugMode) {
-    try {
-      final token = await FirebaseAppCheck.instance.getToken(false);
-      if (token != null) {
-        debugPrint('🛡️ App Check token acquired (debug)');
-      }
-    } catch (e) {
-      debugPrint('⚠️ App Check token unavailable (expected in some cases)');
-    }
-  }
+  await AppCheckInitializer.initialize();
 
   debugPrint(
     '✅ Firebase initialized: ${Firebase.app().options.projectId}',
@@ -87,16 +72,23 @@ class SmartReceiptApp extends ConsumerStatefulWidget {
 
 class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
   @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     ref.listen(authStateProvider, (prev, next) {
       final previousUser = prev?.asData?.value;
       final nextUser = next.asData?.value;
+
       if (previousUser != null && nextUser == null) {
         ref.refresh(userProfileProvider);
         ref.refresh(receiptCountProvider);
         ref.refresh(receiptsProvider);
       }
     });
+
     final authState = ref.watch(authStateProvider);
     return MaterialApp(
       title: 'SmartReceipt',

@@ -17,6 +17,8 @@ ios/Flutter/ephemeral/
 # Android
 android/.gradle/
 android/app/build/
+android/key.properties
+android/keystores/smartreceipt-upload-keystore.jks
 
 # Env and secrets
 .env

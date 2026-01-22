@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -20,7 +21,7 @@ import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult;
-import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:smartreceipt/data/services/image_processing/image_normalization.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:smartreceipt/services/receipt_image_source_service.dart';
@@ -31,6 +32,11 @@ class UploadedFile {
   final String downloadUrl;
   final String gcsUri;
   UploadedFile({required this.downloadUrl, required this.gcsUri});
+}
+
+class OcrNoTextException implements Exception {
+  final String message;
+  OcrNoTextException(this.message);
 }
 
 enum AddReceiptInitialAction { pickGallery, pickFiles }
@@ -454,6 +460,37 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
   }
 
+  Future<UploadedFile?> _uploadBytesToStorage(
+    Uint8List bytes, {
+    required String fileName,
+    required String contentType,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      debugPrint("Cannot upload file, user not logged in.");
+      return null;
+    }
+    try {
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child("receipts")
+          .child(user.uid)
+          .child(receiptId)
+          .child(fileName);
+
+      await storageRef.putData(
+        bytes,
+        SettableMetadata(contentType: contentType),
+      );
+      final downloadUrl = await storageRef.getDownloadURL();
+      final gcsUri = 'gs://${storageRef.bucket}/${storageRef.fullPath}';
+      return UploadedFile(downloadUrl: downloadUrl, gcsUri: gcsUri);
+    } catch (e) {
+      debugPrint("Upload failed: $e");
+      return null;
+    }
+  }
+
   void _handleOcrResult(OcrResult result, {String? uploadedUrl}) {
     if (!mounted) return;
     setState(() {
@@ -598,17 +635,44 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       _receiptRejectionReason = null;
     });
 
+    String? fileExtension;
+    int? normalizedWidth;
+    int? normalizedHeight;
+
     try {
       final String lowerPath = file.path.toLowerCase();
+      fileExtension = lowerPath.contains('.') ? lowerPath.split('.').last : null;
       final bool isPdf = lowerPath.endsWith('.pdf');
-      final OcrService ocr = ref.read(ocrServiceProvider);
+      final cloudOcr = ref.read(cloudOcrServiceProvider);
+      final chatGpt = ref.read(chatGptOcrServiceProvider);
 
       if (!isPdf) {
-        final uploadResult = await _uploadFileToStorage(file);
+        // Vision OCR is sensitive to orientation/DPI; normalization keeps results consistent across platforms.
+        final normalizationResult = await normalizeReceiptImage(file);
+        UploadedFile? uploadResult;
+        if (normalizationResult.normalized) {
+          normalizedWidth = normalizationResult.width;
+          normalizedHeight = normalizationResult.height;
+          final normalizedBytes =
+              await normalizationResult.file.readAsBytes();
+          uploadResult = await _uploadBytesToStorage(
+            normalizedBytes,
+            fileName: '${receiptId}_normalized.jpg',
+            contentType: 'image/jpeg',
+          );
+        } else {
+          uploadResult = await _uploadFileToStorage(normalizationResult.file);
+        }
         if (uploadResult == null) throw Exception('File upload failed.');
 
         final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
-        final result = await ocr.parseImage(gcsPath);
+        // Image OCR must always happen before GPT parsing; GPT is not an OCR engine.
+        final visionResult = await cloudOcr.parseImage(gcsPath);
+        final rawText = visionResult.rawText;
+        if (rawText.trim().isEmpty) {
+          throw OcrNoTextException("No text detected in image");
+        }
+        final result = await chatGpt.parseRawText(rawText);
         await _maybeAcceptReceiptResult(
           result,
           uploadedUrl: uploadResult.downloadUrl,
@@ -645,7 +709,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         final uploadResult = await _uploadFileToStorage(file);
         if (uploadResult == null) throw Exception('File upload failed.');
 
-        final parsed = await ocr.parseRawText(extractedText);
+        final parsed = await chatGpt.parseRawText(extractedText);
         await _maybeAcceptReceiptResult(
           parsed,
           uploadedUrl: uploadResult.downloadUrl,
@@ -693,16 +757,74 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       if (uploadResult == null) throw Exception('File upload failed.');
 
       final gcsPath = Uri.parse(uploadResult.gcsUri).path.substring(1);
-      final result = await ocr.parseImage(gcsPath);
+      // Image OCR must always happen before GPT parsing; GPT is not an OCR engine.
+      final visionResult = await cloudOcr.parseImage(gcsPath);
+      final rawText = visionResult.rawText;
+      if (rawText.trim().isEmpty) {
+        throw OcrNoTextException("No text detected in image");
+      }
+      final result = await chatGpt.parseRawText(rawText);
       await _maybeAcceptReceiptResult(
         result,
         uploadedUrl: uploadResult.downloadUrl,
       );
     } catch (e, s) {
+      if (e is OcrNoTextException) {
+        FirebaseCrashlytics.instance.setCustomKey(
+          'platform',
+          Platform.operatingSystem,
+        );
+        if (fileExtension != null && fileExtension.isNotEmpty) {
+          FirebaseCrashlytics.instance.setCustomKey(
+            'fileExtension',
+            fileExtension,
+          );
+        }
+        if (normalizedWidth != null) {
+          FirebaseCrashlytics.instance.setCustomKey(
+            'imageWidth',
+            normalizedWidth,
+          );
+        }
+        if (normalizedHeight != null) {
+          FirebaseCrashlytics.instance.setCustomKey(
+            'imageHeight',
+            normalizedHeight,
+          );
+        }
+        FirebaseCrashlytics.instance.recordError(
+          e,
+          s,
+          fatal: false,
+          reason: "OCR_NO_TEXT",
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'We couldn’t read any text from this image. '
+                'Please try a clearer photo of the receipt with good lighting.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
       debugPrint('Error processing file: $e\n$s');
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        s,
+        fatal: false,
+        reason: 'PROCESS_FILE_ERROR',
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error processing file: $e')),
+          const SnackBar(
+            content: Text(
+              'We couldn’t process this file. Please try again with a different '
+              'image or a clearer photo of your receipt.',
+            ),
+          ),
         );
       }
     } finally {
