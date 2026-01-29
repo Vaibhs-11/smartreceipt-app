@@ -1,11 +1,6 @@
 platform :ios, '15.0'
-ENV['NATIVE_ASSETS_EXPERIMENTAL'] = 'false'
-ENV['FLUTTER_NATIVE_ASSETS'] = 'false'
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-use_frameworks! :linkage => :static
-use_modular_headers!
 
 project 'Runner', {
   'Debug' => :debug,
@@ -13,24 +8,34 @@ project 'Runner', {
   'Release' => :release,
 }
 
+use_frameworks! :linkage => :static
+use_modular_headers!
+
 def flutter_root
-  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  raise "#{generated_xcode_build_settings_path} must exist. Run 'flutter pub get' first." unless File.exist?(generated_xcode_build_settings_path)
+  generated_xcode_build_settings_path = File.expand_path(
+    File.join('..', 'Flutter', 'Generated.xcconfig'),
+    __FILE__
+  )
+
+  raise "#{generated_xcode_build_settings_path} must exist. Run 'flutter pub get' first." \
+    unless File.exist?(generated_xcode_build_settings_path)
 
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT\=(.*)/)
     return matches[1].strip if matches
   end
+
   raise "FLUTTER_ROOT not found in Generated.xcconfig"
 end
 
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+require File.expand_path(
+  File.join('packages', 'flutter_tools', 'bin', 'podhelper'),
+  flutter_root
+)
 
 flutter_ios_podfile_setup
 
-
 target 'Runner' do
-  #pod 'Flutter', :path => 'Flutter'
   flutter_install_all_ios_pods(File.dirname(File.realpath(__FILE__)))
 
   target 'RunnerTests' do
@@ -38,81 +43,12 @@ target 'Runner' do
   end
 end
 
-#platform :ios, '15.0'
-
 post_install do |installer|
-
-  # helper to clean flags safely
-  def scrub_flags(str)
-    return str unless str.is_a?(String)
-    tokens = str.split(/\s+/)
-    clean = []
-    skip_next = false
-    tokens.each do |t|
-      if skip_next
-        skip_next = false
-        next
-      end
-      if t =~ /\A-?G[A-Za-z0-9_\-]*\z/
-        next # drop -G and any -Gxxx form
-      elsif t == "-o"
-        skip_next = true # drop -o and its argument
-        next
-      else
-        clean << t
-      end
-    end
-    clean.join(" ")
-  end
-
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
 
     target.build_configurations.each do |config|
-      # 🔑 Force all Pods to iOS 15.0
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-
-      %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS COMPILER_FLAGS].each do |flag|
-        if config.build_settings[flag].is_a?(String)
-          config.build_settings[flag] = scrub_flags(config.build_settings[flag])
-        elsif config.build_settings[flag].is_a?(Array)
-          config.build_settings[flag] = config.build_settings[flag].map { |v| scrub_flags(v) }
-        end
-      # Fix for Swift/Objective-C interop when using Flutter plugins
-      target.build_configurations.each do |config|
-      config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
-      config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
-      end
-      end
-
-      # Ensure Flutter headers are found
-      config.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
-      config.build_settings['HEADER_SEARCH_PATHS'] << ' "$(PODS_ROOT)/Flutter/Flutter.framework/Headers"'
-    end
-  end
-
-  # Patch generated xcconfig files (keep = intact, only scrub RHS values)
-  Dir.glob(File.join(__dir__, 'Pods', 'Target Support Files', '**/*.xcconfig')).each do |file|
-    txt = File.read(file)
-    newtxt = txt.lines.map do |line|
-      if line.include?('=')
-        k, v = line.split('=', 2)
-        "#{k.strip} = #{scrub_flags(v || '')}\n"
-      else
-        line
-      end
-    end.join
-    File.write(file, newtxt) unless newtxt == txt
-  end
-
-  # 🔑 Also align Runner app target itself
-  installer.aggregate_targets.each do |aggregate_target|
-    aggregate_target.user_project.native_targets.each do |target|
-      target.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-      end
     end
   end
 end
-
-
