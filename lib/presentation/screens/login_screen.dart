@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/screens/signup_screen.dart';
+import 'package:smartreceipt/presentation/utils/auth_error_messages.dart';
 
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -33,13 +34,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       //  Navigator.pushReplacementNamed(context, AppRoutes.home);
       //}
     } catch (e) {
-      // The controller will set authState.error, which shows the inline error message.
-      // We can also show a SnackBar for more prominent feedback.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Login failed: $e")),
-        );
-      }
+      await _showLoginErrorDialog(e);
     }
   }
 
@@ -79,24 +74,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     decoration: const InputDecoration(
                       labelText: "Password",
                       border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  onSubmitted: (_) => _submit(),
-                  enabled: !isLoading,
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    onPressed: isLoading ? null : _forgotPassword,
-                    child: const Text('Forgot password?'),
-                  ),
-                ),
-                if (authState.hasError && !isLoading)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16.0),
-                    child: Text(authState.error.toString(),
-                        style: TextStyle(color: Theme.of(context).colorScheme.error)),
                     ),
+                    obscureText: true,
+                    onSubmitted: (_) => _submit(),
+                    enabled: !isLoading,
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: isLoading ? null : _forgotPassword,
+                      child: const Text('Forgot password?'),
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
@@ -127,6 +116,64 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showLoginErrorDialog(Object error) async {
+    if (!mounted) return;
+    final message = friendlyAuthErrorMessage(
+      error,
+      fallback: 'Login failed. Please try again.',
+    );
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Login failed'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              if (mounted) {
+                _maybeStartForgotPasswordFromDialog();
+              }
+            },
+            child: const Text('Forgot password?'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _maybeStartForgotPasswordFromDialog() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !_isValidEmail(email)) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Reset password'),
+          content: const Text('Please enter a valid email address to reset your password.'),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    await _forgotPassword();
+  }
+
+  bool _isValidEmail(String email) {
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
   }
 
   Future<void> _forgotPassword() async {
