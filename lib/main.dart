@@ -22,6 +22,11 @@ import 'presentation/screens/home_screen.dart';
 import 'presentation/screens/login_screen.dart';
 import 'presentation/widgets/account_gate.dart';
 import 'presentation/providers/providers.dart';
+import 'presentation/utils/root_scaffold_messenger.dart'
+    as root_scaffold_messenger;
+
+final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
+    root_scaffold_messenger.rootScaffoldMessengerKey;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,6 +98,7 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
     return MaterialApp(
       title: 'SmartReceipt',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
       theme: ThemeData(primarySwatch: Colors.blue),
       home: authState.when(
         data: (user) {

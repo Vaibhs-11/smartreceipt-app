@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
 
 class ReceiptDetailScreen extends ConsumerWidget {
   final String receiptId;
@@ -260,7 +261,7 @@ class ReceiptDetailScreen extends ConsumerWidget {
         onTap: () async {
           final uri = Uri.parse(fileUrl);
           if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            showRootSnackBar(
               const SnackBar(content: Text("Could not open link")),
             );
           }

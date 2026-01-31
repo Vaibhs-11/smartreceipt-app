@@ -8,9 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:smartreceipt/core/constants/app_constants.dart';
+import 'package:smartreceipt/core/firebase/crashlytics_logger.dart';
 import 'package:smartreceipt/domain/entities/app_user.dart';
 import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart'
@@ -27,6 +29,7 @@ import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:smartreceipt/services/receipt_image_source_service.dart';
 import 'package:smartreceipt/presentation/screens/trial_ended_gate_screen.dart';
 import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
+import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
 
 class UploadedFile {
   final String downloadUrl;
@@ -306,70 +309,89 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final userRepo = ref.read(userRepositoryProvider);
     final receiptRepo = ref.read(receiptRepositoryProviderOverride);
     final now = DateTime.now().toUtc();
-    final appConfig = await ref.read(appConfigProvider.future);
-    final profile = await userRepo.getCurrentUserProfile();
-    if (profile == null) {
-      if (mounted) {
-        Navigator.of(context).maybePop();
-      }
-      return false;
-    }
-    final receiptCount = await receiptRepo.getReceiptCount();
-
-    final allowed =
-        AccountPolicies.canAddReceipt(profile, receiptCount, now, appConfig);
-    if (allowed) return true;
-
-    if (AccountPolicies.isExpired(profile, now) &&
-        receiptCount <= appConfig.freeReceiptLimit) {
-      await userRepo.clearDowngradeRequired();
-      final refreshed = await userRepo.getCurrentUserProfile();
-      if (refreshed == null) {
+    try {
+      final appConfig = await ref.read(appConfigProvider.future);
+      final profile = await userRepo.getCurrentUserProfile();
+      if (profile == null) {
         if (mounted) {
           Navigator.of(context).maybePop();
         }
         return false;
       }
-      if (AccountPolicies.canAddReceipt(
-        refreshed,
+      final receiptCount = await receiptRepo.getReceiptCount();
+
+      final allowed =
+          AccountPolicies.canAddReceipt(profile, receiptCount, now, appConfig);
+      if (allowed) return true;
+
+      if (AccountPolicies.isExpired(profile, now) &&
+          receiptCount <= appConfig.freeReceiptLimit) {
+        await userRepo.clearDowngradeRequired();
+        final refreshed = await userRepo.getCurrentUserProfile();
+        if (refreshed == null) {
+          if (mounted) {
+            Navigator.of(context).maybePop();
+          }
+          return false;
+        }
+        if (AccountPolicies.canAddReceipt(
+          refreshed,
+          receiptCount,
+          now,
+          appConfig,
+        )) {
+          return true;
+        }
+      }
+
+      final needsGate = AccountPolicies.downgradeRequired(
+        profile,
         receiptCount,
         now,
         appConfig,
-      )) {
-        return true;
-      }
-    }
-
-    final needsGate = AccountPolicies.downgradeRequired(
-      profile,
-      receiptCount,
-      now,
-      appConfig,
-    );
-
-    if (needsGate && mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => TrialEndedGateScreen(
-            isSubscriptionEnded:
-                profile.subscriptionStatus == SubscriptionStatus.expired,
-            receiptCount: receiptCount,
-          ),
-        ),
-        (_) => false,
       );
+
+      if (needsGate && mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => TrialEndedGateScreen(
+              isSubscriptionEnded:
+                  profile.subscriptionStatus == SubscriptionStatus.expired,
+              receiptCount: receiptCount,
+            ),
+          ),
+          (_) => false,
+        );
+        return false;
+      }
+
+      if (mounted) {
+        await _showLimitDialog(
+          profile,
+          receiptCount,
+          appConfig,
+          AccountPolicies.isSubscriptionExpired(profile),
+        );
+      }
+      return false;
+    } on FirebaseFirestoreException catch (e, s) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'FIRESTORE_UNAVAILABLE',
+        error: e,
+        stackTrace: s,
+        context: {'code': e.code},
+      );
+      if (mounted) {
+        showRootSnackBar(
+          const SnackBar(
+              content: Text(
+              'Network issue detected. Please try again when you\'re online.',
+            ),
+          ),
+        );
+      }
       return false;
     }
-
-    if (mounted) {
-      await _showLimitDialog(
-        profile,
-        receiptCount,
-        appConfig,
-        AccountPolicies.isSubscriptionExpired(profile),
-      );
-    }
-    return false;
   }
 
   Future<void> _showLimitDialog(
@@ -429,7 +451,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final userRepo = ref.read(userRepositoryProvider);
     await userRepo.startTrial();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    showRootSnackBar(
       const SnackBar(content: Text('Trial started. You can now add receipts.')),
     );
   }
@@ -470,7 +492,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       await addReceipt(receipt);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         const SnackBar(
           content: Text('Receipt limit reached. Please upgrade or delete.'),
         ),
@@ -861,7 +883,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           reason: "OCR_NO_TEXT",
         );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          showRootSnackBar(
             const SnackBar(
               content: Text(
                 'We couldn’t read any text from this image. '
@@ -880,7 +902,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         reason: 'PROCESS_FILE_ERROR',
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showRootSnackBar(
           const SnackBar(
             content: Text(
               'We couldn’t process this file. Please try again with a different '
@@ -948,7 +970,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   void _showImageSourceError(ReceiptImageSourceFailure failure) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    showRootSnackBar(
       SnackBar(content: Text(failure.message)),
     );
   }

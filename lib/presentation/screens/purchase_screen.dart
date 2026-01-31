@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 import 'package:smartreceipt/domain/services/subscription_service.dart';
+import 'package:smartreceipt/core/firebase/crashlytics_logger.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/home_screen.dart';
@@ -17,6 +18,8 @@ class PurchaseScreen extends ConsumerStatefulWidget {
 }
 
 class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
+  static const String _billingUnavailableMessage =
+      'Purchases are currently unavailable. Please try again later.';
   bool _processing = false;
   bool _loading = true;
   String? _message;
@@ -30,9 +33,14 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
     _subscription = subscriptionService.purchaseStream.listen(
       _handlePurchaseUpdates,
       onError: (Object error) {
+        CrashlyticsLogger.recordNonFatal(
+          reason: 'BILLING_PURCHASE_STREAM_ERROR',
+          error: error,
+          context: {'operation': 'purchaseStream'},
+        );
         if (!mounted) return;
         setState(() {
-          _message = 'Purchase stream error: $error';
+          _message = _billingUnavailableMessage;
         });
       },
     );
@@ -102,9 +110,7 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
         title: Text(title),
         subtitle: Text('$price · $description'),
         trailing: ElevatedButton(
-          onPressed: _processing
-              ? null
-              : onPressed,
+          onPressed: _processing ? null : onPressed,
           child: Text(_processing ? 'Processing…' : 'Subscribe'),
         ),
       ),
@@ -125,9 +131,14 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
         _products = products;
       });
     } catch (e) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'BILLING_PRODUCTS_LOAD_FAILED',
+        error: e,
+        context: {'operation': 'fetchProducts'},
+      );
       if (!mounted) return;
       setState(() {
-        _message = 'Could not load subscriptions: $e';
+        _message = _billingUnavailableMessage;
       });
     } finally {
       if (mounted) {
@@ -145,9 +156,14 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
     try {
       await subscriptionService.purchase(product);
     } catch (e) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'BILLING_PURCHASE_FAILED',
+        error: e,
+        context: {'operation': 'purchase', 'productId': product.id},
+      );
       if (!mounted) return;
       setState(() {
-        _message = 'Purchase failed: $e';
+        _message = _billingUnavailableMessage;
         _processing = false;
       });
     }
@@ -159,15 +175,20 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
     if (purchases.isEmpty) return;
     for (final purchase in purchases) {
       if (purchase.status == PurchaseStatus.error) {
+        await CrashlyticsLogger.recordNonFatal(
+          reason: 'BILLING_PURCHASE_STATUS_ERROR',
+          error: purchase.error ?? StateError('Unknown purchase error'),
+          context: {'productId': purchase.productID},
+        );
         setState(() {
-          _message = 'Purchase error: ${purchase.error}';
+          _message = _billingUnavailableMessage;
           _processing = false;
         });
         continue;
       }
       if (purchase.status == PurchaseStatus.canceled) {
         setState(() {
-          _message = 'Purchase canceled.';
+          _message = _billingUnavailableMessage;
           _processing = false;
         });
         continue;
@@ -207,7 +228,7 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _message = 'Could not verify subscription: $e';
+        _message = _billingUnavailableMessage;
         _processing = false;
       });
     }

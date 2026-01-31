@@ -7,6 +7,7 @@ import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
+import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
 import 'package:smartreceipt/services/receipt_image_source_service.dart';
 
 class ReceiptListScreen extends ConsumerStatefulWidget {
@@ -251,7 +252,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                             .deleteReceipt(receipt.id);
 
                         _dismissSwipeHint();
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        showRootSnackBar(
                           const SnackBar(content: Text("Receipt deleted")),
                         );
                       },
@@ -485,7 +486,6 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
 
   Future<void> _handleCameraShortcut() async {
     final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
     final imageService = ref.read(receiptImageSourceServiceProvider);
     final result = await imageService.pickFromCamera();
     if (!mounted) return;
@@ -503,7 +503,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     if (failure == null) return;
 
     if (failure.code == ReceiptImageSourceError.permissionDenied) {
-      messenger.showSnackBar(
+      showRootSnackBar(
         SnackBar(content: Text(failure.message)),
       );
       return;

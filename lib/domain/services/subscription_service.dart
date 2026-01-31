@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
+import 'package:smartreceipt/core/firebase/crashlytics_logger.dart';
 
 abstract class SubscriptionService {
   Stream<List<PurchaseDetails>> get purchaseStream;
@@ -78,42 +79,80 @@ class StoreSubscriptionService implements SubscriptionService {
   @override
   Future<List<ProductDetails>> fetchProducts() async {
     final ids = SubscriptionProductIds.allIds();
-    final available = await _inAppPurchase.isAvailable();
-    if (!available) {
-      throw StateError('Store not available');
-    }
+    await _ensureBillingReady(operation: 'fetchProducts');
     final response = await _inAppPurchase.queryProductDetails(ids);
     if (response.error != null) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'BILLING_PRODUCT_QUERY_FAILED',
+        error: StateError(response.error!.message),
+        context: {
+          'operation': 'fetchProducts',
+          'source': response.error!.source,
+          'code': response.error!.code,
+        },
+      );
       throw StateError(response.error!.message);
+    }
+    if (response.productDetails.isEmpty) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'BILLING_PRODUCTS_EMPTY',
+        error: StateError('No product details returned'),
+        context: {
+          'operation': 'fetchProducts',
+          'requestedIds': ids.join(','),
+        },
+      );
     }
     return response.productDetails;
   }
 
   @override
   Future<void> purchase(ProductDetails product) async {
-    final available = await _inAppPurchase.isAvailable();
-    if (!available) {
-      throw StateError('Store not available');
+    await _ensureBillingReady(operation: 'purchase');
+    if (product.id.trim().isEmpty) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'BILLING_INVALID_PRODUCT',
+        error: StateError('ProductDetails is missing an id'),
+        context: {'operation': 'purchase'},
+      );
+      throw StateError('Invalid product');
     }
     final param = PurchaseParam(productDetails: product);
-    await _inAppPurchase.buyNonConsumable(purchaseParam: param);
+    try {
+      await _inAppPurchase.buyNonConsumable(purchaseParam: param);
+    } catch (e, s) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'BILLING_LAUNCH_FAILED',
+        error: e,
+        stackTrace: s,
+        context: {
+          'operation': 'purchase',
+          'productId': product.id,
+        },
+      );
+      rethrow;
+    }
   }
 
   @override
   Future<void> restorePurchases() async {
-    final available = await _inAppPurchase.isAvailable();
-    if (!available) {
-      throw StateError('Store not available');
+    await _ensureBillingReady(operation: 'restorePurchases');
+    try {
+      await _inAppPurchase.restorePurchases();
+    } catch (e, s) {
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'BILLING_RESTORE_FAILED',
+        error: e,
+        stackTrace: s,
+        context: {'operation': 'restorePurchases'},
+      );
+      rethrow;
     }
-    await _inAppPurchase.restorePurchases();
   }
 
   @override
   Future<SubscriptionEntitlement> getCurrentEntitlement() async {
-    final available = await _inAppPurchase.isAvailable();
-    if (!available) {
-      throw StateError('Store not available');
-    }
+    await _ensureBillingReady(operation: 'getCurrentEntitlement');
 
     final ids = SubscriptionProductIds.allIds();
     final pastPurchases = await _queryPastPurchasesSafe();
@@ -182,5 +221,16 @@ class StoreSubscriptionService implements SubscriptionService {
   int _purchaseTimestamp(PurchaseDetails details) {
     if (details.transactionDate == null) return 0;
     return int.tryParse(details.transactionDate!) ?? 0;
+  }
+
+  Future<void> _ensureBillingReady({required String operation}) async {
+    final available = await _inAppPurchase.isAvailable();
+    if (available) return;
+    await CrashlyticsLogger.recordNonFatal(
+      reason: 'BILLING_UNAVAILABLE',
+      error: StateError('Store not available'),
+      context: {'operation': operation},
+    );
+    throw StateError('Store not available');
   }
 }

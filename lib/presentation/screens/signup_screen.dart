@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Make sure this file (next step) exposes `authControllerProvider`
 import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
   const SignupScreen({super.key});
@@ -54,16 +55,15 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     // Uses Riverpod controller (wired in Step 2)
     final controller = ref.read(authControllerProvider.notifier);
 
-    final scaffold = ScaffoldMessenger.of(context);
     try {
       await controller.signUpWithEmailPassword(email, password);
       // AuthGate should navigate automatically when auth state changes.
-      scaffold.showSnackBar(
+      showRootSnackBar(
         const SnackBar(content: Text('Account created!')),
       );
       if (mounted) Navigator.of(context).pop(); // go back to Login if you pushed this route
     } catch (e) {
-      scaffold.showSnackBar(
+      showRootSnackBar(
         SnackBar(content: Text(e.toString())),
       );
     }

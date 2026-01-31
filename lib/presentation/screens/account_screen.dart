@@ -12,6 +12,7 @@ import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
+import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -393,7 +394,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   await fb_auth.FirebaseAuth.instance
                       .sendPasswordResetEmail(email: email);
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  showRootSnackBar(
                     const SnackBar(
                       content: Text(
                           'If an account exists for this email, a password reset link has been sent.'),
@@ -401,7 +402,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   );
                 } catch (_) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  showRootSnackBar(
                     const SnackBar(
                       content: Text(
                           'If an account exists for this email, a password reset link has been sent.'),
@@ -464,12 +465,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       await userRepo.startTrial();
       ref.refresh(userProfileProvider);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         const SnackBar(content: Text('Trial started')),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         SnackBar(content: Text('Could not start trial: $e')),
       );
     } finally {
@@ -494,12 +495,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       }
       ref.refresh(userProfileProvider);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         const SnackBar(content: Text('Purchases restored.')),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         SnackBar(content: Text('Restore failed: $e')),
       );
     } finally {
@@ -566,12 +567,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       await user.updatePassword(updated);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         const SnackBar(content: Text('Password updated')),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         SnackBar(content: Text('Failed to update password: $e')),
       );
     } finally {

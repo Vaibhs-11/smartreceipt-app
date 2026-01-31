@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
 import 'package:smartreceipt/presentation/screens/signup_screen.dart';
 import 'package:smartreceipt/presentation/utils/auth_error_messages.dart';
+import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
 
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -209,7 +210,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final email = emailController.text.trim();
     if (email.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showRootSnackBar(
         const SnackBar(content: Text('Please enter your email.')),
       );
       return;
@@ -222,7 +223,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    showRootSnackBar(
       const SnackBar(
         content: Text(
           'If an account exists for this email, a password reset link has been sent.',
