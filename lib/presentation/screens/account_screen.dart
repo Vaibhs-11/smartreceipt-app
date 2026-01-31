@@ -9,6 +9,7 @@ import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
 import 'package:smartreceipt/domain/exceptions/account_deletion_exception.dart';
 import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:smartreceipt/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
 
@@ -427,7 +428,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               style: TextButton.styleFrom(
                 foregroundColor: Colors.red.shade700,
               ),
-              onPressed: () => ref.read(authServiceProvider).signOut(),
+              onPressed: () async {
+                await ref.read(authServiceProvider).signOut();
+                ref.read(receiptSearchFiltersProvider.notifier).state =
+                    const ReceiptSearchFilters();
+              },
               icon: const Icon(Icons.logout),
               label: const Text('Logout'),
             ),

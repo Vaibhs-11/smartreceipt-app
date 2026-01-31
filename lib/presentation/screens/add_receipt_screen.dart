@@ -74,6 +74,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   final TextEditingController _itemNameCtrl = TextEditingController();
   final TextEditingController _itemPriceCtrl = TextEditingController();
 
+  final List<TextEditingController> _itemNameCtrls = [];
+  final List<TextEditingController> _itemPriceCtrls = [];
+
   final String receiptId = const Uuid().v4();
   List<ReceiptItem> _items = [];
 
@@ -94,6 +97,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   String? _normalizedBrand;
   String? _category;
   bool _initialArgsHandled = false;
+  bool _storeEdited = false;
+  bool _totalEdited = false;
+  bool _dateEdited = false;
+  bool _currencyEdited = false;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -122,12 +129,16 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _dateCtrl.dispose();
     _itemNameCtrl.dispose();
     _itemPriceCtrl.dispose();
+    for (final controller in _itemNameCtrls) {
+      controller.dispose();
+    }
+    for (final controller in _itemPriceCtrls) {
+      controller.dispose();
+    }
     _scrollController.dispose();
     super.dispose();
   }
 
-  /// Helper to build a card for a single item. Uses initialValue + ValueKey
-  /// so it rebuilds correctly when OCR results replace the items list.
   Widget _buildItemCard(int index) {
     final item = _items[index];
 
@@ -143,15 +154,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 Expanded(
                   flex: 3,
                   child: TextFormField(
-                    key:
-                        ValueKey('item-name-$index-${item.name}-${item.price}'),
-                    initialValue: item.name,
+                    controller: _itemNameCtrls[index],
                     decoration: const InputDecoration(labelText: 'Item name'),
-                    onChanged: (val) {
-                      setState(() {
-                        _items[index] = item.copyWith(name: val.trim());
-                      });
-                    },
+                    onEditingComplete: () => _commitItemEdit(index),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -159,20 +164,11 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 Expanded(
                   flex: 2,
                   child: TextFormField(
-                    key: ValueKey(
-                        'item-price-$index-${item.name}-${item.price}'),
-                    initialValue: item.price.toStringAsFixed(2),
+                    controller: _itemPriceCtrls[index],
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(labelText: 'Price'),
-                    onChanged: (val) {
-                      final p = double.tryParse(val.trim());
-                      if (p != null) {
-                        setState(() {
-                          _items[index] = item.copyWith(price: p);
-                        });
-                      }
-                    },
+                    onEditingComplete: () => _commitItemEdit(index),
                   ),
                 ),
               ],
@@ -180,9 +176,11 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
             CheckboxListTile(
               value: item.taxClaimable,
               onChanged: (val) {
-                setState(() {
-                  _items[index] = item.copyWith(taxClaimable: val ?? false);
-                });
+                _commitItemEdit(
+                  index,
+                  taxClaimable: val ?? false,
+                  commitText: false,
+                );
               },
               title: const Text('Mark as tax claimable'),
               dense: true,
@@ -192,6 +190,58 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         ),
       ),
     );
+  }
+
+  void _resetItemControllers(List<ReceiptItem> items) {
+    for (final controller in _itemNameCtrls) {
+      controller.dispose();
+    }
+    for (final controller in _itemPriceCtrls) {
+      controller.dispose();
+    }
+    _itemNameCtrls.clear();
+    _itemPriceCtrls.clear();
+    for (final item in items) {
+      _itemNameCtrls.add(TextEditingController(text: item.name));
+      _itemPriceCtrls
+          .add(TextEditingController(text: item.price.toStringAsFixed(2)));
+    }
+  }
+
+  void _commitItemEdit(
+    int index, {
+    bool? taxClaimable,
+    bool commitText = true,
+  }) {
+    if (index < 0 ||
+        index >= _items.length ||
+        index >= _itemNameCtrls.length ||
+        index >= _itemPriceCtrls.length) {
+      return;
+    }
+    setState(() {
+      final current = _items[index];
+      final name =
+          commitText ? _itemNameCtrls[index].text.trim() : current.name;
+      final price = commitText
+          ? double.tryParse(_itemPriceCtrls[index].text.trim())
+          : null;
+      _items[index] = current.copyWith(
+        name: name,
+        price: commitText ? (price ?? current.price) : current.price,
+        taxClaimable: taxClaimable ?? current.taxClaimable,
+      );
+    });
+  }
+
+  void _syncItemsFromControllers() {
+    final count = math.min(
+      _items.length,
+      math.min(_itemNameCtrls.length, _itemPriceCtrls.length),
+    );
+    for (int i = 0; i < count; i++) {
+      _commitItemEdit(i);
+    }
   }
 
   Map<String, Object?>? _buildMetadata() {
@@ -213,6 +263,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     setState(() {
       controller.text = formatted;
       _date = picked;
+      _dateEdited = true;
     });
   }
 
@@ -393,6 +444,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (_receiptRejected) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    _syncItemsFromControllers();
+
     final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
 
     final receipt = Receipt(
@@ -502,14 +555,21 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         _processedImagePath = null;
         _imageProcessingStatus = 'pending';
       }
-      _storeCtrl.text = result.storeName;
-      _totalCtrl.text = result.total.toStringAsFixed(2);
-      _date = result.date;
-      _dateCtrl.text = DateFormat.yMMMd().format(_date);
+      if (!_storeEdited) {
+        _storeCtrl.text = result.storeName;
+      }
+      if (!_totalEdited) {
+        _totalCtrl.text = result.total.toStringAsFixed(2);
+      }
+      if (!_dateEdited) {
+        _date = result.date;
+        _dateCtrl.text = DateFormat.yMMMd().format(_date);
+      }
 
       if (result.items.isNotEmpty) {
         _items = result
             .toReceiptItems(); // assumes new model includes taxClaimable default
+        _resetItemControllers(_items);
       }
 
       final String? parsedCurrency = result.currency?.trim().toUpperCase();
@@ -517,7 +577,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         if (!_currencyOptions.contains(parsedCurrency)) {
           _currencyOptions.add(parsedCurrency);
         }
-        _currency = parsedCurrency;
+        if (!_currencyEdited) {
+          _currency = parsedCurrency;
+        }
       }
 
       _searchKeywords = List<String>.from(result.searchKeywords);
@@ -944,6 +1006,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (name.isNotEmpty && price != null) {
       setState(() {
         _items.add(ReceiptItem(name: name, price: price, taxClaimable: false));
+        _itemNameCtrls.add(TextEditingController(text: name));
+        _itemPriceCtrls
+            .add(TextEditingController(text: price.toStringAsFixed(2)));
         _itemNameCtrl.clear();
         _itemPriceCtrl.clear();
       });
@@ -1012,6 +1077,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           controller: _storeCtrl,
                           decoration:
                               const InputDecoration(labelText: 'Store name'),
+                          onChanged: (_) => _storeEdited = true,
                           validator: (String? v) =>
                               v == null || v.trim().isEmpty ? 'Required' : null,
                         ),
@@ -1056,6 +1122,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                         decimal: true),
                                 decoration: const InputDecoration(
                                     labelText: 'Total amount'),
+                                onChanged: (_) => _totalEdited = true,
                                 validator: (String? v) =>
                                     (double.tryParse(v ?? '') == null)
                                         ? 'Enter valid number'
@@ -1065,8 +1132,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                             const SizedBox(width: 12),
                             DropdownButton<String>(
                               value: _currency,
-                              onChanged: (String? v) =>
-                                  setState(() => _currency = v ?? _currency),
+                              onChanged: (String? v) => setState(() {
+                                _currencyEdited = true;
+                                _currency = v ?? _currency;
+                              }),
                               items: _currencyOptions
                                   .map((String c) => DropdownMenuItem<String>(
                                       value: c, child: Text(c)))

@@ -1,74 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smartreceipt/domain/entities/receipt.dart';
 import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:smartreceipt/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:smartreceipt/presentation/routes/app_routes.dart';
 import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
 import 'package:smartreceipt/services/receipt_image_source_service.dart';
-
-class ReceiptSearchFilters {
-  static const _unset = Object();
-
-  const ReceiptSearchFilters({
-    this.query = "",
-    this.store,
-    this.startDate,
-    this.endDate,
-    this.minTotal,
-    this.maxTotal,
-    this.taxClaimable,
-  });
-
-  final String query;
-  final String? store;
-  final DateTime? startDate;
-  final DateTime? endDate;
-  final double? minTotal;
-  final double? maxTotal;
-  final bool? taxClaimable;
-
-  ReceiptSearchFilters copyWith({
-    String? query,
-    Object? store = _unset,
-    Object? startDate = _unset,
-    Object? endDate = _unset,
-    Object? minTotal = _unset,
-    Object? maxTotal = _unset,
-    Object? taxClaimable = _unset,
-  }) {
-    return ReceiptSearchFilters(
-      query: query ?? this.query,
-      store: identical(store, _unset) ? this.store : store as String?,
-      startDate: identical(startDate, _unset)
-          ? this.startDate
-          : startDate as DateTime?,
-      endDate: identical(endDate, _unset) ? this.endDate : endDate as DateTime?,
-      minTotal:
-          identical(minTotal, _unset) ? this.minTotal : minTotal as double?,
-      maxTotal:
-          identical(maxTotal, _unset) ? this.maxTotal : maxTotal as double?,
-      taxClaimable: identical(taxClaimable, _unset)
-          ? this.taxClaimable
-          : taxClaimable as bool?,
-    );
-  }
-
-  ReceiptSearchFilters clearFilters() {
-    return ReceiptSearchFilters(query: query);
-  }
-
-  bool get hasActiveFilters =>
-      (store != null && store!.isNotEmpty) ||
-      startDate != null ||
-      endDate != null ||
-      minTotal != null ||
-      maxTotal != null ||
-      taxClaimable != null;
-}
-
-final receiptSearchFiltersProvider =
-    StateProvider<ReceiptSearchFilters>((ref) => const ReceiptSearchFilters());
 
 class ReceiptListScreen extends ConsumerStatefulWidget {
   const ReceiptListScreen({super.key});
@@ -79,18 +18,151 @@ class ReceiptListScreen extends ConsumerStatefulWidget {
 
 class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
   late final TextEditingController _searchController;
+  static const String _swipeHintPrefKey = 'receipt_swipe_hint_shown';
+  bool _showSwipeHint = false;
 
   @override
   void initState() {
     super.initState();
     final initialFilters = ref.read(receiptSearchFiltersProvider);
     _searchController = TextEditingController(text: initialFilters.query);
+    _loadSwipeHint();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSwipeHint() async {
+    final prefs = await SharedPreferences.getInstance();
+    final shown = prefs.getBool(_swipeHintPrefKey) ?? false;
+    if (!mounted) return;
+    setState(() => _showSwipeHint = !shown);
+  }
+
+  void _dismissSwipeHint() {
+    if (!_showSwipeHint) return;
+    setState(() => _showSwipeHint = false);
+    _persistSwipeHintShown();
+  }
+
+  Future<void> _persistSwipeHintShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_swipeHintPrefKey, true);
+  }
+
+  Widget _buildDeleteBackground() {
+    return Container(
+      color: Colors.red,
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.delete, color: Colors.white),
+          SizedBox(width: 8),
+          Text(
+            'Delete',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReceiptTile(Receipt receipt) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        onTap: () {
+          Navigator.pushNamed(
+            context,
+            '/receiptDetail',
+            arguments: receipt.id,
+          );
+        },
+        title: Text(
+          receipt.storeName,
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          DateFormat.yMMMd().format(receipt.date),
+        ),
+        trailing: Builder(
+          builder: (_) {
+            String formattedAmount;
+            try {
+              formattedAmount =
+                  NumberFormat.simpleCurrency(name: receipt.currency)
+                      .format(receipt.total);
+            } catch (_) {
+              formattedAmount =
+                  '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
+            }
+            return Text(
+              formattedAmount,
+              style: TextStyle(
+                color: Colors.green[700],
+                fontWeight: FontWeight.bold,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSwipeHintOverlay(int index) {
+    if (index != 0 || !_showSwipeHint) {
+      return const SizedBox.shrink();
+    }
+    return Positioned(
+      top: 6,
+      right: 12,
+      child: GestureDetector(
+        onTap: _dismissSwipeHint,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.65),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(
+                Icons.swipe_left,
+                size: 16,
+                color: Colors.white,
+              ),
+              SizedBox(width: 6),
+              Text(
+                'Swipe left to delete',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -117,7 +189,11 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
-            onPressed: () => ref.read(authServiceProvider).signOut(),
+            onPressed: () async {
+              await ref.read(authServiceProvider).signOut();
+              ref.read(receiptSearchFiltersProvider.notifier).state =
+                  const ReceiptSearchFilters();
+            },
           ),
         ],
       ),
@@ -145,13 +221,9 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                     final receipt = filtered[index];
                     return Dismissible(
                       key: ValueKey(receipt.id),
-                      background: Container(
-                        color: Colors.red,
-                        alignment: Alignment.centerLeft,
-                        padding: const EdgeInsets.only(left: 20),
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      direction: DismissDirection.startToEnd,
+                      background: _buildDeleteBackground(),
+                      secondaryBackground: _buildDeleteBackground(),
+                      direction: DismissDirection.endToStart,
                       confirmDismiss: (_) async {
                         return await showDialog<bool>(
                               context: context,
@@ -178,55 +250,16 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                             .read(receiptRepositoryProviderOverride)
                             .deleteReceipt(receipt.id);
 
+                        _dismissSwipeHint();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text("Receipt deleted")),
                         );
                       },
-                      child: Card(
-                        elevation: 2,
-                        margin: const EdgeInsets.symmetric(vertical: 8),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: ListTile(
-                          onTap: () {
-                            Navigator.pushNamed(
-                              context,
-                              '/receiptDetail',
-                              arguments: receipt.id,
-                            );
-                          },
-                          title: Text(
-                            receipt.storeName,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            DateFormat.yMMMd().format(receipt.date),
-                          ),
-                          trailing: Builder(
-                            builder: (_) {
-                              String formattedAmount;
-                              try {
-                                formattedAmount = NumberFormat.simpleCurrency(
-                                        name: receipt.currency)
-                                    .format(receipt.total);
-                              } catch (_) {
-                                formattedAmount =
-                                    '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
-                              }
-                              return Text(
-                                formattedAmount,
-                                style: TextStyle(
-                                  color: Colors.green[700],
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+                      child: Stack(
+                        children: [
+                          _buildReceiptTile(receipt),
+                          _buildSwipeHintOverlay(index),
+                        ],
                       ),
                     );
                   },

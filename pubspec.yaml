@@ -1,7 +1,7 @@
 name: smartreceipt
 description: A mobile-first receipt scanning & organisation app
 publish_to: "none"
-version: 0.0.1+8
+version: 0.0.1+9
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -23,6 +23,7 @@ dependencies:
   # State management & config
   flutter_riverpod: ^1.0.0
   flutter_dotenv: ^6.0.0
+  shared_preferences: ^2.3.2
 
   # Firebase (stable + launch-safe)
   firebase_core: ^4.1.0
