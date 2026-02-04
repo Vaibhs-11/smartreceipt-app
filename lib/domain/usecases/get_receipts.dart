@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
-import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart'
+import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/repositories/receipt_repository.dart';
+import 'package:receiptnest/presentation/providers/providers.dart'
     show receiptRepositoryProviderOverride;
 
 class GetReceiptsUseCase {

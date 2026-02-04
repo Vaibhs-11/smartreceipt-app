@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:smartreceipt/domain/entities/app_config.dart';
-import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
-import 'package:smartreceipt/presentation/screens/keep3_selection_screen.dart';
-import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
-import 'package:smartreceipt/presentation/screens/home_screen.dart';
+import 'package:receiptnest/domain/entities/app_config.dart';
+import 'package:receiptnest/presentation/providers/app_config_provider.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
+import 'package:receiptnest/presentation/screens/keep3_selection_screen.dart';
+import 'package:receiptnest/presentation/screens/purchase_screen.dart';
+import 'package:receiptnest/presentation/screens/home_screen.dart';
 
 class TrialEndedGateScreen extends ConsumerWidget {
   const TrialEndedGateScreen({

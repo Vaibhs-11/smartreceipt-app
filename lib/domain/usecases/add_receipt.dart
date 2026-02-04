@@ -1,8 +1,8 @@
-import 'package:smartreceipt/domain/entities/app_config.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
-import 'package:smartreceipt/domain/policies/account_policies.dart';
-import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
-import 'package:smartreceipt/domain/repositories/user_repository.dart';
+import 'package:receiptnest/domain/entities/app_config.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
+import 'package:receiptnest/domain/repositories/receipt_repository.dart';
+import 'package:receiptnest/domain/repositories/user_repository.dart';
 
 class AddReceiptUseCase {
   const AddReceiptUseCase(

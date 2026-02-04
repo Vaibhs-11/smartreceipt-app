@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
 
 class ReceiptThumbnail extends StatelessWidget {
   const ReceiptThumbnail({super.key, required this.receipt});

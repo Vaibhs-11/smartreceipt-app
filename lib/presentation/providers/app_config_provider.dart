@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:smartreceipt/data/repositories/app_config_repository.dart';
-import 'package:smartreceipt/domain/entities/app_config.dart';
+import 'package:receiptnest/data/repositories/app_config_repository.dart';
+import 'package:receiptnest/domain/entities/app_config.dart';
 
 final appConfigRepositoryProvider = Provider<AppConfigRepository>((ref) {
   return AppConfigRepository();

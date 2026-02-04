@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
-import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 
 enum AccountStatus { free, trial, paid }
 

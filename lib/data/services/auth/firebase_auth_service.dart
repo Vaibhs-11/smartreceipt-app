@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
-import 'package:smartreceipt/data/services/auth/auth_service.dart';
+import 'package:receiptnest/data/services/auth/auth_service.dart';
 
 class FirebaseAuthService implements AuthService {
   FirebaseAuthService({fb_auth.FirebaseAuth? instance})

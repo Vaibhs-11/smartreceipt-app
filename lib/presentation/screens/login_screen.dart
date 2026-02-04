@@ -2,10 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/screens/signup_screen.dart';
-import 'package:smartreceipt/presentation/utils/auth_error_messages.dart';
-import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/screens/signup_screen.dart';
+import 'package:receiptnest/presentation/utils/auth_error_messages.dart';
+import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/core/constants/app_constants.dart';
 
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -55,7 +56,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: Column(
                 children: [
                   Text(
-                    'SmartReceipt',
+                    AppConstants.appName,
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   const SizedBox(height: 24),

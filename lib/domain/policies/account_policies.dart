@@ -1,6 +1,6 @@
-import 'package:smartreceipt/domain/entities/app_config.dart';
-import 'package:smartreceipt/domain/entities/app_user.dart';
-import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/domain/entities/app_config.dart';
+import 'package:receiptnest/domain/entities/app_user.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 
 class AccountPolicies {
   const AccountPolicies._();

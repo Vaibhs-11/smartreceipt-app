@@ -1,5 +1,5 @@
-import 'package:smartreceipt/domain/entities/app_user.dart';
-import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/domain/entities/app_user.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 
 abstract class UserRepository {
   Future<AppUserProfile?> getCurrentUserProfile();

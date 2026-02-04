@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/providers/receipt_search_filters_provider.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
-import 'package:smartreceipt/presentation/screens/add_receipt_screen.dart';
-import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
-import 'package:smartreceipt/services/receipt_image_source_service.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
+import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
+import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/services/receipt_image_source_service.dart';
 
 class ReceiptListScreen extends ConsumerStatefulWidget {
   const ReceiptListScreen({super.key});
@@ -129,35 +129,29 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     if (index != 0 || !_showSwipeHint) {
       return const SizedBox.shrink();
     }
+    final hintColor = Theme.of(context).hintColor;
     return Positioned(
       top: 6,
       right: 12,
       child: GestureDetector(
         onTap: _dismissSwipeHint,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 6,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.65),
-            borderRadius: BorderRadius.circular(12),
-          ),
+        child: Opacity(
+          opacity: 0.7,
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: const [
+            children: [
               Icon(
                 Icons.swipe_left,
-                size: 16,
-                color: Colors.white,
+                size: 14,
+                color: hintColor,
               ),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
               Text(
                 'Swipe left to delete',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: hintColor,
+                      fontSize: 11,
+                    ),
               ),
             ],
           ),

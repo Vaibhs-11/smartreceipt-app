@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/screens/home_screen.dart';
-import 'package:smartreceipt/presentation/screens/login_screen.dart';
-import 'package:smartreceipt/presentation/widgets/account_gate.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/screens/home_screen.dart';
+import 'package:receiptnest/presentation/screens/login_screen.dart';
+import 'package:receiptnest/presentation/widgets/account_gate.dart';
 
 class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});

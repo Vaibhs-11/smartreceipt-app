@@ -1,4 +1,4 @@
-import 'package:smartreceipt/domain/entities/ocr_result.dart';
+import 'package:receiptnest/domain/entities/ocr_result.dart';
 
 abstract class OcrService {
   /// Parses an image from a Google Cloud Storage path.

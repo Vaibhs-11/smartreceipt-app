@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
-import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 
 class SqliteReceiptRepository implements ReceiptRepository {
   SqliteReceiptRepository();

@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
-import 'package:smartreceipt/domain/services/subscription_service.dart';
-import 'package:smartreceipt/core/firebase/crashlytics_logger.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
-import 'package:smartreceipt/presentation/screens/home_screen.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/domain/services/subscription_service.dart';
+import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
+import 'package:receiptnest/presentation/screens/home_screen.dart';
 
 class PurchaseScreen extends ConsumerStatefulWidget {
   const PurchaseScreen({super.key});
@@ -57,7 +57,7 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
     return WillPopScope(
-      onWillPop: () async => false,
+      onWillPop: () async => _canExitPurchase(),
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
@@ -92,6 +92,16 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
                   _message!,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
+              if (_canExitPurchase()) ...[
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _exitToHome,
+                    child: const Text('Back to Home'),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -232,6 +242,21 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
         _processing = false;
       });
     }
+  }
+
+  bool _canExitPurchase() {
+    return !_processing && (_products.isEmpty || _message != null);
+  }
+
+  void _exitToHome() {
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => const HomeScreen(),
+        settings: const RouteSettings(name: AppRoutes.home),
+      ),
+      (_) => false,
+    );
   }
 
   String _labelForProduct(ProductDetails product) {

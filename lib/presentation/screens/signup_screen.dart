@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Make sure this file (next step) exposes `authControllerProvider`
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/core/constants/app_constants.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
   const SignupScreen({super.key});
@@ -89,7 +90,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     children: [
                       // App title / header
                       Text(
-                        'SmartReceipt',
+                        AppConstants.appName,
                         style: Theme.of(context).textTheme.headlineMedium,
                       ),
                       const SizedBox(height: 24),

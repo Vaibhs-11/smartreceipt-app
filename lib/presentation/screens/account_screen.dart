@@ -2,17 +2,17 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:smartreceipt/data/services/auth/auth_service.dart';
-import 'package:smartreceipt/domain/entities/app_config.dart';
-import 'package:smartreceipt/domain/entities/app_user.dart';
-import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
-import 'package:smartreceipt/domain/exceptions/account_deletion_exception.dart';
-import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/providers/receipt_search_filters_provider.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
-import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
-import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/data/services/auth/auth_service.dart';
+import 'package:receiptnest/domain/entities/app_config.dart';
+import 'package:receiptnest/domain/entities/app_user.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/domain/exceptions/account_deletion_exception.dart';
+import 'package:receiptnest/presentation/providers/app_config_provider.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
+import 'package:receiptnest/presentation/screens/purchase_screen.dart';
+import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});

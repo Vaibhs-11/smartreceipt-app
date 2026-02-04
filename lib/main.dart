@@ -24,6 +24,7 @@ import 'presentation/widgets/account_gate.dart';
 import 'presentation/providers/providers.dart';
 import 'presentation/utils/root_scaffold_messenger.dart'
     as root_scaffold_messenger;
+import 'core/constants/app_constants.dart';
 
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     root_scaffold_messenger.rootScaffoldMessengerKey;
@@ -96,7 +97,7 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
 
     final authState = ref.watch(authStateProvider);
     return MaterialApp(
-      title: 'SmartReceipt',
+      title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       theme: ThemeData(primarySwatch: Colors.blue),

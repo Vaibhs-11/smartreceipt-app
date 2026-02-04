@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
-import 'package:smartreceipt/core/firebase/crashlytics_logger.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
 
 abstract class SubscriptionService {
   Stream<List<PurchaseDetails>> get purchaseStream;

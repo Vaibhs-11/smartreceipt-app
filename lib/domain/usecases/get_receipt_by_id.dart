@@ -1,5 +1,5 @@
-import 'package:smartreceipt/domain/entities/receipt.dart';
-import 'package:smartreceipt/domain/repositories/receipt_repository.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 
 class GetReceiptByIdUseCase {
   const GetReceiptByIdUseCase(this._repository);

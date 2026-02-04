@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:smartreceipt/domain/policies/account_policies.dart';
-import 'package:smartreceipt/domain/services/subscription_service.dart';
-import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
-import 'package:smartreceipt/presentation/screens/trial_ended_gate_screen.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
+import 'package:receiptnest/domain/services/subscription_service.dart';
+import 'package:receiptnest/presentation/providers/app_config_provider.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
+import 'package:receiptnest/presentation/screens/trial_ended_gate_screen.dart';
 
 /// Observes lifecycle and enforces account gates on app start/resume.
 class AccountGate extends ConsumerStatefulWidget {

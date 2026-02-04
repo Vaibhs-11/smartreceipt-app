@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
-import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
 class ReceiptDetailScreen extends ConsumerWidget {
   final String receiptId;

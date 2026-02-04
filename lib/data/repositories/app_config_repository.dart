@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:smartreceipt/domain/entities/app_config.dart';
+import 'package:receiptnest/domain/entities/app_config.dart';
 
 class AppConfigRepository {
   AppConfigRepository({FirebaseFirestore? firestoreInstance})

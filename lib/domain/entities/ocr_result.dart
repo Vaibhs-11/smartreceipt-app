@@ -1,5 +1,5 @@
 import 'package:equatable/equatable.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart' show ReceiptItem;
+import 'package:receiptnest/domain/entities/receipt.dart' show ReceiptItem;
 
 class OcrReceiptItem extends Equatable {
   final String name;

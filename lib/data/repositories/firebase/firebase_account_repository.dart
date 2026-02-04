@@ -1,8 +1,8 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/foundation.dart';
-import 'package:smartreceipt/domain/exceptions/account_deletion_exception.dart';
-import 'package:smartreceipt/domain/repositories/account_repository.dart';
+import 'package:receiptnest/domain/exceptions/account_deletion_exception.dart';
+import 'package:receiptnest/domain/repositories/account_repository.dart';
 
 class FirebaseAccountRepository implements AccountRepository {
   FirebaseAccountRepository({

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:smartreceipt/domain/entities/ocr_result.dart';
-import 'package:smartreceipt/domain/services/ocr_service.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:receiptnest/domain/entities/ocr_result.dart';
+import 'package:receiptnest/domain/services/ocr_service.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
 
 class ScanReceiptScreen extends ConsumerWidget {
   const ScanReceiptScreen({super.key});

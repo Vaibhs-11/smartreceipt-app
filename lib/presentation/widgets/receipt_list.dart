@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
 
 class ReceiptList extends StatelessWidget {
   final List<Receipt> receipts;

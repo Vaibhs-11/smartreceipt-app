@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:smartreceipt/presentation/routes/app_routes.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
+import 'package:receiptnest/core/constants/app_constants.dart';
 
 class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({super.key});
@@ -14,9 +15,9 @@ class OnboardingScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             const SizedBox(height: 32),
-            const Text(
-              'SmartReceipt',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+            Text(
+              AppConstants.appName,
+              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
@@ -35,5 +36,4 @@ class OnboardingScreen extends StatelessWidget {
     );
   }
 }
-
 

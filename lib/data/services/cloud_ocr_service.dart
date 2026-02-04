@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:smartreceipt/domain/entities/ocr_result.dart';
-import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:receiptnest/domain/entities/ocr_result.dart';
+import 'package:receiptnest/domain/services/ocr_service.dart';
 
 /// CloudOcrService:
 /// - Calls a Firebase Cloud Function (httpsCallable 'visionOcr')

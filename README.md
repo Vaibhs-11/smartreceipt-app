@@ -1,6 +1,6 @@
-    # SmartReceipt — Mobile-first receipt scanning & organisation app
+# ReceiptNest — Mobile-first receipt scanning & organisation app
 
-This is a Flutter project skeleton implementing a scalable, clean architecture for SmartReceipt. It is wired to Firebase, Cloud Functions, and OpenAI for OCR-powered receipt capture.
+This is a Flutter project skeleton implementing a scalable, clean architecture for ReceiptNest. It is wired to Firebase, Cloud Functions, and OpenAI for OCR-powered receipt capture.
 
 ## Requirements
 

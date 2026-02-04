@@ -5,8 +5,8 @@ import 'dart:math';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:smartreceipt/domain/entities/ocr_result.dart';
-import 'package:smartreceipt/domain/services/ocr_service.dart';
+import 'package:receiptnest/domain/entities/ocr_result.dart';
+import 'package:receiptnest/domain/services/ocr_service.dart';
 
 class ChatGptOcrService implements OcrService {
   final String openAiApiKey;

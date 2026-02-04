@@ -1,4 +1,4 @@
-import 'package:smartreceipt/domain/repositories/account_repository.dart';
+import 'package:receiptnest/domain/repositories/account_repository.dart';
 
 class DeleteAccountUseCase {
   DeleteAccountUseCase(this._repository);

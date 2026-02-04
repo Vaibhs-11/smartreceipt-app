@@ -1,4 +1,4 @@
-import 'package:smartreceipt/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/entities/receipt.dart';
 
 abstract class ReceiptRepository {
   Future<List<Receipt>> getReceipts();

@@ -11,25 +11,25 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:smartreceipt/core/constants/app_constants.dart';
-import 'package:smartreceipt/core/firebase/crashlytics_logger.dart';
-import 'package:smartreceipt/domain/entities/app_user.dart';
-import 'package:smartreceipt/domain/entities/subscription_entitlement.dart';
-import 'package:smartreceipt/domain/entities/receipt.dart'
+import 'package:receiptnest/core/constants/app_constants.dart';
+import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
+import 'package:receiptnest/domain/entities/app_user.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/domain/entities/receipt.dart'
     show Receipt, ReceiptItem;
-import 'package:smartreceipt/domain/policies/account_policies.dart';
-import 'package:smartreceipt/domain/entities/app_config.dart';
-import 'package:smartreceipt/presentation/providers/app_config_provider.dart';
-import 'package:smartreceipt/presentation/providers/providers.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
+import 'package:receiptnest/domain/entities/app_config.dart';
+import 'package:receiptnest/presentation/providers/app_config_provider.dart';
+import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:uuid/uuid.dart';
-import 'package:smartreceipt/domain/entities/ocr_result.dart' show OcrResult;
-import 'package:smartreceipt/data/services/image_processing/image_normalization.dart';
+import 'package:receiptnest/domain/entities/ocr_result.dart' show OcrResult;
+import 'package:receiptnest/data/services/image_processing/image_normalization.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 import 'package:pdfx/pdfx.dart' as pdfx;
-import 'package:smartreceipt/services/receipt_image_source_service.dart';
-import 'package:smartreceipt/presentation/screens/trial_ended_gate_screen.dart';
-import 'package:smartreceipt/presentation/screens/purchase_screen.dart';
-import 'package:smartreceipt/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/services/receipt_image_source_service.dart';
+import 'package:receiptnest/presentation/screens/trial_ended_gate_screen.dart';
+import 'package:receiptnest/presentation/screens/purchase_screen.dart';
+import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
 class UploadedFile {
   final String downloadUrl;
@@ -374,23 +374,26 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         );
       }
       return false;
-    } on FirebaseFirestoreException catch (e, s) {
-      await CrashlyticsLogger.recordNonFatal(
-        reason: 'FIRESTORE_UNAVAILABLE',
-        error: e,
-        stackTrace: s,
-        context: {'code': e.code},
-      );
-      if (mounted) {
-        showRootSnackBar(
-          const SnackBar(
-              content: Text(
-              'Network issue detected. Please try again when you\'re online.',
-            ),
-          ),
+    } on FirebaseException catch (e, s) {
+      if (e.code == 'unavailable') {
+        await CrashlyticsLogger.recordNonFatal(
+          reason: 'FIRESTORE_UNAVAILABLE',
+          error: e,
+          stackTrace: s,
+          context: {'code': e.code},
         );
+        if (mounted) {
+          showRootSnackBar(
+            const SnackBar(
+              content: Text(
+                'Network issue detected. Please try again when you\'re online.',
+              ),
+            ),
+          );
+        }
+        return false;
       }
-      return false;
+      rethrow;
     }
   }
 

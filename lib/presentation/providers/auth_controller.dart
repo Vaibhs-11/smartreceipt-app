@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:smartreceipt/data/services/auth/auth_service.dart';
+import 'package:receiptnest/data/services/auth/auth_service.dart';
 
 // 1. State class for authentication
 class AuthState {
