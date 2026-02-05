@@ -7,6 +7,7 @@ import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 
@@ -480,6 +481,9 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
 
   Future<void> _handleCameraShortcut() async {
     final navigator = Navigator.of(context);
+    final connectivity = ref.read(connectivityServiceProvider);
+    final hasInternet = await ensureInternetConnection(context, connectivity);
+    if (!hasInternet) return;
     final imageService = ref.read(receiptImageSourceServiceProvider);
     final result = await imageService.pickFromCamera();
     if (!mounted) return;

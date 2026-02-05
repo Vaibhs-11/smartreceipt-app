@@ -522,17 +522,26 @@ $rawText
     final lines = text.split(RegExp(r'[\r\n]+'));
     // money regex captures amounts like 1,234.56 or 1234,56 or 12.34
     final moneyRe = RegExp(r'(?:AUD\s*|\$)?\s*([0-9]{1,3}(?:[.,\s][0-9]{3})*(?:[.,][0-9]{2})|[0-9]+(?:[.,][0-9]{2}))');
+    const int zeroPenalty = -100; // penalize zero-value totals so non-zero always wins
+    const List<String> excludedPhrases = [
+      'tendered',
+      'change',
+      'balance due',
+      'cash received',
+      'amount tendered',
+    ];
     final keywordWeights = {
+      'total paid': 220,
+      'total inc tax': 210,
       'grand total': 200,
+      'amount payable': 190,
       'invoice total': 180,
       'amount due': 170,
-      'amount payable': 170,
       'total': 160,
       'subtotal': 120,
       'paid': 110,
       'eftpos': 100,
       'payment': 100,
-      'balance due': 140,
     };
 
     final candidates = <_Cand>[];
@@ -572,6 +581,9 @@ $rawText
           lower.contains('available balance')) {
         continue;
       }
+      if (excludedPhrases.any((phrase) => lower.contains(phrase))) {
+        continue;
+      }
 
       int bestWeight = 0;
       for (final key in keywordWeights.keys) {
@@ -602,6 +614,10 @@ $rawText
           for (int j = 1; j <= 3 && (i + j) < lines.length && amounts.isEmpty; j++) {
             final la = lines[i + j].trim();
             if (la.isEmpty) continue;
+            final lowerAdj = la.toLowerCase();
+            if (excludedPhrases.any((phrase) => lowerAdj.contains(phrase))) {
+              continue;
+            }
             for (final m in moneyRe.allMatches(la)) {
               var g = m.group(1)!.replaceAll(' ', '');
               if (g.contains(',') && g.contains('.')) {
@@ -619,7 +635,8 @@ $rawText
           }
         }
         for (final a in amounts) {
-          candidates.add(_Cand(value: a, score: bestWeight, line: line));
+          final adjustedScore = bestWeight + (a == 0.0 ? zeroPenalty : 0);
+          candidates.add(_Cand(value: a, score: adjustedScore, line: line));
         }
       }
     }
@@ -633,6 +650,7 @@ $rawText
         if (line.isEmpty) continue;
         final lower = line.toLowerCase();
         if (lower.contains('avail bal') || lower.contains('available balance')) continue;
+        if (excludedPhrases.any((phrase) => lower.contains(phrase))) continue;
         for (final m in moneyRe.allMatches(line)) {
           var g = m.group(1)!.replaceAll(' ', '');
           if (g.contains(',') && g.contains('.')) {
@@ -645,7 +663,10 @@ $rawText
             g = g.replaceAll(',', '.');
           }
           final v = double.tryParse(g);
-          if (v != null) candidates.add(_Cand(value: v, score: 75, line: line));
+          if (v != null) {
+            final adjustedScore = 75 + (v == 0.0 ? zeroPenalty : 0);
+            candidates.add(_Cand(value: v, score: adjustedScore, line: line));
+          }
         }
       }
     }
@@ -656,7 +677,19 @@ $rawText
         if (sc != 0) return sc;
         return a.value.compareTo(b.value);
       });
-      return candidates.first.value;
+      // Prefer the largest non-zero value; return 0 only if all are zero.
+      double? bestNonZero;
+      double? bestZero;
+      for (final c in candidates) {
+        if (c.value > 0) {
+          if (bestNonZero == null || c.value > bestNonZero) {
+            bestNonZero = c.value;
+          }
+        } else if (c.value == 0) {
+          bestZero = 0.0;
+        }
+      }
+      return bestNonZero ?? bestZero;
     }
 
     // final fallback: pick largest money token

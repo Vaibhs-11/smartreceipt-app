@@ -25,6 +25,7 @@ import 'package:receiptnest/domain/usecases/get_receipt_by_id.dart';
 import 'package:receiptnest/domain/usecases/get_receipts.dart';
 import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/auth_controller.dart';
+import 'package:receiptnest/services/connectivity_service.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 
 final Provider<AuthService> authServiceProvider = Provider<AuthService>((ref) {
@@ -40,6 +41,9 @@ final receiptImageSourceServiceProvider =
     Provider<ReceiptImageSourceService>((ref) {
   return ReceiptImageSourceService();
 });
+
+final connectivityServiceProvider =
+    Provider<ConnectivityService>((ref) => ConnectivityService());
 
 // Stream of the current user (null when logged out)
 final authStateProvider = StreamProvider<AppUser?>((ref) {

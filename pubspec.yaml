@@ -1,7 +1,7 @@
 name: receiptnest
 description: A mobile-first receipt scanning & organisation app
 publish_to: "none"
-version: 0.0.1+12
+version: 0.0.1+13
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -45,6 +45,7 @@ dependencies:
   image_picker: ^1.1.2
   file_picker: ^10.3.3
   camera: ^0.11.2
+  connectivity_plus: ^6.1.1
 
   # UI & theming
   flutter_material_color_picker: ^1.2.0

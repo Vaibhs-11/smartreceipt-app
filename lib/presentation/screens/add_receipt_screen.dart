@@ -29,6 +29,7 @@ import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 import 'package:receiptnest/presentation/screens/trial_ended_gate_screen.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
 class UploadedFile {
@@ -280,8 +281,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         debugPrint('Initial image path does not exist: $path');
       } else {
         _initialArgsHandled = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
+          if (!await _ensurePreconditions()) return;
           _processAndUploadFile(file);
         });
         return;
@@ -291,18 +293,26 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final action = widget.initialAction;
     if (action != null) {
       _initialArgsHandled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
+        if (!await _ensurePreconditions()) return;
         switch (action) {
           case AddReceiptInitialAction.pickGallery:
-            _handleGalleryPick();
+            await _pickFromGallery();
             break;
           case AddReceiptInitialAction.pickFiles:
-            _pickFile();
+            await _pickFileFromPicker();
             break;
         }
       });
     }
+  }
+
+  Future<bool> _ensurePreconditions() async {
+    final connectivity = ref.read(connectivityServiceProvider);
+    if (!await ensureInternetConnection(context, connectivity)) return false;
+    if (!await _ensureCanAddReceipt()) return false;
+    return true;
   }
 
   Future<bool> _ensureCanAddReceipt() async {
@@ -383,11 +393,20 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           context: {'code': e.code},
         );
         if (mounted) {
-          showRootSnackBar(
-            const SnackBar(
-              content: Text(
-                'Network issue detected. Please try again when you\'re online.',
+          await showDialog<void>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Service unavailable'),
+              content: const Text(
+                'SmartReceipt can’t reach its services right now. '
+                'Please check your internet connection and try again.',
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
             ),
           );
         }
@@ -464,8 +483,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final imageProcessor = ref.read(receiptImageProcessingServiceProvider);
     final navigator = Navigator.of(context);
 
-    final ok = await _ensureCanAddReceipt();
-    if (!ok) return;
+    if (!await _ensurePreconditions()) return;
     if (_receiptRejected) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -713,9 +731,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _processAndUploadFile(File file) async {
-    final allowed = await _ensureCanAddReceipt();
-    if (!allowed) return;
-
     setState(() {
       _isLoading = true;
       _receiptRejected = false;
@@ -920,16 +935,22 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _handleCameraCapture() async {
-    final allowed = await _ensureCanAddReceipt();
-    if (!allowed) return;
+    if (!await _ensurePreconditions()) return;
+    await _pickFromCamera();
+  }
+
+  Future<void> _pickFromCamera() async {
     final service = ref.read(receiptImageSourceServiceProvider);
     final result = await service.pickFromCamera();
     await _handleImageSourceResult(result, fromCamera: true);
   }
 
   Future<void> _handleGalleryPick() async {
-    final allowed = await _ensureCanAddReceipt();
-    if (!allowed) return;
+    if (!await _ensurePreconditions()) return;
+    await _pickFromGallery();
+  }
+
+  Future<void> _pickFromGallery() async {
     final service = ref.read(receiptImageSourceServiceProvider);
     final result = await service.pickFromGallery();
     await _handleImageSourceResult(result);
@@ -979,8 +1000,11 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _pickFile() async {
-    final allowed = await _ensureCanAddReceipt();
-    if (!allowed) return;
+    if (!await _ensurePreconditions()) return;
+    await _pickFileFromPicker();
+  }
+
+  Future<void> _pickFileFromPicker() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
@@ -992,8 +1016,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _showUploadOptions() async {
-    final allowed = await _ensureCanAddReceipt();
-    if (!allowed) return;
+    if (!await _ensurePreconditions()) return;
     final result = await showModalBottomSheet<String>(
       context: context,
       builder: (context) {
