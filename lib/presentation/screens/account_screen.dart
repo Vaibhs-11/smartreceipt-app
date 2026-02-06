@@ -13,6 +13,7 @@ import 'package:receiptnest/presentation/providers/receipt_search_filters_provid
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -26,6 +27,27 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   bool _startingTrial = false;
   bool _restoringPurchases = false;
   bool _deletingAccount = false;
+  bool _connectivityChecked = false;
+  bool _hasInternet = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleConnectivityCheck();
+  }
+
+  void _scheduleConnectivityCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final connectivity = ref.read(connectivityServiceProvider);
+      final ok = await ensureInternetConnection(context, connectivity);
+      if (!mounted) return;
+      setState(() {
+        _connectivityChecked = true;
+        _hasInternet = ok;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +60,16 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         });
       }
     });
+
+    if (!_connectivityChecked) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_hasInternet) {
+      return const Scaffold(body: SizedBox.shrink());
+    }
 
     final userAsync = ref.watch(userProfileProvider);
     final countAsync = ref.watch(receiptCountProvider);
@@ -52,7 +84,15 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       body: SafeArea(
         child: userAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Failed to load account: $e')),
+          error: (e, _) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!mounted) return;
+              if (isNetworkException(e)) {
+                await showNoInternetDialog(context);
+              }
+            });
+            return Center(child: Text('Failed to load account: $e'));
+          },
           data: (profile) {
             if (profile == null) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -67,6 +107,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             );
             return RefreshIndicator(
               onRefresh: () async {
+                final connectivity = ref.read(connectivityServiceProvider);
+                if (!await ensureInternetConnection(context, connectivity)) {
+                  return;
+                }
                 ref.refresh(userProfileProvider);
                 ref.refresh(receiptCountProvider);
                 ref.refresh(appConfigProvider);
@@ -391,6 +435,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 final email = profile.email;
                 if (email == null || email.isEmpty) return;
                 try {
+                  final connectivity = ref.read(connectivityServiceProvider);
+                  if (!await ensureInternetConnection(context, connectivity)) {
+                    return;
+                  }
                   await fb_auth.FirebaseAuth.instance
                       .sendPasswordResetEmail(email: email);
                   if (!mounted) return;
@@ -400,7 +448,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                           'If an account exists for this email, a password reset link has been sent.'),
                     ),
                   );
-                } catch (_) {
+                } catch (e) {
+                  if (isNetworkException(e)) {
+                    if (mounted) {
+                      await showNoInternetDialog(context);
+                    }
+                    return;
+                  }
                   if (!mounted) return;
                   showRootSnackBar(
                     const SnackBar(
@@ -462,6 +516,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final userRepo = ref.read(userRepositoryProvider);
     setState(() => _startingTrial = true);
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) return;
       await userRepo.startTrial();
       ref.refresh(userProfileProvider);
       if (!mounted) return;
@@ -469,6 +525,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         const SnackBar(content: Text('Trial started')),
       );
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       if (!mounted) return;
       showRootSnackBar(
         SnackBar(content: Text('Could not start trial: $e')),
@@ -484,6 +546,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final subscriptionService = ref.read(subscriptionServiceProvider);
     final userRepo = ref.read(userRepositoryProvider);
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) return;
       await subscriptionService.restorePurchases();
       final profile = await userRepo.getCurrentUserProfile();
       if (profile != null) {
@@ -499,6 +563,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         const SnackBar(content: Text('Purchases restored.')),
       );
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       if (!mounted) return;
       showRootSnackBar(
         SnackBar(content: Text('Restore failed: $e')),
@@ -509,6 +579,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   }
 
   Future<void> _changePassword(AppUserProfile profile) async {
+    final connectivity = ref.read(connectivityServiceProvider);
+    if (!await ensureInternetConnection(context, connectivity)) return;
     final currentCtrl = TextEditingController();
     final newCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -571,6 +643,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         const SnackBar(content: Text('Password updated')),
       );
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       if (!mounted) return;
       showRootSnackBar(
         SnackBar(content: Text('Failed to update password: $e')),
@@ -614,6 +692,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     if (_deletingAccount) return;
     setState(() => _deletingAccount = true);
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) return;
       final deleteAccount = ref.read(deleteAccountUseCaseProvider);
       await deleteAccount();
       ref.refresh(userProfileProvider);
@@ -625,6 +705,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         '(code: ${e.code}, message: ${e.message})',
       );
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       debugPrint('Account deletion failed: $e');
     } finally {
       if (mounted) setState(() => _deletingAccount = false);

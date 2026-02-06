@@ -7,6 +7,7 @@ import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/home_screen.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 
 class Keep3SelectionScreen extends ConsumerStatefulWidget {
   const Keep3SelectionScreen({super.key, required this.isSubscriptionEnded});
@@ -152,7 +153,15 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error loading receipts: $e')),
+          error: (e, _) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!mounted) return;
+              if (isNetworkException(e)) {
+                await showNoInternetDialog(context);
+              }
+            });
+            return Center(child: Text('Error loading receipts: $e'));
+          },
         ),
       ),
     );
@@ -160,6 +169,8 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
 
   Future<void> _autoClear() async {
     final userRepo = ref.read(userRepositoryProvider);
+    final connectivity = ref.read(connectivityServiceProvider);
+    if (!await ensureInternetConnection(context, connectivity)) return;
     await userRepo.clearDowngradeRequired();
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
@@ -230,6 +241,8 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
     });
 
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) return;
       final callable =
           FirebaseFunctions.instance.httpsCallable('finalizeDowngradeToFree');
       await callable.call(<String, dynamic>{
@@ -245,11 +258,23 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
         (_) => false,
       );
     } on FirebaseFunctionsException catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _error = e.message ?? 'Failed to finalize downgrade.';
       });
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _error = 'Unexpected error: $e';

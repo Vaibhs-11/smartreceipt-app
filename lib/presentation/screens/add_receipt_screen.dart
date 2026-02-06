@@ -29,6 +29,7 @@ import 'package:pdfx/pdfx.dart' as pdfx;
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 import 'package:receiptnest/presentation/screens/trial_ended_gate_screen.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
+import 'package:receiptnest/presentation/screens/home_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
@@ -105,6 +106,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   bool _totalEdited = false;
   bool _dateEdited = false;
   bool _currencyEdited = false;
+  bool _isExitingAfterNoInternet = false;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -113,6 +115,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     super.initState();
     _dateCtrl.text = DateFormat.yMMMd().format(_date);
     _handleInitialArgs();
+    _scheduleConnectivityCheck();
   }
 
   @override
@@ -141,6 +144,40 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scheduleConnectivityCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final connectivity = ref.read(connectivityServiceProvider);
+      final ok = await ensureInternetConnection(context, connectivity);
+      if (!mounted) return;
+      if (!ok) {
+        await _exitAfterNoInternet();
+      }
+    });
+  }
+
+  Future<void> _exitAfterNoInternet() async {
+    if (!mounted || _isExitingAfterNoInternet) return;
+    _isExitingAfterNoInternet = true;
+
+    final navigator = Navigator.of(context);
+
+    try {
+      final popped = await navigator.maybePop();
+      if (!popped && mounted) {
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (_) => false,
+        );
+      }
+    } finally {
+      // Reset only after navigation frame completes
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _isExitingAfterNoInternet = false;
+      });
+    }
   }
 
   Widget _buildItemCard(int index) {
@@ -310,7 +347,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   Future<bool> _ensurePreconditions() async {
     final connectivity = ref.read(connectivityServiceProvider);
-    if (!await ensureInternetConnection(context, connectivity)) return false;
+    if (!await ensureInternetConnection(context, connectivity)) {
+      await _exitAfterNoInternet();
+      return false;
+    }
     if (!await _ensureCanAddReceipt()) return false;
     return true;
   }
@@ -384,31 +424,16 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         );
       }
       return false;
-    } on FirebaseException catch (e, s) {
-      if (e.code == 'unavailable') {
+    } catch (e, s) {
+      if (isNetworkException(e)) {
         await CrashlyticsLogger.recordNonFatal(
-          reason: 'FIRESTORE_UNAVAILABLE',
+          reason: 'NETWORK_UNAVAILABLE',
           error: e,
           stackTrace: s,
-          context: {'code': e.code},
         );
         if (mounted) {
-          await showDialog<void>(
-            context: context,
-            builder: (_) => AlertDialog(
-              title: const Text('Service unavailable'),
-              content: const Text(
-                'SmartReceipt can’t reach its services right now. '
-                'Please check your internet connection and try again.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
+          await showNoInternetDialog(context);
+          await _exitAfterNoInternet();
         }
         return false;
       }
@@ -471,7 +496,28 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   Future<void> _startTrial() async {
     final userRepo = ref.read(userRepositoryProvider);
-    await userRepo.startTrial();
+    final connectivity = ref.read(connectivityServiceProvider);
+    if (!await ensureInternetConnection(context, connectivity)) {
+      await _exitAfterNoInternet();
+      return;
+    }
+    try {
+      await userRepo.startTrial();
+    } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+          await _exitAfterNoInternet();
+        }
+        return;
+      }
+      if (mounted) {
+        showRootSnackBar(
+          SnackBar(content: Text('Could not start trial: $e')),
+        );
+      }
+      return;
+    }
     if (!mounted) return;
     showRootSnackBar(
       const SnackBar(content: Text('Trial started. You can now add receipts.')),
@@ -512,6 +558,13 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     try {
       await addReceipt(receipt);
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+          await _exitAfterNoInternet();
+        }
+        return;
+      }
       if (!mounted) return;
       showRootSnackBar(
         const SnackBar(
@@ -551,6 +604,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       final gcsUri = 'gs://${storageRef.bucket}/${storageRef.fullPath}';
       return UploadedFile(downloadUrl: downloadUrl, gcsUri: gcsUri);
     } catch (e) {
+      if (isNetworkException(e)) {
+        rethrow;
+      }
       debugPrint("Upload failed: $e");
       return null;
     }
@@ -582,6 +638,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       final gcsUri = 'gs://${storageRef.bucket}/${storageRef.fullPath}';
       return UploadedFile(downloadUrl: downloadUrl, gcsUri: gcsUri);
     } catch (e) {
+      if (isNetworkException(e)) {
+        rethrow;
+      }
       debugPrint("Upload failed: $e");
       return null;
     }
@@ -871,6 +930,13 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         uploadedUrl: uploadResult.downloadUrl,
       );
     } catch (e, s) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+          await _exitAfterNoInternet();
+        }
+        return;
+      }
       if (e is OcrNoTextException) {
         FirebaseCrashlytics.instance.setCustomKey(
           'platform',
@@ -1085,16 +1151,27 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       loading: () => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       ),
-      error: (_, __) => const Scaffold(
-        body: Center(child: Text('Unable to load profile.')),
-      ),
+      error: (e, __) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
+          if (isNetworkException(e)) {
+            await showNoInternetDialog(context);
+            await _exitAfterNoInternet();
+          }
+        });
+        return const Scaffold(
+          body: Center(child: Text('Unable to load profile.')),
+        );
+      },
       data: (profile) {
         if (profile == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             Navigator.of(context).maybePop();
           });
-          return const Scaffold(body: SizedBox.shrink());
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
 
         return Scaffold(

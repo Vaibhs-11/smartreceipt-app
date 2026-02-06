@@ -7,6 +7,7 @@ import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/keep3_selection_screen.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
 import 'package:receiptnest/presentation/screens/home_screen.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 
 class TrialEndedGateScreen extends ConsumerWidget {
   const TrialEndedGateScreen({
@@ -80,6 +81,10 @@ class TrialEndedGateScreen extends ConsumerWidget {
               const SizedBox(height: 12),
               OutlinedButton(
                 onPressed: () async {
+                  final connectivity = ref.read(connectivityServiceProvider);
+                  if (!await ensureInternetConnection(context, connectivity)) {
+                    return;
+                  }
                   final userRepo = ref.read(userRepositoryProvider);
                   if (receiptCount > appConfig.freeReceiptLimit) {
                     Navigator.of(context).pushReplacement(

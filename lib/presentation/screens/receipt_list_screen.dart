@@ -221,6 +221,14 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                       secondaryBackground: _buildDeleteBackground(),
                       direction: DismissDirection.endToStart,
                       confirmDismiss: (_) async {
+                        final connectivity =
+                            ref.read(connectivityServiceProvider);
+                        if (!await ensureInternetConnection(
+                          context,
+                          connectivity,
+                        )) {
+                          return false;
+                        }
                         return await showDialog<bool>(
                               context: context,
                               builder: (ctx) => AlertDialog(
@@ -242,9 +250,19 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                             false;
                       },
                       onDismissed: (_) async {
-                        await ref
-                            .read(receiptRepositoryProviderOverride)
-                            .deleteReceipt(receipt.id);
+                        try {
+                          await ref
+                              .read(receiptRepositoryProviderOverride)
+                              .deleteReceipt(receipt.id);
+                        } catch (e) {
+                          if (isNetworkException(e)) {
+                            if (mounted) {
+                              await showNoInternetDialog(context);
+                            }
+                            return;
+                          }
+                          rethrow;
+                        }
 
                         _dismissSwipeHint();
                         showRootSnackBar(
@@ -262,7 +280,15 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
+              error: (e, _) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  if (!mounted) return;
+                  if (isNetworkException(e)) {
+                    await showNoInternetDialog(context);
+                  }
+                });
+                return Center(child: Text('Error: $e'));
+              },
             ),
           ),
         ],

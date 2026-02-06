@@ -6,6 +6,7 @@ import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/trial_ended_gate_screen.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 
 /// Observes lifecycle and enforces account gates on app start/resume.
 class AccountGate extends ConsumerStatefulWidget {
@@ -46,6 +47,10 @@ class _AccountGateState extends ConsumerState<AccountGate>
     if (_checking) return;
     _checking = true;
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) {
+        return;
+      }
       final uid = ref.read(currentUidProvider);
       if (uid == null) {
         return;
@@ -111,6 +116,12 @@ class _AccountGateState extends ConsumerState<AccountGate>
         return;
       }
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       debugPrint('Account gate check failed: $e');
     } finally {
       _checking = false;

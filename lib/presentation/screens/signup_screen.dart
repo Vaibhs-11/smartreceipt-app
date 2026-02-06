@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Make sure this file (next step) exposes `authControllerProvider`
 import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
 
@@ -57,6 +58,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     final controller = ref.read(authControllerProvider.notifier);
 
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) return;
       await controller.signUpWithEmailPassword(email, password);
       // AuthGate should navigate automatically when auth state changes.
       showRootSnackBar(
@@ -64,6 +67,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       );
       if (mounted) Navigator.of(context).pop(); // go back to Login if you pushed this route
     } catch (e) {
+      if (isNetworkException(e)) {
+        await showNoInternetDialog(context);
+        return;
+      }
       showRootSnackBar(
         SnackBar(content: Text(e.toString())),
       );

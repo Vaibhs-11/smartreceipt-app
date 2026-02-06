@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/signup_screen.dart';
 import 'package:receiptnest/presentation/utils/auth_error_messages.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
 
@@ -24,6 +25,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Use the AuthController to handle business logic and state.
     // This ensures the UI updates correctly with loading and error states.
     final controller = ref.read(authControllerProvider.notifier);
+    final connectivity = ref.read(connectivityServiceProvider);
+    if (!await ensureInternetConnection(context, connectivity)) return;
     try {
       await controller.signInWithEmailPassword(
         _emailController.text.trim(),
@@ -36,6 +39,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       //  Navigator.pushReplacementNamed(context, AppRoutes.home);
       //}
     } catch (e) {
+      if (isNetworkException(e)) {
+        await showNoInternetDialog(context);
+        return;
+      }
       await _showLoginErrorDialog(e);
     }
   }
@@ -218,8 +225,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
 
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) return;
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-    } catch (_) {
+    } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
+        return;
+      }
       // Swallow errors to avoid leaking account existence info.
     }
 

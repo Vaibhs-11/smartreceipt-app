@@ -9,6 +9,7 @@ import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/home_screen.dart';
+import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 
 class PurchaseScreen extends ConsumerStatefulWidget {
   const PurchaseScreen({super.key});
@@ -134,6 +135,13 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
       _message = null;
     });
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) {
+        if (mounted) {
+          setState(() => _loading = false);
+        }
+        return;
+      }
       final products = await subscriptionService.fetchProducts();
       products.sort((a, b) => a.price.compareTo(b.price));
       if (!mounted) return;
@@ -164,8 +172,22 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
       _message = null;
     });
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) {
+        if (mounted) {
+          setState(() => _processing = false);
+        }
+        return;
+      }
       await subscriptionService.purchase(product);
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+          setState(() => _processing = false);
+        }
+        return;
+      }
       await CrashlyticsLogger.recordNonFatal(
         reason: 'BILLING_PURCHASE_FAILED',
         error: e,
@@ -218,6 +240,13 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
     final subscriptionService = ref.read(subscriptionServiceProvider);
     final userRepo = ref.read(userRepositoryProvider);
     try {
+      final connectivity = ref.read(connectivityServiceProvider);
+      if (!await ensureInternetConnection(context, connectivity)) {
+        if (mounted) {
+          setState(() => _processing = false);
+        }
+        return;
+      }
       final profile = await userRepo.getCurrentUserProfile();
       if (profile != null) {
         final entitlement = await subscriptionService.getCurrentEntitlement();
@@ -236,6 +265,13 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
         (_) => false,
       );
     } catch (e) {
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+          setState(() => _processing = false);
+        }
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _message = _billingUnavailableMessage;
