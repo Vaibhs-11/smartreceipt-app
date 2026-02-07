@@ -74,8 +74,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final userAsync = ref.watch(userProfileProvider);
     final countAsync = ref.watch(receiptCountProvider);
     final configAsync = ref.watch(appConfigProvider);
-    final appConfig =
-        configAsync.maybeWhen(data: (c) => c, orElse: () => const AppConfig());
 
     return Scaffold(
       appBar: AppBar(
@@ -129,7 +127,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     _sectionTitle('Profile'),
                     _userInfo(profile),
                     const SizedBox(height: 16),
-                    _statusCard(profile, receiptCount, appConfig),
+                    configAsync.when(
+                      loading: () => _configLoadingCard(),
+                      error: (e, _) => _configErrorCard(e),
+                      data: (appConfig) =>
+                          _statusCard(profile, receiptCount, appConfig),
+                    ),
                     const SizedBox(height: 24),
                     if (!profile.isAnonymous) ...[
                       _sectionTitle('Security'),
@@ -397,6 +400,51 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     )
                   : const Icon(Icons.restore),
               label: const Text('Restore purchases'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _configLoadingCard() {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('Loading account settings...'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _configErrorCard(Object error) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Account settings unavailable.'),
+            const SizedBox(height: 8),
+            Text(
+              'Pull to refresh or tap retry.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () {
+                ref.refresh(appConfigProvider);
+              },
+              child: const Text('Retry'),
             ),
           ],
         ),

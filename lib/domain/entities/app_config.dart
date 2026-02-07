@@ -1,8 +1,10 @@
+import 'package:receiptnest/domain/exceptions/app_config_exception.dart';
+
 class AppConfig {
   const AppConfig({
-    this.freeReceiptLimit = 10,
-    this.premiumReceiptLimit = -1,
-    this.enablePaidTiers = true,
+    required this.freeReceiptLimit,
+    required this.premiumReceiptLimit,
+    required this.enablePaidTiers,
   });
 
   final int freeReceiptLimit;
@@ -10,8 +12,19 @@ class AppConfig {
   final bool enablePaidTiers;
 
   factory AppConfig.fromFirestore(Map<String, dynamic> data) {
+    final freeLimitRaw = data['freeReceiptLimit'];
+    if (freeLimitRaw == null) {
+      throw const AppConfigUnavailableException(
+        'Missing freeReceiptLimit in app config.',
+      );
+    }
+    if (freeLimitRaw is! num) {
+      throw const AppConfigUnavailableException(
+        'Invalid freeReceiptLimit type in app config.',
+      );
+    }
     return AppConfig(
-      freeReceiptLimit: (data['freeReceiptLimit'] as num?)?.toInt() ?? 10,
+      freeReceiptLimit: freeLimitRaw.toInt(),
       premiumReceiptLimit: (data['premiumReceiptLimit'] as num?)?.toInt() ?? -1,
       enablePaidTiers: data['enablePaidTiers'] as bool? ?? true,
     );

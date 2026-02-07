@@ -30,7 +30,43 @@ interface UserDoc {
   subscriptionStatus?: SubscriptionStatus;
 }
 
+interface AppConfigDoc {
+  freeReceiptLimit: number;
+  premiumReceiptLimit: number;
+  enablePaidTiers: boolean;
+}
+
 const firestore = admin.firestore();
+
+const configRef = firestore.collection("config").doc("app");
+
+const fetchAppConfig = async (): Promise<AppConfigDoc> => {
+  const snap = await configRef.get();
+  if (!snap.exists) {
+    throw new HttpsError("failed-precondition", "App config missing");
+  }
+  const data = snap.data() ?? {};
+  const freeLimit = data["freeReceiptLimit"];
+  if (typeof freeLimit !== "number") {
+    throw new HttpsError(
+      "failed-precondition",
+      "App config missing freeReceiptLimit"
+    );
+  }
+  const premiumLimit =
+    typeof data["premiumReceiptLimit"] === "number" ?
+      data["premiumReceiptLimit"] :
+      -1;
+  const enablePaidTiers =
+    typeof data["enablePaidTiers"] === "boolean" ?
+      data["enablePaidTiers"] :
+      true;
+  return {
+    freeReceiptLimit: freeLimit,
+    premiumReceiptLimit: premiumLimit,
+    enablePaidTiers,
+  };
+};
 
 // ----------------------
 // Existing Vision OCR Callable (UNCHANGED)
@@ -224,19 +260,23 @@ const isExpired = (user: UserDoc, now: Date): boolean => {
 const canAddReceipt = (
   user: UserDoc,
   receiptCount: number,
-  now: Date
+  now: Date,
+  config: AppConfigDoc
 ): boolean => {
   const status = asAccountStatus(user.accountStatus || "free");
   if (user.trialDowngradeRequired) return false;
-  if (user.subscriptionStatus === "active" &&
+  if (config.enablePaidTiers &&
+    user.subscriptionStatus === "active" &&
     user.subscriptionTier && user.subscriptionTier !== "free") {
     return true;
   }
-  if (status === "trial" && (!user.trialEndsAt ||
+  if (config.enablePaidTiers &&
+    status === "trial" && (!user.trialEndsAt ||
     now < user.trialEndsAt.toDate())) {
-    return true;
+    if (config.premiumReceiptLimit === -1) return true;
+    return receiptCount < config.premiumReceiptLimit;
   }
-  return receiptCount < 10;
+  return receiptCount < config.freeReceiptLimit;
 };
 
 const resolveStoragePath = (
@@ -280,18 +320,21 @@ export const finalizeDowngradeToFree = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
 
+  const appConfig = await fetchAppConfig();
+  const freeLimit = appConfig.freeReceiptLimit;
+
   const keepIds = request.data?.keepReceiptIds as unknown;
-  if (!Array.isArray(keepIds) || keepIds.length !== 10) {
+  if (!Array.isArray(keepIds) || keepIds.length !== freeLimit) {
     throw new HttpsError(
       "invalid-argument",
-      "keepReceiptIds must be an array of exactly ten receipt IDs"
+      `keepReceiptIds must be an array of exactly ${freeLimit} receipt IDs`
     );
   }
 
   const keep = new Set(
     (keepIds as unknown[]).map((id) => String(id))
   );
-  if (keep.size !== 10) {
+  if (keep.size !== freeLimit) {
     throw new HttpsError(
       "invalid-argument",
       "keepReceiptIds must be unique"
@@ -399,15 +442,7 @@ export const createReceipt = onCall(async (request) => {
 
   const userData = userSnap.data() as UserDoc;
   const now = new Date();
-  const countSnap = await userRef.collection("receipts").count().get();
-  const currentCount = countSnap.data().count ?? 0;
-
-  if (!canAddReceipt(userData, currentCount, now)) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Receipt limit reached or downgrade required"
-    );
-  }
+  const appConfig = await fetchAppConfig();
 
   const dateValue = receipt["date"];
   let parsedDate: Date | null = null;
@@ -439,7 +474,19 @@ export const createReceipt = onCall(async (request) => {
     payload["expiryDate"] = admin.firestore.Timestamp.fromDate(parsedExpiry);
   }
 
-  await userRef.collection("receipts").doc(receiptId).set(payload);
+  const receiptRef = userRef.collection("receipts").doc(receiptId);
+  await firestore.runTransaction(async (tx) => {
+    const receiptsSnap = await tx.get(userRef.collection("receipts"));
+    const currentCount = receiptsSnap.size;
+    if (!canAddReceipt(userData, currentCount, now, appConfig)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Receipt limit reached",
+        {reason: "FREE_LIMIT_REACHED"}
+      );
+    }
+    tx.set(receiptRef, payload);
+  });
   return {ok: true};
 });
 

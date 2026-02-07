@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/domain/services/subscription_service.dart';
+import 'package:receiptnest/domain/exceptions/app_config_exception.dart';
 import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
@@ -116,6 +117,14 @@ class _AccountGateState extends ConsumerState<AccountGate>
         return;
       }
     } catch (e) {
+      if (e is AppConfigUnavailableException && mounted) {
+        final retry = await _showConfigUnavailableDialog();
+        if (retry) {
+          ref.refresh(appConfigProvider);
+          _checkGate();
+        }
+        return;
+      }
       if (isNetworkException(e)) {
         if (mounted) {
           await showNoInternetDialog(context);
@@ -131,5 +140,27 @@ class _AccountGateState extends ConsumerState<AccountGate>
   @override
   Widget build(BuildContext context) {
     return widget.child;
+  }
+
+  Future<bool> _showConfigUnavailableDialog() async {
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('App settings unavailable'),
+        content: const Text('Unable to load account limits. Please try again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 }

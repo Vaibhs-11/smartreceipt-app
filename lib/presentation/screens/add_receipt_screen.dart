@@ -17,6 +17,7 @@ import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/entities/receipt.dart'
     show Receipt, ReceiptItem;
+import 'package:receiptnest/domain/exceptions/app_config_exception.dart';
 import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/domain/entities/app_config.dart';
 import 'package:receiptnest/presentation/providers/app_config_provider.dart';
@@ -82,7 +83,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   final List<TextEditingController> _itemNameCtrls = [];
   final List<TextEditingController> _itemPriceCtrls = [];
 
-  final String receiptId = const Uuid().v4();
+  String? _currentReceiptId;
   List<ReceiptItem> _items = [];
 
   final List<String> _currencyOptions =
@@ -320,8 +321,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         _initialArgsHandled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
-          if (!await _ensurePreconditions()) return;
-          _processAndUploadFile(file);
+          await _startReceiptProcessing(file);
         });
         return;
       }
@@ -330,14 +330,13 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final action = widget.initialAction;
     if (action != null) {
       _initialArgsHandled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!mounted) return;
-        if (!await _ensurePreconditions()) return;
-        switch (action) {
-          case AddReceiptInitialAction.pickGallery:
-            await _pickFromGallery();
-            break;
-          case AddReceiptInitialAction.pickFiles:
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
+          switch (action) {
+            case AddReceiptInitialAction.pickGallery:
+              await _pickFromGallery();
+              break;
+            case AddReceiptInitialAction.pickFiles:
             await _pickFileFromPicker();
             break;
         }
@@ -424,21 +423,30 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         );
       }
       return false;
+    } on AppConfigUnavailableException {
+      return _handleAppConfigUnavailable();
     } catch (e, s) {
-      if (isNetworkException(e)) {
+        if (isNetworkException(e)) {
+          await CrashlyticsLogger.recordNonFatal(
+            reason: 'NETWORK_UNAVAILABLE',
+            error: e,
+            stackTrace: s,
+          );
+          if (mounted) {
+            await showNoInternetDialog(context);
+            await _exitAfterNoInternet();
+          }
+          return false;
+        }
+
+        // Any other config-related failure → fail closed
         await CrashlyticsLogger.recordNonFatal(
-          reason: 'NETWORK_UNAVAILABLE',
+          reason: 'APP_CONFIG_LOAD_FAILED',
           error: e,
           stackTrace: s,
         );
-        if (mounted) {
-          await showNoInternetDialog(context);
-          await _exitAfterNoInternet();
-        }
-        return false;
+        return _handleAppConfigUnavailable();
       }
-      rethrow;
-    }
   }
 
   Future<void> _showLimitDialog(
@@ -538,7 +546,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
 
     final receipt = Receipt(
-      id: receiptId,
+      id: _ensureReceiptIdForSave(),
       storeName: _storeCtrl.text.trim(),
       date: _date,
       total: total,
@@ -558,6 +566,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     try {
       await addReceipt(receipt);
     } catch (e) {
+      if (e is AppConfigUnavailableException) {
+        await _handleAppConfigUnavailable();
+        return;
+      }
       if (isNetworkException(e)) {
         if (mounted) {
           await showNoInternetDialog(context);
@@ -575,7 +587,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
     if (_originalImagePath != null && _originalImagePath!.isNotEmpty) {
       unawaited(imageProcessor.enqueueEnhancement(
-        receiptId: receiptId,
+        receiptId: _activeReceiptId,
         originalImagePath: _originalImagePath!,
       ));
     }
@@ -596,7 +608,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           .ref()
           .child("receipts")
           .child(user.uid)
-          .child(receiptId)
+          .child(_activeReceiptId)
           .child(file.path.split('/').last);
 
       await storageRef.putFile(file);
@@ -627,7 +639,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           .ref()
           .child("receipts")
           .child(user.uid)
-          .child(receiptId)
+          .child(_activeReceiptId)
           .child(fileName);
 
       await storageRef.putData(
@@ -649,7 +661,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   void _handleOcrResult(OcrResult result, {String? uploadedUrl}) {
     if (!mounted) return;
     setState(() {
-      _isLoading = false;
       _receiptRejected = false;
       _receiptRejectionReason = null;
       if (uploadedUrl != null) {
@@ -693,6 +704,32 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           'Total: ${result.total.toStringAsFixed(2)}\n\n'
           'Raw Text:\n${result.rawText}';
     });
+  }
+
+  Future<bool> _handleAppConfigUnavailable() async {
+    if (!mounted) return false;
+    final retry = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('App settings unavailable'),
+        content: const Text('Unable to load receipt limits. Please try again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+    if (retry == true) {
+      ref.refresh(appConfigProvider);
+      return _ensureCanAddReceipt();
+    }
+    return false;
   }
 
   Future<_NonReceiptAction?> _handleNonReceipt(OcrResult result) async {
@@ -789,13 +826,49 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     );
   }
 
-  Future<void> _processAndUploadFile(File file) async {
-    setState(() {
+  Future<void> _startReceiptProcessing(File file) async {
+    if (_isLoading) return;
+    if (!await _ensurePreconditions()) return;
+    _currentReceiptId = const Uuid().v4();
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _receiptRejected = false;
+        _receiptRejectionReason = null;
+      });
+    } else {
       _isLoading = true;
       _receiptRejected = false;
       _receiptRejectionReason = null;
-    });
+    }
+    try {
+      await _processAndUploadFile(file);
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      } else {
+        _isLoading = false;
+      }
+    }
+  }
 
+  String _ensureReceiptIdForSave() {
+    final existing = _currentReceiptId;
+    if (existing != null) return existing;
+    final created = const Uuid().v4();
+    _currentReceiptId = created;
+    return created;
+  }
+
+  String get _activeReceiptId {
+    final id = _currentReceiptId;
+    if (id == null) {
+      throw StateError('Receipt ID not initialized');
+    }
+    return id;
+  }
+
+  Future<void> _processAndUploadFile(File file) async {
     String? fileExtension;
     int? normalizedWidth;
     int? normalizedHeight;
@@ -818,7 +891,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
               await normalizationResult.file.readAsBytes();
           uploadResult = await _uploadBytesToStorage(
             normalizedBytes,
-            fileName: '${receiptId}_normalized.jpg',
+            fileName: '${_activeReceiptId}_normalized.jpg',
             contentType: 'image/jpeg',
           );
         } else {
@@ -996,12 +1069,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _handleCameraCapture() async {
-    if (!await _ensurePreconditions()) return;
     await _pickFromCamera();
   }
 
@@ -1012,7 +1083,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _handleGalleryPick() async {
-    if (!await _ensurePreconditions()) return;
     await _pickFromGallery();
   }
 
@@ -1029,7 +1099,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final imageService = ref.read(receiptImageSourceServiceProvider);
 
     if (result.file != null) {
-      await _processAndUploadFile(result.file!);
+      await _startReceiptProcessing(result.file!);
       return;
     }
 
@@ -1066,7 +1136,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _pickFile() async {
-    if (!await _ensurePreconditions()) return;
     await _pickFileFromPicker();
   }
 
@@ -1078,7 +1147,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
     if (result == null || result.files.single.path == null) return;
     final file = File(result.files.single.path!);
-    await _processAndUploadFile(file);
+    await _startReceiptProcessing(file);
   }
 
   Future<void> _showUploadOptions() async {

@@ -50,8 +50,17 @@ class OcrResult extends Equatable {
         .toList();
 
     return filtered
-        .map((ocrItem) =>
-            ReceiptItem(name: ocrItem.name, price: ocrItem.price ?? 0.0))
+        .map((ocrItem) {
+          final lineTotal = ocrItem.price ?? 0.0;
+          final inference =
+              _inferQuantityAndUnitPrice(ocrItem.name, lineTotal);
+          return ReceiptItem(
+            name: ocrItem.name,
+            price: lineTotal,
+            quantity: inference?.quantity,
+            unitPrice: inference?.unitPrice,
+          );
+        })
         .toList();
   }
 
@@ -69,4 +78,118 @@ class OcrResult extends Equatable {
         normalizedBrand,
         category,
       ];
+}
+
+class _QuantityInference {
+  final double quantity;
+  final double unitPrice;
+
+  const _QuantityInference({
+    required this.quantity,
+    required this.unitPrice,
+  });
+}
+
+_QuantityInference? _inferQuantityAndUnitPrice(
+  String name,
+  double lineTotal,
+) {
+  if (lineTotal <= 0) return null;
+
+  final text = name.toLowerCase();
+
+  final qtyUnitMatch = RegExp(
+    r'(\d+(?:[.,]\d+)?)\s*(?:x|\u00d7|@|\*)\s*(\d+(?:[.,]\d+)?)',
+    caseSensitive: false,
+  ).firstMatch(text);
+
+  if (qtyUnitMatch != null) {
+    final first = _parseNumber(qtyUnitMatch.group(1));
+    final second = _parseNumber(qtyUnitMatch.group(2));
+    if (first != null && second != null) {
+      final candidate = _selectBestQuantityPair(
+        first,
+        second,
+        lineTotal,
+      );
+      if (candidate != null) {
+        return candidate;
+      }
+    }
+  }
+
+  final qtyOnlyMatch = RegExp(
+    r'\b(?:qty|quantity)\s*[:x=]?\s*(\d+(?:[.,]\d+)?)\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+
+  if (qtyOnlyMatch != null) {
+    // Qty-only patterns are not enough to infer unit price or quantity reliably.
+    return null;
+  }
+
+  return null;
+}
+
+_QuantityInference? _selectBestQuantityPair(
+  double a,
+  double b,
+  double lineTotal,
+) {
+  final aAsQuantity = _isReasonableQuantity(a);
+  final bAsQuantity = _isReasonableQuantity(b);
+
+  final candidates = <_QuantityInference>[];
+
+  if (aAsQuantity && _matchesLineTotal(a, b, lineTotal)) {
+    candidates.add(_QuantityInference(quantity: a, unitPrice: b));
+  }
+  if (bAsQuantity && _matchesLineTotal(b, a, lineTotal)) {
+    candidates.add(_QuantityInference(quantity: b, unitPrice: a));
+  }
+
+  if (candidates.isEmpty) return null;
+  if (candidates.length == 1) return candidates.first;
+
+  // Prefer integer-like quantities when both options match.
+  candidates.sort((left, right) {
+    final leftScore = _integerScore(left.quantity);
+    final rightScore = _integerScore(right.quantity);
+    return rightScore.compareTo(leftScore);
+  });
+  return candidates.first;
+}
+
+bool _matchesLineTotal(double quantity, double unitPrice, double lineTotal) {
+  if (quantity <= 0 || unitPrice <= 0) return false;
+  final expected = quantity * unitPrice;
+  final diff = (expected - lineTotal).abs();
+  return diff <= 0.02;
+}
+
+bool _isReasonableQuantity(double value) {
+  if (value <= 0) return false;
+  if (value > 1000) return false;
+  return true;
+}
+
+int _integerScore(double value) {
+  return (value - value.round()).abs() < 0.001 ? 1 : 0;
+}
+
+double? _parseNumber(String? raw) {
+  if (raw == null) return null;
+  var cleaned = raw.replaceAll(RegExp(r'[^0-9,\.]'), '');
+  if (cleaned.isEmpty) return null;
+  if (cleaned.contains(',') && cleaned.contains('.')) {
+    if (cleaned.lastIndexOf('.') > cleaned.lastIndexOf(',')) {
+      cleaned = cleaned.replaceAll(',', '');
+    } else {
+      cleaned = cleaned.replaceAll('.', '');
+      cleaned = cleaned.replaceAll(',', '.');
+    }
+  } else {
+    cleaned = cleaned.replaceAll(',', '.');
+  }
+  return double.tryParse(cleaned);
 }

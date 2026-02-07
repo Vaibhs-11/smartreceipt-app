@@ -12,41 +12,66 @@ class ReceiptItem extends Equatable {
   final String name;
   final double price;
   final bool taxClaimable;
+  final double? quantity;
+  final double? unitPrice;
 
   const ReceiptItem({
     required this.name,
     required this.price,
     this.taxClaimable = false,
+    this.quantity,
+    this.unitPrice,
   });
 
   ReceiptItem copyWith({
     String? name,
     double? price,
     bool? taxClaimable,
+    double? quantity,
+    double? unitPrice,
   }) {
     return ReceiptItem(
       name: name ?? this.name,
       price: price ?? this.price,
       taxClaimable: taxClaimable ?? this.taxClaimable,
+      quantity: quantity ?? this.quantity,
+      unitPrice: unitPrice ?? this.unitPrice,
     );
   }
 
-  Map<String, Object?> toMap() => {
-        'name': name,
-        'price': price,
-        'taxClaimable': taxClaimable,
-      };
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{
+      'name': name,
+      'price': price,
+      'taxClaimable': taxClaimable,
+    };
+    if (quantity != null) {
+      map['quantity'] = quantity;
+    }
+    if (unitPrice != null) {
+      map['unitPrice'] = unitPrice;
+    }
+    return map;
+  }
 
   factory ReceiptItem.fromMap(Map<String, Object?> map) {
     return ReceiptItem(
       name: map['name'] as String? ?? '',
       price: (map['price'] as num?)?.toDouble() ?? 0.0,
       taxClaimable: map['taxClaimable'] as bool? ?? false,
+      quantity: (map['quantity'] as num?)?.toDouble(),
+      unitPrice: (map['unitPrice'] as num?)?.toDouble(),
     );
   }
 
   @override
-  List<Object?> get props => [name, price, taxClaimable];
+  List<Object?> get props => [
+        name,
+        price,
+        taxClaimable,
+        quantity,
+        unitPrice,
+      ];
 }
 
 @immutable

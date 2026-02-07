@@ -2,7 +2,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:receiptnest/domain/entities/app_config.dart';
 import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
@@ -28,140 +27,189 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
   @override
   Widget build(BuildContext context) {
     final configAsync = ref.watch(appConfigProvider);
-    final appConfig =
-        configAsync.maybeWhen(data: (c) => c, orElse: () => const AppConfig());
-    final freeLimit = appConfig.freeReceiptLimit;
     final receiptsAsync = ref.watch(receiptsProvider);
 
-    return WillPopScope(
-      onWillPop: () async => false,
-      child: Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: Text(
-            widget.isSubscriptionEnded
-                ? 'Subscription ended'
-                : 'Trial ended',
-          ),
-        ),
-        body: receiptsAsync.when(
-          data: (receipts) {
-            if (receipts.length <= freeLimit) {
-              // Nothing to choose, just clear gate and continue.
-              if (!_autoCleared) {
-                _autoCleared = true;
-                _autoClear();
-              }
-              return const Center(child: CircularProgressIndicator());
-            }
+    return configAsync.when(
+      loading: () => _loadingScaffold(),
+      error: (e, _) => _configErrorScaffold(e),
+      data: (appConfig) {
+        final freeLimit = appConfig.freeReceiptLimit;
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: Scaffold(
+            appBar: AppBar(
+              automaticallyImplyLeading: false,
+              title: Text(
+                widget.isSubscriptionEnded
+                    ? 'Subscription ended'
+                    : 'Trial ended',
+              ),
+            ),
+            body: receiptsAsync.when(
+              data: (receipts) {
+                if (receipts.length <= freeLimit) {
+                  // Nothing to choose, just clear gate and continue.
+                  if (!_autoCleared) {
+                    _autoCleared = true;
+                    _autoClear();
+                  }
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-            return Stack(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                return Stack(
                   children: [
-                    Padding(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      child: Text(
-                        'Select exactly $freeLimit receipts to keep on the free plan. '
-                        'All others will be permanently deleted after confirmation.',
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                    ),
-                    if (_error != null)
-                      Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Text(
-                          _error!,
-                          style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          child: Text(
+                            'Select exactly $freeLimit receipts to keep on the free plan. '
+                            'All others will be permanently deleted after confirmation.',
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
                         ),
-                      ),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: receipts.length,
-                        itemBuilder: (_, index) {
-                          final receipt = receipts[index];
-                          final selected = _selected.contains(receipt.id);
-                          final subtitle =
-                              '${DateFormat.yMMMd().format(receipt.date)} · ${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
-                          return CheckboxListTile(
-                            value: selected,
-                            onChanged: _processing
-                                ? null
-                                : (val) {
-                                    setState(() {
-                                      if (val == true) {
-                                        if (_selected.length < freeLimit) {
-                                          _selected.add(receipt.id);
-                                        }
-                                      } else {
-                                        _selected.remove(receipt.id);
-                                      }
-                                    });
-                                  },
-                            title: Text(receipt.storeName),
-                            subtitle: Text(subtitle),
-                          );
-                        },
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          ElevatedButton(
-                            onPressed: !_processing && _selected.length == freeLimit
-                                ? _confirmAndFinalize
-                                : null,
+                        if (_error != null)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
                             child: Text(
-                              _selected.length == freeLimit
-                                  ? 'Keep these $freeLimit receipts'
-                                  : 'Select $freeLimit to keep',
+                              _error!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'This is irreversible. Exports are recommended before deleting.',
-                            style: Theme.of(context).textTheme.bodySmall,
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: receipts.length,
+                            itemBuilder: (_, index) {
+                              final receipt = receipts[index];
+                              final selected = _selected.contains(receipt.id);
+                              final subtitle =
+                                  '${DateFormat.yMMMd().format(receipt.date)} · ${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
+                              return CheckboxListTile(
+                                value: selected,
+                                onChanged: _processing
+                                    ? null
+                                    : (val) {
+                                        setState(() {
+                                          if (val == true) {
+                                            if (_selected.length < freeLimit) {
+                                              _selected.add(receipt.id);
+                                            }
+                                          } else {
+                                            _selected.remove(receipt.id);
+                                          }
+                                        });
+                                      },
+                                title: Text(receipt.storeName),
+                                subtitle: Text(subtitle),
+                              );
+                            },
                           ),
-                        ],
-                      ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              ElevatedButton(
+                                onPressed:
+                                    !_processing && _selected.length == freeLimit
+                                        ? _confirmAndFinalize
+                                        : null,
+                                child: Text(
+                                  _selected.length == freeLimit
+                                      ? 'Keep these $freeLimit receipts'
+                                      : 'Select $freeLimit to keep',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'This is irreversible. Exports are recommended before deleting.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
+                    if (_processing)
+                      Container(
+                        color: Colors.black54,
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: 12),
+                              Text(
+                                'Finalizing downgrade…',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                   ],
-                ),
-                if (_processing)
-                  Container(
-                    color: Colors.black54,
-                    child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(),
-                          SizedBox(height: 12),
-                          Text(
-                            'Finalizing downgrade…',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) {
-            WidgetsBinding.instance.addPostFrameCallback((_) async {
-              if (!mounted) return;
-              if (isNetworkException(e)) {
-                await showNoInternetDialog(context);
-              }
-            });
-            return Center(child: Text('Error loading receipts: $e'));
-          },
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  if (!mounted) return;
+                  if (isNetworkException(e)) {
+                    await showNoInternetDialog(context);
+                  }
+                });
+                return Center(child: Text('Error loading receipts: $e'));
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _loadingScaffold() {
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: Text(
+          widget.isSubscriptionEnded ? 'Subscription ended' : 'Trial ended',
+        ),
+      ),
+      body: const Center(child: CircularProgressIndicator()),
+    );
+  }
+
+  Widget _configErrorScaffold(Object error) {
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: Text(
+          widget.isSubscriptionEnded ? 'Subscription ended' : 'Trial ended',
+        ),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Unable to load app settings.'),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () {
+                ref.refresh(appConfigProvider);
+              },
+              child: const Text('Retry'),
+            ),
+          ],
         ),
       ),
     );

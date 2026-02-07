@@ -1,7 +1,5 @@
 import 'package:meta/meta.dart';
 
-const int kUnlimitedReceipts = -1;
-
 enum SubscriptionTier { free, monthly, yearly }
 
 extension SubscriptionTierX on SubscriptionTier {
@@ -31,7 +29,6 @@ extension SubscriptionTierX on SubscriptionTier {
 
   bool get isPaid => this != SubscriptionTier.free;
 
-  int get maxReceipts => isPaid ? kUnlimitedReceipts : 10;
 }
 
 enum SubscriptionStatus { active, expired, none }
