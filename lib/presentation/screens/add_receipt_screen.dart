@@ -115,6 +115,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   void initState() {
     super.initState();
     _dateCtrl.text = DateFormat.yMMMd().format(_date);
+    // 🔥 Warm critical providers early
+  Future.microtask(() {
+    ref.read(appConfigProvider.future);
+  });
     _handleInitialArgs();
     _scheduleConnectivityCheck();
   }
@@ -533,67 +537,82 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isLoading) return;
     final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
     final imageProcessor = ref.read(receiptImageProcessingServiceProvider);
     final navigator = Navigator.of(context);
 
-    if (!await _ensurePreconditions()) return;
-    if (_receiptRejected) return;
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    _syncItemsFromControllers();
-
-    final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
-
-    final receipt = Receipt(
-      id: _ensureReceiptIdForSave(),
-      storeName: _storeCtrl.text.trim(),
-      date: _date,
-      total: total,
-      currency: _currency,
-      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-      imagePath: _originalImagePath,
-      originalImagePath: _originalImagePath,
-      processedImagePath: _processedImagePath,
-      imageProcessingStatus: _imageProcessingStatus,
-      extractedText: _extractedText,
-      items: _items,
-      searchKeywords: _searchKeywords,
-      normalizedBrand: _normalizedBrand,
-      metadata: _buildMetadata(),
-    );
+    if (mounted) {
+      setState(() => _isLoading = true);
+    } else {
+      _isLoading = true;
+    }
 
     try {
-      await addReceipt(receipt);
-    } catch (e) {
-      if (e is AppConfigUnavailableException) {
-        await _handleAppConfigUnavailable();
-        return;
-      }
-      if (isNetworkException(e)) {
-        if (mounted) {
-          await showNoInternetDialog(context);
-          await _exitAfterNoInternet();
-        }
-        return;
-      }
-      if (!mounted) return;
-      showRootSnackBar(
-        const SnackBar(
-          content: Text('Receipt limit reached. Please upgrade or delete.'),
-        ),
-      );
-      return;
-    }
-    if (_originalImagePath != null && _originalImagePath!.isNotEmpty) {
-      unawaited(imageProcessor.enqueueEnhancement(
-        receiptId: _activeReceiptId,
-        originalImagePath: _originalImagePath!,
-      ));
-    }
+      if (!await _ensurePreconditions()) return;
+      if (_receiptRejected) return;
+      if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    if (mounted) {
-      navigator.pop();
+      _syncItemsFromControllers();
+
+      final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
+
+      final receipt = Receipt(
+        id: _ensureReceiptIdForSave(),
+        storeName: _storeCtrl.text.trim(),
+        date: _date,
+        total: total,
+        currency: _currency,
+        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        imagePath: _originalImagePath,
+        originalImagePath: _originalImagePath,
+        processedImagePath: _processedImagePath,
+        imageProcessingStatus: _imageProcessingStatus,
+        extractedText: _extractedText,
+        items: _items,
+        searchKeywords: _searchKeywords,
+        normalizedBrand: _normalizedBrand,
+        metadata: _buildMetadata(),
+      );
+
+      try {
+        await addReceipt(receipt);
+      } catch (e) {
+        if (e is AppConfigUnavailableException) {
+          await _handleAppConfigUnavailable();
+          return;
+        }
+        if (isNetworkException(e)) {
+          if (mounted) {
+            await showNoInternetDialog(context);
+            await _exitAfterNoInternet();
+          }
+          return;
+        }
+        if (!mounted) return;
+        showRootSnackBar(
+          const SnackBar(
+            content: Text('Could not save receipt. Please try again.'),
+          ),
+        );
+        return;
+      }
+      if (_originalImagePath != null && _originalImagePath!.isNotEmpty) {
+        unawaited(imageProcessor.enqueueEnhancement(
+          receiptId: _activeReceiptId,
+          originalImagePath: _originalImagePath!,
+        ));
+      }
+
+      if (mounted) {
+        navigator.pop();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      } else {
+        _isLoading = false;
+      }
     }
   }
 
@@ -1421,7 +1440,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _isLoading || _receiptRejected ? null : _submit,
                   icon: const Icon(Icons.save_outlined),
-                  label: const Text('Save'),
+                  label: Text(_isLoading ? 'Saving…' : 'Save'),
                 ),
               ),
             ),
