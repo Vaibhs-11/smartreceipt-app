@@ -57,54 +57,55 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   @override
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
-    return WillPopScope(
-      onWillPop: () async => _canExitPurchase(),
-      child: Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: const Text('Upgrade to Premium'),
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
         ),
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        title: const Text('Upgrade to Premium'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 8),
+            Text(
+              platform == TargetPlatform.iOS
+                  ? 'Premium keeps unlimited receipts. Prices shown are from the App Store.'
+                  : 'Premium keeps unlimited receipts. Prices shown are from Google Play.',
+            ),
+            const SizedBox(height: 24),
+            if (_loading)
+              const Center(child: CircularProgressIndicator())
+            else if (_products.isEmpty)
+              const Text('Subscriptions are not available right now.')
+            else
+              for (final product in _products)
+                _planTile(
+                  title: _labelForProduct(product),
+                  price: product.price,
+                  description: product.description,
+                  onPressed: () => _purchase(product),
+                ),
+            const SizedBox(height: 12),
+            if (_message != null)
               Text(
-                platform == TargetPlatform.iOS
-                    ? 'Premium keeps unlimited receipts. Prices shown are from the App Store.'
-                    : 'Premium keeps unlimited receipts. Prices shown are from Google Play.',
+                _message!,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
-              const SizedBox(height: 24),
-              if (_loading)
-                const Center(child: CircularProgressIndicator())
-              else if (_products.isEmpty)
-                const Text('Subscriptions are not available right now.')
-              else
-                for (final product in _products)
-                  _planTile(
-                    title: _labelForProduct(product),
-                    price: product.price,
-                    description: product.description,
-                    onPressed: () => _purchase(product),
-                  ),
-              const SizedBox(height: 12),
-              if (_message != null)
-                Text(
-                  _message!,
-                  style: Theme.of(context).textTheme.bodyMedium,
+            if (_canExitPurchase()) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _exitToHome,
+                  child: const Text('Back to Home'),
                 ),
-              if (_canExitPurchase()) ...[
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _exitToHome,
-                    child: const Text('Back to Home'),
-                  ),
-                ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );

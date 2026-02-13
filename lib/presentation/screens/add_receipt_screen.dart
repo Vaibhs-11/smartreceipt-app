@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
@@ -116,9 +115,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     super.initState();
     _dateCtrl.text = DateFormat.yMMMd().format(_date);
     // 🔥 Warm critical providers early
-  Future.microtask(() {
-    ref.read(appConfigProvider.future);
-  });
+    Future.microtask(() {
+      ref.read(appConfigProvider.future);
+    });
     _handleInitialArgs();
     _scheduleConnectivityCheck();
   }
@@ -213,7 +212,31 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                     controller: _itemPriceCtrls[index],
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Price'),
+                    decoration: InputDecoration(
+                      labelText: 'Price',
+                      hintText: item.price == null ? '-' : null,
+                      hintStyle: item.price == null
+                          ? const TextStyle(color: Colors.red)
+                          : null,
+                      helperText: item.price == null ? 'Price missing' : null,
+                      helperStyle: item.price == null
+                          ? const TextStyle(color: Colors.red)
+                          : null,
+                      enabledBorder: item.price == null
+                          ? const OutlineInputBorder(
+                              borderSide: BorderSide(color: Colors.red),
+                            )
+                          : null,
+                      focusedBorder: item.price == null
+                          ? const OutlineInputBorder(
+                              borderSide:
+                                  BorderSide(color: Colors.red, width: 2),
+                            )
+                          : null,
+                    ),
+                    style: TextStyle(
+                      color: item.price == null ? Colors.red : null,
+                    ),
                     onEditingComplete: () => _commitItemEdit(index),
                   ),
                 ),
@@ -249,8 +272,11 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _itemPriceCtrls.clear();
     for (final item in items) {
       _itemNameCtrls.add(TextEditingController(text: item.name));
-      _itemPriceCtrls
-          .add(TextEditingController(text: item.price.toStringAsFixed(2)));
+      _itemPriceCtrls.add(
+        TextEditingController(
+          text: item.price?.toStringAsFixed(2) ?? '',
+        ),
+      );
     }
   }
 
@@ -269,12 +295,13 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       final current = _items[index];
       final name =
           commitText ? _itemNameCtrls[index].text.trim() : current.name;
-      final price = commitText
-          ? double.tryParse(_itemPriceCtrls[index].text.trim())
-          : null;
+      final rawPrice = commitText ? _itemPriceCtrls[index].text.trim() : null;
+      final parsedPrice = rawPrice == null || rawPrice.isEmpty
+          ? null
+          : double.tryParse(rawPrice);
       _items[index] = current.copyWith(
         name: name,
-        price: commitText ? (price ?? current.price) : current.price,
+        price: commitText ? parsedPrice : current.price,
         taxClaimable: taxClaimable ?? current.taxClaimable,
       );
     });
@@ -334,13 +361,13 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final action = widget.initialAction;
     if (action != null) {
       _initialArgsHandled = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          if (!mounted) return;
-          switch (action) {
-            case AddReceiptInitialAction.pickGallery:
-              await _pickFromGallery();
-              break;
-            case AddReceiptInitialAction.pickFiles:
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        switch (action) {
+          case AddReceiptInitialAction.pickGallery:
+            await _pickFromGallery();
+            break;
+          case AddReceiptInitialAction.pickFiles:
             await _pickFileFromPicker();
             break;
         }
@@ -430,27 +457,27 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     } on AppConfigUnavailableException {
       return _handleAppConfigUnavailable();
     } catch (e, s) {
-        if (isNetworkException(e)) {
-          await CrashlyticsLogger.recordNonFatal(
-            reason: 'NETWORK_UNAVAILABLE',
-            error: e,
-            stackTrace: s,
-          );
-          if (mounted) {
-            await showNoInternetDialog(context);
-            await _exitAfterNoInternet();
-          }
-          return false;
-        }
-
-        // Any other config-related failure → fail closed
+      if (isNetworkException(e)) {
         await CrashlyticsLogger.recordNonFatal(
-          reason: 'APP_CONFIG_LOAD_FAILED',
+          reason: 'NETWORK_UNAVAILABLE',
           error: e,
           stackTrace: s,
         );
-        return _handleAppConfigUnavailable();
+        if (mounted) {
+          await showNoInternetDialog(context);
+          await _exitAfterNoInternet();
+        }
+        return false;
       }
+
+      // Any other config-related failure → fail closed
+      await CrashlyticsLogger.recordNonFatal(
+        reason: 'APP_CONFIG_LOAD_FAILED',
+        error: e,
+        stackTrace: s,
+      );
+      return _handleAppConfigUnavailable();
+    }
   }
 
   Future<void> _showLimitDialog(
@@ -698,12 +725,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         _dateCtrl.text = DateFormat.yMMMd().format(_date);
       }
 
-      if (result.items.isNotEmpty) {
-        _items = result
-            .toReceiptItems(); // assumes new model includes taxClaimable default
-        _resetItemControllers(_items);
-      }
-
       final String? parsedCurrency = result.currency?.trim().toUpperCase();
       if (parsedCurrency != null && parsedCurrency.isNotEmpty) {
         if (!_currencyOptions.contains(parsedCurrency)) {
@@ -717,6 +738,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       _searchKeywords = List<String>.from(result.searchKeywords);
       _normalizedBrand = result.normalizedBrand;
       _category = result.category;
+      _items = result.toReceiptItems();
+      _resetItemControllers(_items);
 
       _extractedText = 'Store: ${result.storeName}\n'
           'Date: ${DateFormat.yMMMd().format(result.date)}\n'
@@ -894,7 +917,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
     try {
       final String lowerPath = file.path.toLowerCase();
-      fileExtension = lowerPath.contains('.') ? lowerPath.split('.').last : null;
+      fileExtension =
+          lowerPath.contains('.') ? lowerPath.split('.').last : null;
       final bool isPdf = lowerPath.endsWith('.pdf');
       final cloudOcr = ref.read(cloudOcrServiceProvider);
       final chatGpt = ref.read(chatGptOcrServiceProvider);
@@ -906,8 +930,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         if (normalizationResult.normalized) {
           normalizedWidth = normalizationResult.width;
           normalizedHeight = normalizationResult.height;
-          final normalizedBytes =
-              await normalizationResult.file.readAsBytes();
+          final normalizedBytes = await normalizationResult.file.readAsBytes();
           uploadResult = await _uploadBytesToStorage(
             normalizedBytes,
             fileName: '${_activeReceiptId}_normalized.jpg',
@@ -1087,8 +1110,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           ),
         );
       }
-    } finally {
-    }
+    } finally {}
   }
 
   Future<void> _handleCameraCapture() async {

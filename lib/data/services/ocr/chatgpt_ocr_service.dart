@@ -21,7 +21,8 @@ class ChatGptOcrService implements OcrService {
 
   @override
   Future<OcrResult> parsePdf(String gcsPath) {
-    throw UnimplementedError("Use parseRawText after extracting PDF text separately");
+    throw UnimplementedError(
+        "Use parseRawText after extracting PDF text separately");
   }
 
   @override
@@ -66,16 +67,23 @@ Extract these exact values:
   list of item objects.
   Each item must include:
     - name: exact item name as shown on the receipt
-    - price: exact numeric price (preserve decimals exactly as written) OR null when uncertain
+    - price: exact numeric price (preserve decimals exactly as written) OR null when truly unavailable
     - priceConfidence: "high" or "low"
-      * "low" when price is missing/ambiguous, near discounts/negative amounts, or uncertain
-      * default to "high" only when a clear positive price is paired with the item name
+
+  Confidence rules:
+    * Default to "high" when a clear positive price appears on the same line as the item name.
+    * If a positive numeric value appears immediately to the right of the item name, treat it as that item's price even if spacing or alignment is imperfect.
+    * If a positive numeric value appears on the next line but is clearly part of the same item (based on receipt structure), treat it as that item's price.
+    * Supermarket receipts typically list one positive price per item line. When this pattern is present, assume that number belongs to that item.
+    * Use "low" only when the price is genuinely missing, unreadable, or clearly ambiguous.
+    * Only set price to null when no positive numeric value can reasonably be associated with the item.
 
   Rules for discounts / negative amounts:
     - Negative values (e.g., "-3.00", "3.00-", "LESS 3.00") are adjustments/discounts.
-    - Never assign negative values as an item's unit price.
-    - If only a negative/discount value is near an item, set price to null and priceConfidence to "low".
-    - Do NOT guess prices. Do NOT backfill prices from totals or other sections.
+    - Never assign negative values as an item's price.
+    - If only a negative/discount value is near an item and no positive value exists, set price to null and priceConfidence to "low".
+    - Do NOT invent prices.
+    - Do NOT derive item prices from totals.
 
 - total:
   the exact final billed amount.
@@ -224,7 +232,10 @@ $rawText
       body: jsonEncode({
         "model": "gpt-4o-mini",
         "messages": [
-          {"role": "system", "content": "You are a precise JSON-producing receipt parser."},
+          {
+            "role": "system",
+            "content": "You are a precise JSON-producing receipt parser."
+          },
           {"role": "user", "content": prompt}
         ],
         "temperature": 0,
@@ -236,7 +247,8 @@ $rawText
     }
 
     final body = jsonDecode(response.body);
-    final content = body["choices"]?[0]?["message"]?["content"]?.toString() ?? "";
+    final content =
+        body["choices"]?[0]?["message"]?["content"]?.toString() ?? "";
 
     // Clean fences and markdown, then parse JSON
     final cleaned = _cleanModelContent(content);
@@ -272,16 +284,52 @@ $rawText
       for (final e in parsed["items"] as List) {
         if (e is Map) {
           final name = (e["name"] ?? "").toString();
-          double? priceNum = _numFromDynamic(e["price"]);
-          var priceConfidenceRaw = (e["priceConfidence"] ?? "").toString().toLowerCase();
+          final dynamic rawPrice = e["price"];
+          double? priceNum;
+          bool hadDigits = false;
+
+          if (rawPrice is num) {
+            priceNum = rawPrice.toDouble();
+            hadDigits = true;
+          } else if (rawPrice is String) {
+            final trimmed = rawPrice.trim();
+            hadDigits = RegExp(r'\d').hasMatch(trimmed);
+            if (trimmed.isNotEmpty) {
+              priceNum = double.tryParse(trimmed);
+              if (priceNum == null) {
+                // Keep digits/decimal points; remove only common currency tokens and whitespace.
+                final cleaned = trimmed
+                    .replaceAll(RegExp(r'[\s\$€£₹¥]'), '')
+                    .replaceAll(
+                      RegExp(
+                        r'\b(aud|usd|gbp|eur|cad|nzd|sgd|inr|jpy|cny)\b',
+                        caseSensitive: false,
+                      ),
+                      '',
+                    );
+                if (cleaned.isNotEmpty) {
+                  priceNum = double.tryParse(cleaned);
+                }
+              }
+            }
+          } else {
+            priceNum = _numFromDynamic(rawPrice);
+            hadDigits = rawPrice != null;
+          }
+
+          var priceConfidenceRaw =
+              (e["priceConfidence"] ?? "").toString().toLowerCase();
           var priceConfidence = priceConfidenceRaw == "low" ? "low" : "high";
 
-          // Treat negative or missing values as low confidence/null prices.
-          if (priceNum != null && priceNum < 0) {
+          // Downgrade only for clearly invalid / non-price values.
+          if (priceNum != null && priceNum <= 0) {
             priceNum = null;
             priceConfidence = "low";
           }
-          if (priceNum == null && priceConfidence == "high") {
+          if (!hadDigits && rawPrice != null) {
+            priceConfidence = "low";
+            priceNum = null;
+          } else if (priceNum == null && priceConfidenceRaw == "low") {
             priceConfidence = "low";
           }
 
@@ -297,11 +345,6 @@ $rawText
     }
 
     final int itemCountBeforeFilter = items.length;
-
-    // Drop OCR artefacts that have no amount or a non-positive amount.
-    items = items
-        .where((item) => item.price != null && item.price! > 0)
-        .toList();
 
     final int itemCountAfterFilter = items.length;
 
@@ -358,26 +401,27 @@ $rawText
 
     if (!isReceipt) {
       final appVersion = await _getAppVersion();
-      final preview = rawText.length > 400 ? rawText.substring(0, 400) : rawText;
+      final preview =
+          rawText.length > 400 ? rawText.substring(0, 400) : rawText;
       // Find these logs in Firebase Console → Crashlytics → Logs.
       FirebaseCrashlytics.instance.log(
         'RECEIPT_REJECTED ${jsonEncode({
-          "platform": Platform.operatingSystem,
-          "appVersion": appVersion,
-          "ocrTextLength": rawText.length,
-          "ocrTextPreview": preview,
-          "receiptRejectionReason": rejectionReason,
-          "itemCountBeforeFilter": itemCountBeforeFilter,
-          "itemCountAfterFilter": itemCountAfterFilter,
-          "gptTotal": gptChosen,
-          "localExtractedTotal": localTotal,
-          "currency": currency,
-        })}',
+              "platform": Platform.operatingSystem,
+              "appVersion": appVersion,
+              "ocrTextLength": rawText.length,
+              "ocrTextPreview": preview,
+              "receiptRejectionReason": rejectionReason,
+              "itemCountBeforeFilter": itemCountBeforeFilter,
+              "itemCountAfterFilter": itemCountAfterFilter,
+              "gptTotal": gptChosen,
+              "localExtractedTotal": localTotal,
+              "currency": currency,
+            })}',
       );
       FirebaseCrashlytics.instance.recordError(
         Exception('RECEIPT_REJECTED'),
         StackTrace.current,
-       fatal: false,
+        fatal: false,
       );
     }
 
@@ -460,22 +504,17 @@ $rawText
     if (v == null) return null;
     if (v is num) return v.toDouble();
     if (v is String) {
-      final cleaned = v.replaceAll(RegExp(r'[^\d\.,\-]'), '').trim();
+      final trimmed = v.trim();
+      if (trimmed.isEmpty) return null;
+
+      final direct = double.tryParse(trimmed);
+      if (direct != null) return direct;
+
+      final cleaned = trimmed.replaceAll(RegExp(r'[^0-9.\-]'), '');
       if (cleaned.isEmpty) return null;
-      // Decide decimal separator
-      String t = cleaned;
-      if (t.contains(',') && t.contains('.')) {
-        // assume last dot or comma is decimal
-        if (t.lastIndexOf('.') > t.lastIndexOf(',')) {
-          t = t.replaceAll(',', '');
-        } else {
-          t = t.replaceAll('.', '');
-          t = t.replaceAll(',', '.');
-        }
-      } else {
-        t = t.replaceAll(',', '.');
-      }
-      return double.tryParse(t);
+
+      final parsed = double.tryParse(cleaned);
+      return parsed;
     }
     return null;
   }
@@ -521,8 +560,10 @@ $rawText
   double? _localExtractTotal(String text) {
     final lines = text.split(RegExp(r'[\r\n]+'));
     // money regex captures amounts like 1,234.56 or 1234,56 or 12.34
-    final moneyRe = RegExp(r'(?:AUD\s*|\$)?\s*([0-9]{1,3}(?:[.,\s][0-9]{3})*(?:[.,][0-9]{2})|[0-9]+(?:[.,][0-9]{2}))');
-    const int zeroPenalty = -100; // penalize zero-value totals so non-zero always wins
+    final moneyRe = RegExp(
+        r'(?:AUD\s*|\$)?\s*([0-9]{1,3}(?:[.,\s][0-9]{3})*(?:[.,][0-9]{2})|[0-9]+(?:[.,][0-9]{2}))');
+    const int zeroPenalty =
+        -100; // penalize zero-value totals so non-zero always wins
     const List<String> excludedPhrases = [
       'tendered',
       'change',
@@ -598,7 +639,8 @@ $rawText
         for (final m in moneyRe.allMatches(line)) {
           var g = m.group(1)!.replaceAll(' ', '');
           if (g.contains(',') && g.contains('.')) {
-            if (g.lastIndexOf('.') > g.lastIndexOf(',')) g = g.replaceAll(',', '');
+            if (g.lastIndexOf('.') > g.lastIndexOf(','))
+              g = g.replaceAll(',', '');
             else {
               g = g.replaceAll('.', '');
               g = g.replaceAll(',', '.');
@@ -611,7 +653,9 @@ $rawText
         }
         // if none, search nearby lines for an amount
         if (amounts.isEmpty) {
-          for (int j = 1; j <= 3 && (i + j) < lines.length && amounts.isEmpty; j++) {
+          for (int j = 1;
+              j <= 3 && (i + j) < lines.length && amounts.isEmpty;
+              j++) {
             final la = lines[i + j].trim();
             if (la.isEmpty) continue;
             final lowerAdj = la.toLowerCase();
@@ -621,7 +665,8 @@ $rawText
             for (final m in moneyRe.allMatches(la)) {
               var g = m.group(1)!.replaceAll(' ', '');
               if (g.contains(',') && g.contains('.')) {
-                if (g.lastIndexOf('.') > g.lastIndexOf(',')) g = g.replaceAll(',', '');
+                if (g.lastIndexOf('.') > g.lastIndexOf(','))
+                  g = g.replaceAll(',', '');
                 else {
                   g = g.replaceAll('.', '');
                   g = g.replaceAll(',', '.');
@@ -649,12 +694,14 @@ $rawText
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         final lower = line.toLowerCase();
-        if (lower.contains('avail bal') || lower.contains('available balance')) continue;
+        if (lower.contains('avail bal') || lower.contains('available balance'))
+          continue;
         if (excludedPhrases.any((phrase) => lower.contains(phrase))) continue;
         for (final m in moneyRe.allMatches(line)) {
           var g = m.group(1)!.replaceAll(' ', '');
           if (g.contains(',') && g.contains('.')) {
-            if (g.lastIndexOf('.') > g.lastIndexOf(',')) g = g.replaceAll(',', '');
+            if (g.lastIndexOf('.') > g.lastIndexOf(','))
+              g = g.replaceAll(',', '');
             else {
               g = g.replaceAll('.', '');
               g = g.replaceAll(',', '.');
@@ -913,7 +960,8 @@ class _MoneyMatch {
   final double value;
   final int lineIndex;
   final String lineText;
-  _MoneyMatch({required this.value, required this.lineIndex, required this.lineText});
+  _MoneyMatch(
+      {required this.value, required this.lineIndex, required this.lineText});
 }
 
 class _CurrencyHint {

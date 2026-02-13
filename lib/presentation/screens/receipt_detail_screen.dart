@@ -104,8 +104,13 @@ class ReceiptDetailScreen extends ConsumerWidget {
                         contentPadding: EdgeInsets.zero,
                         title: Text(item.name),
                         trailing: Text(
-                          currencyFormatter.format(item.price),
-                          style: const TextStyle(fontWeight: FontWeight.w500),
+                          item.price != null
+                              ? currencyFormatter.format(item.price)
+                              : '-',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: item.price == null ? Colors.red : null,
+                          ),
                         ),
                       );
                     },
