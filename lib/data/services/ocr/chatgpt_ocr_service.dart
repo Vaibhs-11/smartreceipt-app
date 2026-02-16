@@ -764,31 +764,23 @@ $rawText
     final match = codeRe.firstMatch(rawText);
     if (match != null) return match.group(1)!.toUpperCase();
 
+    // Strong Australia override: when clear AU business/location hints exist.
+    final hasAustralianState = RegExp(
+      r'\b(VIC|NSW|QLD|WA|SA|TAS|ACT|NT)\b',
+      caseSensitive: false,
+    ).hasMatch(rawText);
+    final hasAustralianCity = RegExp(
+      r'\b(melbourne|sydney|brisbane|perth|adelaide)\b',
+      caseSensitive: false,
+    ).hasMatch(rawText);
+    if (RegExp(r'\babn\b', caseSensitive: false).hasMatch(rawText) ||
+        lower.contains('.au') ||
+        hasAustralianState ||
+        hasAustralianCity) {
+      return 'AUD';
+    }
+
     final List<_CurrencyHint> hints = [
-      _CurrencyHint(
-        code: 'INR',
-        regexes: [
-          RegExp(r'₹'),
-          RegExp(
-            r'\b(inr|rs\.?|rs|rupees?|rup(?:ee|e|ies)?|pupees?)\b',
-            caseSensitive: false,
-          ),
-        ],
-        localeKeywords: [
-          'india',
-          'bharat',
-          'hyderabad',
-          'mumbai',
-          'delhi',
-          'bangalore',
-          'chennai',
-          'telangana',
-          'gachibowli',
-        ],
-        phonePatterns: [
-          RegExp(r'\+?91[\s-]?\d{6,}'),
-        ],
-      ),
       _CurrencyHint(
         code: 'AUD',
         regexes: [
@@ -898,6 +890,16 @@ $rawText
         ],
         phonePatterns: [
           RegExp(r'\+?1[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{4}'),
+        ],
+      ),
+      _CurrencyHint(
+        code: 'INR',
+        regexes: [
+          RegExp(r'₹'),
+          RegExp(r'\bindia\b', caseSensitive: false),
+        ],
+        phonePatterns: [
+          RegExp(r'\+?91[\s-]?\d{6,}'),
         ],
       ),
       _CurrencyHint(

@@ -56,7 +56,6 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final platform = Theme.of(context).platform;
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -71,10 +70,8 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            Text(
-              platform == TargetPlatform.iOS
-                  ? 'Premium keeps unlimited receipts. Prices shown are from the App Store.'
-                  : 'Premium keeps unlimited receipts. Prices shown are from Google Play.',
+            const Text(
+              'Premium keeps unlimited receipts. Subscription pricing is shown below.',
             ),
             const SizedBox(height: 24),
             if (_loading)

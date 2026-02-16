@@ -246,9 +246,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       badgeColor = Colors.green;
       title = 'You’re on the ${badgeLabel} plan';
       body = 'Unlimited receipts while your subscription is active.';
-      caption = Theme.of(context).platform == TargetPlatform.iOS
-          ? 'Billing managed by Apple App Store'
-          : 'Billing managed by Google Play';
+      caption = 'Billing managed through your subscription settings';
       primaryCta = TextButton(
         onPressed: () {
           showDialog<void>(
@@ -256,9 +254,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             builder: (_) => AlertDialog(
               title: const Text('Manage subscription'),
               content: Text(
-                Theme.of(context).platform == TargetPlatform.iOS
-                    ? 'Manage your subscription in the App Store.'
-                    : 'Manage your subscription in Google Play.',
+                'Manage your subscription in your subscription settings.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               actions: [
