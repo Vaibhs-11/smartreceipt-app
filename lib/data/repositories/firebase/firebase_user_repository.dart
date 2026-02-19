@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/domain/exceptions/trial_exception.dart';
 import 'package:receiptnest/domain/repositories/user_repository.dart';
 
 class FirebaseUserRepository implements UserRepository {
@@ -33,6 +34,7 @@ class FirebaseUserRepository implements UserRepository {
         await snapshot.reference.set({
           'accountStatus': AccountStatus.free.asString,
           'trialDowngradeRequired': false,
+          'trialUsed': false,
           'subscriptionTier': SubscriptionTier.free.asString,
           'subscriptionStatus': SubscriptionStatus.none.asString,
         }, SetOptions(merge: true));
@@ -49,6 +51,7 @@ class FirebaseUserRepository implements UserRepository {
       'createdAt': FieldValue.serverTimestamp(),
       'accountStatus': AccountStatus.free.asString,
       'trialDowngradeRequired': false,
+      'trialUsed': false,
       'subscriptionTier': SubscriptionTier.free.asString,
       'subscriptionStatus': SubscriptionStatus.none.asString,
     };
@@ -75,6 +78,11 @@ class FirebaseUserRepository implements UserRepository {
       debugPrint('Skipping startTrial: user not logged in.');
       return;
     }
+    final profile = await getCurrentUserProfile();
+    if (profile?.trialUsed == true) {
+      throw const TrialAlreadyUsedException();
+    }
+
     final now = DateTime.now().toUtc();
     final endsAt = now.add(const Duration(days: 7));
 
@@ -83,6 +91,7 @@ class FirebaseUserRepository implements UserRepository {
         'accountStatus': AccountStatus.trial.asString,
         'trialStartedAt': Timestamp.fromDate(now),
         'trialEndsAt': Timestamp.fromDate(endsAt),
+        'trialUsed': true,
         'trialDowngradeRequired': false,
       },
       SetOptions(merge: true),

@@ -42,6 +42,7 @@ class AppUserProfile extends Equatable {
     required this.subscriptionStatus,
     this.trialStartedAt,
     this.trialEndsAt,
+    this.trialUsed = false,
     this.subscriptionEndsAt,
     this.trialDowngradeRequired = false,
     this.subscriptionSource,
@@ -57,6 +58,7 @@ class AppUserProfile extends Equatable {
   final SubscriptionStatus subscriptionStatus;
   final DateTime? trialStartedAt;
   final DateTime? trialEndsAt;
+  final bool trialUsed;
   final DateTime? subscriptionEndsAt;
   final bool trialDowngradeRequired;
   final SubscriptionSource? subscriptionSource;
@@ -72,6 +74,7 @@ class AppUserProfile extends Equatable {
     SubscriptionStatus? subscriptionStatus,
     DateTime? trialStartedAt,
     DateTime? trialEndsAt,
+    bool? trialUsed,
     DateTime? subscriptionEndsAt,
     bool? trialDowngradeRequired,
     SubscriptionSource? subscriptionSource,
@@ -87,6 +90,7 @@ class AppUserProfile extends Equatable {
       subscriptionStatus: subscriptionStatus ?? this.subscriptionStatus,
       trialStartedAt: trialStartedAt ?? this.trialStartedAt,
       trialEndsAt: trialEndsAt ?? this.trialEndsAt,
+      trialUsed: trialUsed ?? this.trialUsed,
       subscriptionEndsAt: subscriptionEndsAt ?? this.subscriptionEndsAt,
       trialDowngradeRequired:
           trialDowngradeRequired ?? this.trialDowngradeRequired,
@@ -112,6 +116,7 @@ class AppUserProfile extends Equatable {
           trialStartedAt != null ? Timestamp.fromDate(trialStartedAt!) : null,
       'trialEndsAt':
           trialEndsAt != null ? Timestamp.fromDate(trialEndsAt!) : null,
+      'trialUsed': trialUsed,
       'subscriptionEndsAt': subscriptionEndsAt != null
           ? Timestamp.fromDate(subscriptionEndsAt!)
           : null,
@@ -140,6 +145,7 @@ class AppUserProfile extends Equatable {
       subscriptionStatus: subscriptionStatus,
       trialStartedAt: (data['trialStartedAt'] as Timestamp?)?.toDate(),
       trialEndsAt: (data['trialEndsAt'] as Timestamp?)?.toDate(),
+      trialUsed: data['trialUsed'] as bool? ?? false,
       subscriptionEndsAt:
           (data['subscriptionEndsAt'] as Timestamp?)?.toDate(),
       trialDowngradeRequired: data['trialDowngradeRequired'] as bool? ?? false,
@@ -161,6 +167,7 @@ class AppUserProfile extends Equatable {
         subscriptionStatus,
         trialStartedAt,
         trialEndsAt,
+        trialUsed,
         subscriptionEndsAt,
         trialDowngradeRequired,
         subscriptionSource,

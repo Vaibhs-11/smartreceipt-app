@@ -511,7 +511,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
-          if (!showExpiredMessage && !isTrialActive)
+          if (!showExpiredMessage &&
+              !isTrialActive &&
+              profile.trialUsed != true)
             TextButton(
               onPressed: () async {
                 Navigator.of(context).pop();

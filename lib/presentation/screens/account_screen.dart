@@ -305,24 +305,33 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           child: const Text('Upgrade'),
         );
       } else {
-        primaryCta = FilledButton(
-          onPressed: _startingTrial ? null : () => _startTrial(),
-          child: _startingTrial
-              ? const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Start free trial'),
-        );
-        secondaryCta = TextButton(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PurchaseScreen()),
-            );
-          },
-          child: const Text('Upgrade'),
-        );
+        void goToPurchase() {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+          );
+        }
+
+        if (profile.trialUsed == true) {
+          primaryCta = FilledButton(
+            onPressed: goToPurchase,
+            child: const Text('Upgrade'),
+          );
+        } else {
+          primaryCta = FilledButton(
+            onPressed: _startingTrial ? null : () => _startTrial(),
+            child: _startingTrial
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Start free trial'),
+          );
+          secondaryCta = TextButton(
+            onPressed: goToPurchase,
+            child: const Text('Upgrade'),
+          );
+        }
       }
     }
 
