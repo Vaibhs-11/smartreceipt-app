@@ -9,7 +9,6 @@ import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
 
-
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -18,31 +17,38 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
-    // Use the AuthController to handle business logic and state.
-    // This ensures the UI updates correctly with loading and error states.
     final controller = ref.read(authControllerProvider.notifier);
     final connectivity = ref.read(connectivityServiceProvider);
+
     if (!await ensureInternetConnection(context, connectivity)) return;
+    if (!mounted) return;
+
     try {
       await controller.signInWithEmailPassword(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-
-      // On success, AuthGate would typically handle navigation.
-      // Since it's not set up as the root, we navigate manually.
-      //if (mounted) {
-      //  Navigator.pushReplacementNamed(context, AppRoutes.home);
-      //}
     } catch (e) {
+      if (!mounted) return;
+
       if (isNetworkException(e)) {
         await showNoInternetDialog(context);
         return;
       }
+
       await _showLoginErrorDialog(e);
     }
   }
@@ -50,7 +56,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
-    final isLoading = authState.isLoading;
+    final bool isLoading = authState.isLoading;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Login')),
@@ -67,6 +73,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   const SizedBox(height: 24),
+
+                  /// Email
                   TextField(
                     controller: _emailController,
                     decoration: const InputDecoration(
@@ -75,19 +83,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
+                    autofillHints: const [AutofillHints.email],
                     enabled: !isLoading,
                   ),
+
                   const SizedBox(height: 16),
+
+                  /// Password
                   TextField(
                     controller: _passwordController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: "Password",
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                      ),
                     ),
-                    obscureText: true,
+                    obscureText: _obscurePassword,
+                    autofillHints: const [AutofillHints.password],
                     onSubmitted: (_) => _submit(),
                     enabled: !isLoading,
                   ),
+
                   Align(
                     alignment: Alignment.centerLeft,
                     child: TextButton(
@@ -95,7 +121,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       child: const Text('Forgot password?'),
                     ),
                   ),
+
                   const SizedBox(height: 24),
+
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
@@ -109,13 +137,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           : const Text("Login"),
                     ),
                   ),
+
                   const SizedBox(height: 12),
+
                   TextButton(
-                    onPressed: isLoading ? null : () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const SignupScreen()),
-                      );
-                    },
+                    onPressed: isLoading
+                        ? null
+                        : () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<SignupScreen>(
+                                builder: (_) => const SignupScreen(),
+                              ),
+                            );
+                          },
                     child: const Text("Don’t have an account? Register"),
                   ),
                 ],
@@ -129,14 +163,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _showLoginErrorDialog(Object error) async {
     if (!mounted) return;
-    final message = friendlyAuthErrorMessage(
+
+    final String message = friendlyAuthErrorMessage(
       error,
       fallback: 'Login failed. Please try again.',
     );
+
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
+      builder: (BuildContext ctx) => AlertDialog(
         title: const Text('Login failed'),
         content: Text(message),
         actions: [
@@ -159,14 +195,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _maybeStartForgotPasswordFromDialog() async {
-    final email = _emailController.text.trim();
+    final String email = _emailController.text.trim();
+
     if (email.isEmpty || !_isValidEmail(email)) {
       if (!mounted) return;
+
       await showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (BuildContext ctx) => AlertDialog(
           title: const Text('Reset password'),
-          content: const Text('Please enter a valid email address to reset your password.'),
+          content: const Text(
+            'Please enter a valid email address to reset your password.',
+          ),
           actions: [
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(),
@@ -186,36 +226,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _forgotPassword() async {
-    final emailController = TextEditingController(text: _emailController.text);
-    final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Reset password'),
-            content: TextField(
-              controller: emailController,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                hintText: 'you@example.com',
+    final TextEditingController emailController =
+        TextEditingController(text: _emailController.text);
+
+    final bool confirmed =
+        await showDialog<bool>(
+              context: context,
+              builder: (BuildContext ctx) => AlertDialog(
+                title: const Text('Reset password'),
+                content: TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    hintText: 'you@example.com',
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Send reset link'),
+                  ),
+                ],
               ),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Send reset link'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+            ) ??
+            false;
 
     if (!confirmed) return;
 
-    final email = emailController.text.trim();
+    final String email = emailController.text.trim();
+
     if (email.isEmpty) {
       if (!mounted) return;
       showRootSnackBar(
@@ -226,19 +270,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     try {
       final connectivity = ref.read(connectivityServiceProvider);
+
       if (!await ensureInternetConnection(context, connectivity)) return;
+      if (!mounted) return;
+
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
     } catch (e) {
+      if (!mounted) return;
+
       if (isNetworkException(e)) {
-        if (mounted) {
-          await showNoInternetDialog(context);
-        }
-        return;
+        await showNoInternetDialog(context);
       }
-      // Swallow errors to avoid leaking account existence info.
     }
 
     if (!mounted) return;
+
     showRootSnackBar(
       const SnackBar(
         content: Text(
