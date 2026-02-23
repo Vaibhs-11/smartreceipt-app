@@ -58,9 +58,13 @@ class AddReceiptScreenArgs {
 class AddReceiptScreen extends ConsumerStatefulWidget {
   final String? initialImagePath;
   final AddReceiptInitialAction? initialAction;
+  final Receipt? existingReceipt;
 
   const AddReceiptScreen(
-      {super.key, this.initialImagePath, this.initialAction});
+      {super.key,
+      this.initialImagePath,
+      this.initialAction,
+      this.existingReceipt});
 
   @override
   ConsumerState<AddReceiptScreen> createState() => _AddReceiptScreenState();
@@ -107,29 +111,59 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   bool _dateEdited = false;
   bool _currencyEdited = false;
   bool _isExitingAfterNoInternet = false;
+  late final bool _isEditMode;
 
   final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _isEditMode = widget.existingReceipt != null;
     _dateCtrl.text = DateFormat.yMMMd().format(_date);
+    if (_isEditMode) {
+      _populateFromExistingReceipt(widget.existingReceipt!);
+    }
     // 🔥 Warm critical providers early
     Future.microtask(() {
       ref.read(appConfigProvider.future);
     });
-    _handleInitialArgs();
+    if (!_isEditMode) {
+      _handleInitialArgs();
+    }
     _scheduleConnectivityCheck();
   }
 
   @override
   void didUpdateWidget(covariant AddReceiptScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_isEditMode) return;
     if (widget.initialImagePath != oldWidget.initialImagePath ||
         widget.initialAction != oldWidget.initialAction) {
       _initialArgsHandled = false;
       _handleInitialArgs();
     }
+  }
+
+  void _populateFromExistingReceipt(Receipt receipt) {
+    _currentReceiptId = receipt.id;
+    _storeCtrl.text = receipt.storeName;
+    _totalCtrl.text = receipt.total.toStringAsFixed(2);
+    _notesCtrl.text = receipt.notes ?? '';
+    _date = receipt.date;
+    _dateCtrl.text = DateFormat.yMMMd().format(_date);
+    _currency = receipt.currency;
+    if (!_currencyOptions.contains(_currency)) {
+      _currencyOptions.add(_currency);
+    }
+    _items = List<ReceiptItem>.from(receipt.items);
+    _resetItemControllers(_items);
+    _originalImagePath = receipt.originalImagePath ?? receipt.imagePath;
+    _processedImagePath = receipt.processedImagePath;
+    _imageProcessingStatus = receipt.imageProcessingStatus;
+    _extractedText = receipt.extractedText;
+    _searchKeywords = List<String>.from(receipt.searchKeywords);
+    _normalizedBrand = receipt.normalizedBrand;
+    _category = receipt.metadata?['category'] as String?;
   }
 
   @override
@@ -567,8 +601,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   Future<void> _submit() async {
     if (_isLoading) return;
-    final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
-    final imageProcessor = ref.read(receiptImageProcessingServiceProvider);
+    final addReceipt =
+        _isEditMode ? null : ref.read(addReceiptUseCaseProviderOverride);
+    final imageProcessor =
+        _isEditMode ? null : ref.read(receiptImageProcessingServiceProvider);
     final navigator = Navigator.of(context);
 
     if (mounted) {
@@ -578,7 +614,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
 
     try {
-      if (!await _ensurePreconditions()) return;
+      if (!_isEditMode && !await _ensurePreconditions()) return;
       if (_receiptRejected) return;
       if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -605,7 +641,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       );
 
       try {
-        await addReceipt(receipt);
+        if (_isEditMode) {
+          final repo = ref.read(receiptRepositoryProviderOverride);
+          await repo.updateReceipt(receipt);
+        } else {
+          await addReceipt!(receipt);
+        }
       } catch (e) {
         if (e is AppConfigUnavailableException) {
           await _handleAppConfigUnavailable();
@@ -626,8 +667,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         );
         return;
       }
-      if (_originalImagePath != null && _originalImagePath!.isNotEmpty) {
-        unawaited(imageProcessor.enqueueEnhancement(
+      if (!_isEditMode &&
+          _originalImagePath != null &&
+          _originalImagePath!.isNotEmpty) {
+        unawaited(imageProcessor!.enqueueEnhancement(
           receiptId: _activeReceiptId,
           originalImagePath: _originalImagePath!,
         ));
@@ -1287,7 +1330,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         }
 
         return Scaffold(
-          appBar: AppBar(title: const Text('Add Receipt')),
+          appBar:
+              AppBar(title: Text(_isEditMode ? 'Edit Receipt' : 'Add Receipt')),
           resizeToAvoidBottomInset: true,
           body: Stack(
             children: [
@@ -1325,29 +1369,31 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           decoration: const InputDecoration(labelText: 'Date'),
                           onTap: () => _pickDate(_dateCtrl),
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _isLoading
-                                    ? null
-                                    : () => _handleCameraCapture(),
-                                icon: const Icon(Icons.photo_camera_outlined),
-                                label: const Text('Capture'),
+                        if (!_isEditMode) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () => _handleCameraCapture(),
+                                  icon: const Icon(Icons.photo_camera_outlined),
+                                  label: const Text('Capture'),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed:
-                                    _isLoading ? null : _showUploadOptions,
-                                icon: const Icon(Icons.upload),
-                                label: const Text('Upload'),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed:
+                                      _isLoading ? null : _showUploadOptions,
+                                  icon: const Icon(Icons.upload),
+                                  label: const Text('Upload'),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         Row(
                           children: <Widget>[
@@ -1464,7 +1510,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _isLoading || _receiptRejected ? null : _submit,
                   icon: const Icon(Icons.save_outlined),
-                  label: Text(_isLoading ? 'Saving…' : 'Save'),
+                  label: Text(_isLoading
+                      ? 'Saving…'
+                      : (_isEditMode ? 'Update' : 'Save')),
                 ),
               ),
             ),
