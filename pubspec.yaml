@@ -1,7 +1,7 @@
 name: receiptnest
 description: A mobile-first receipt scanning & organisation app
 publish_to: "none"
-version: 0.0.1+20
+version: 1.1.0+21
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
