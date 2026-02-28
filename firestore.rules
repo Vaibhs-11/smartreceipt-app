@@ -1,13 +1,39 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // These fields are server-managed and can only be changed by Admin SDK
+    // code (Cloud Functions), never directly by client SDK writes.
+    function modifiesProtectedSubscriptionFields() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'accountStatus',
+        'trialUsed',
+        'trialStartedAt',
+        'trialEndsAt',
+        'subscriptionTier',
+        'subscriptionStatus',
+        'subscriptionEndsAt',
+        'subscriptionSource',
+        'subscriptionUpdatedAt',
+      ]);
+    }
+
+      // ✅ RESTORE CONFIG RULE
+    match /config/{document} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
     match /users/{userId} {
-      allow read, create, update: if request.auth != null && request.auth.uid == userId;
+      allow read, create: if isOwner(userId);
+      allow update: if isOwner(userId) && !modifiesProtectedSubscriptionFields();
 
       match /receipts/{receiptId} {
-        allow read: if request.auth != null && request.auth.uid == userId;
+        allow read: if isOwner(userId);
         allow create: if false; // receipt creation is enforced via Cloud Functions
-        allow update, delete: if request.auth != null && request.auth.uid == userId;
+        allow update, delete: if isOwner(userId);
       }
     }
   }

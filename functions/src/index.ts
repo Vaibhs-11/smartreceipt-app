@@ -7,6 +7,10 @@ import * as admin from "firebase-admin";
 import sharp from "sharp";
 import * as path from "path";
 import * as fs from "fs/promises";
+export {startTrial} from "./subscriptions/startTrial";
+export {
+  syncSubscriptionEntitlement,
+} from "./subscriptions/syncSubscriptionEntitlement";
 
 // ----------------------
 // Initialization

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
 class ReceiptDetailScreen extends ConsumerWidget {
@@ -17,7 +18,31 @@ class ReceiptDetailScreen extends ConsumerWidget {
     final receiptAsync = ref.watch(receiptDetailProvider(receiptId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Receipt Detail')),
+      appBar: AppBar(
+        title: const Text('Receipt Detail'),
+        actions: [
+          receiptAsync.when(
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+            data: (receipt) {
+              if (receipt == null) return const SizedBox.shrink();
+              return IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: 'Edit receipt',
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          AddReceiptScreen(existingReceipt: receipt),
+                    ),
+                  );
+                  ref.refresh(receiptDetailProvider(receiptId));
+                },
+              );
+            },
+          ),
+        ],
+      ),
       body: receiptAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, _) => Center(child: Text('Error: $err')),

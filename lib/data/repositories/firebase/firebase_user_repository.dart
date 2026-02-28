@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
@@ -8,12 +9,16 @@ import 'package:receiptnest/domain/repositories/user_repository.dart';
 
 class FirebaseUserRepository implements UserRepository {
   FirebaseUserRepository(
-      {FirebaseAuth? authInstance, FirebaseFirestore? firestoreInstance})
+      {FirebaseAuth? authInstance,
+      FirebaseFirestore? firestoreInstance,
+      FirebaseFunctions? functionsInstance})
       : _auth = authInstance ?? FirebaseAuth.instance,
-        _firestore = firestoreInstance ?? FirebaseFirestore.instance;
+        _firestore = firestoreInstance ?? FirebaseFirestore.instance,
+        _functions = functionsInstance ?? FirebaseFunctions.instance;
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
+  final FirebaseFunctions _functions;
 
   DocumentReference<Map<String, dynamic>> _userDoc(String uid) {
     return _firestore.collection('users').doc(uid);
@@ -27,18 +32,6 @@ class FirebaseUserRepository implements UserRepository {
     DocumentSnapshot<Map<String, dynamic>> snapshot,
   ) async {
     if (snapshot.exists) {
-      final data = snapshot.data() ?? {};
-      if (!data.containsKey('accountStatus') ||
-          !data.containsKey('subscriptionTier') ||
-          !data.containsKey('subscriptionStatus')) {
-        await snapshot.reference.set({
-          'accountStatus': AccountStatus.free.asString,
-          'trialDowngradeRequired': false,
-          'trialUsed': false,
-          'subscriptionTier': SubscriptionTier.free.asString,
-          'subscriptionStatus': SubscriptionStatus.none.asString,
-        }, SetOptions(merge: true));
-      }
       return AppUserProfile.fromFirestore(snapshot);
     }
 
@@ -49,11 +42,7 @@ class FirebaseUserRepository implements UserRepository {
       'email': user?.email,
       'isAnonymous': user?.isAnonymous ?? true,
       'createdAt': FieldValue.serverTimestamp(),
-      'accountStatus': AccountStatus.free.asString,
       'trialDowngradeRequired': false,
-      'trialUsed': false,
-      'subscriptionTier': SubscriptionTier.free.asString,
-      'subscriptionStatus': SubscriptionStatus.none.asString,
     };
 
     await snapshot.reference.set(seedData, SetOptions(merge: true));
@@ -78,24 +67,19 @@ class FirebaseUserRepository implements UserRepository {
       debugPrint('Skipping startTrial: user not logged in.');
       return;
     }
-    final profile = await getCurrentUserProfile();
-    if (profile?.trialUsed == true) {
-      throw const TrialAlreadyUsedException();
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('startTrial');
+      await callable.call<Map<String, dynamic>>(const <String, dynamic>{});
+    } on FirebaseFunctionsException catch (e, stackTrace) {
+      debugPrint(
+        'startTrial callable failed (code: ${e.code}, message: ${e.message})',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      if (e.code == 'failed-precondition') {
+        throw const TrialAlreadyUsedException();
+      }
+      rethrow;
     }
-
-    final now = DateTime.now().toUtc();
-    final endsAt = now.add(const Duration(days: 7));
-
-    await _userDoc(uid).set(
-      {
-        'accountStatus': AccountStatus.trial.asString,
-        'trialStartedAt': Timestamp.fromDate(now),
-        'trialEndsAt': Timestamp.fromDate(endsAt),
-        'trialUsed': true,
-        'trialDowngradeRequired': false,
-      },
-      SetOptions(merge: true),
-    );
   }
 
   @override
@@ -117,17 +101,16 @@ class FirebaseUserRepository implements UserRepository {
       return;
     }
 
-    final payload = <String, Object?>{
-      'subscriptionTier': entitlement.status == SubscriptionStatus.active
-          ? entitlement.tier.asString
-          : SubscriptionTier.free.asString,
-      'subscriptionStatus': entitlement.status.asString,
-      'subscriptionSource':
-          (entitlement.source ?? currentProfile?.subscriptionSource)?.asString,
-      'subscriptionUpdatedAt': FieldValue.serverTimestamp(),
-    };
-
-    await _userDoc(uid).set(payload, SetOptions(merge: true));
+    final HttpsCallable callable =
+        _functions.httpsCallable('syncSubscriptionEntitlement');
+    await callable.call<Map<String, dynamic>>(<String, Object?>{
+      'tier': entitlement.tier.asString,
+      'status': entitlement.status.asString,
+      'source': (entitlement.source ?? currentProfile?.subscriptionSource)
+          ?.asString,
+      'updatedAtMillis':
+          (entitlement.updatedAt ?? DateTime.now().toUtc()).millisecondsSinceEpoch,
+    });
   }
 
   @override
@@ -139,7 +122,6 @@ class FirebaseUserRepository implements UserRepository {
     }
     await _userDoc(uid).set(
       {
-        'accountStatus': AccountStatus.free.asString,
         'trialDowngradeRequired': true,
       },
       SetOptions(merge: true),
@@ -156,7 +138,6 @@ class FirebaseUserRepository implements UserRepository {
     await _userDoc(uid).set(
       {
         'trialDowngradeRequired': false,
-        'accountStatus': AccountStatus.free.asString,
       },
       SetOptions(merge: true),
     );
