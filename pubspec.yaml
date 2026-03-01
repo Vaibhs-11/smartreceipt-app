@@ -65,3 +65,4 @@ flutter:
   assets:
     - config/.env
     - config/env.example
+    - assets/branding/receipt_nest_logo.png
