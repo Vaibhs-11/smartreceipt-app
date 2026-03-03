@@ -40,6 +40,8 @@ interface AppConfigDoc {
   enablePaidTiers: boolean;
 }
 
+type EffectiveAccountState = "free" | "trial" | "paid";
+
 const firestore = admin.firestore();
 
 const configRef = firestore.collection("config").doc("app");
@@ -252,9 +254,30 @@ const asAccountStatus = (raw?: string | null): AccountStatus => {
   }
 };
 
+const hasPaidEntitlement = (user: UserDoc): boolean => {
+  return user.subscriptionStatus === "active" &&
+    !!user.subscriptionTier &&
+    user.subscriptionTier !== "free";
+};
+
+const hasActiveTrial = (user: UserDoc, now: Date): boolean => {
+  return asAccountStatus(user.accountStatus || "free") === "trial" &&
+    !!user.trialEndsAt &&
+    now < user.trialEndsAt.toDate();
+};
+
+const getEffectiveAccountState = (
+  user: UserDoc,
+  now: Date
+): EffectiveAccountState => {
+  if (hasPaidEntitlement(user)) return "paid";
+  if (hasActiveTrial(user, now)) return "trial";
+  return "free";
+};
+
 const isExpired = (user: UserDoc, now: Date): boolean => {
-  const account = asAccountStatus(user.accountStatus || "free");
-  if (account === "trial" && user.trialEndsAt) {
+  if (asAccountStatus(user.accountStatus || "free") === "trial" &&
+    user.trialEndsAt) {
     return now > user.trialEndsAt.toDate();
   }
   if (user.subscriptionStatus === "expired") return true;
@@ -267,16 +290,12 @@ const canAddReceipt = (
   now: Date,
   config: AppConfigDoc
 ): boolean => {
-  const status = asAccountStatus(user.accountStatus || "free");
+  const status = getEffectiveAccountState(user, now);
   if (user.trialDowngradeRequired) return false;
-  if (config.enablePaidTiers &&
-    user.subscriptionStatus === "active" &&
-    user.subscriptionTier && user.subscriptionTier !== "free") {
+  if (config.enablePaidTiers && status === "paid") {
     return true;
   }
-  if (config.enablePaidTiers &&
-    status === "trial" && (!user.trialEndsAt ||
-    now < user.trialEndsAt.toDate())) {
+  if (config.enablePaidTiers && status === "trial") {
     if (config.premiumReceiptLimit === -1) return true;
     return receiptCount < config.premiumReceiptLimit;
   }
@@ -447,6 +466,26 @@ export const createReceipt = onCall(async (request) => {
   const userData = userSnap.data() as UserDoc;
   const now = new Date();
   const appConfig = await fetchAppConfig();
+
+  const effectiveState = getEffectiveAccountState(userData, now);
+  if (effectiveState === "free" &&
+    asAccountStatus(userData.accountStatus || "free") === "trial") {
+    logger.warn("Self-healing expired or invalid trial account state", {
+      uid,
+      hasTrialEndsAt: !!userData.trialEndsAt,
+      trialEndsAtMillis: userData.trialEndsAt?.toMillis(),
+    });
+    void userRef.set(
+      {
+        accountStatus: "free",
+        subscriptionTier: userData.subscriptionTier ?? "free",
+        subscriptionStatus: userData.subscriptionStatus ?? "none",
+      },
+      {merge: true}
+    ).catch((error) => {
+      logger.warn("Trial state self-heal failed", {uid, error});
+    });
+  }
 
   const dateValue = receipt["date"];
   let parsedDate: Date | null = null;

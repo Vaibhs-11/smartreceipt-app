@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:receiptnest/data/services/auth/auth_service.dart';
 import 'package:receiptnest/domain/entities/app_config.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/exceptions/account_deletion_exception.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
@@ -235,13 +236,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Widget _statusCard(
       AppUserProfile profile, int receiptCount, AppConfig appConfig) {
     final now = DateTime.now().toUtc();
+    final eligibility = AccountPolicies.evaluate(profile, now);
     final freeLimit = appConfig.freeReceiptLimit;
     final remaining = freeLimit - receiptCount;
     final remainingClamped = remaining < 0 ? 0 : remaining;
-    final trialEnds = profile.trialEndsAt;
-    final subscriptionActive = profile.subscriptionStatus ==
-            SubscriptionStatus.active &&
-        profile.subscriptionTier.isPaid;
+    final subscriptionActive = eligibility.isPaid;
     final subscriptionExpired =
         profile.subscriptionStatus == SubscriptionStatus.expired;
 
@@ -281,13 +280,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         },
         child: const Text('Manage subscription'),
       );
-    } else if (profile.accountStatus == AccountStatus.trial) {
-      final daysLeft = trialEnds != null
-          ? trialEnds.difference(now).inDays.clamp(0, 999)
-          : null;
+    } else if (eligibility.isActiveTrial) {
       badgeLabel = 'Free trial';
       badgeIcon = Icons.hourglass_empty_outlined;
-      title = 'Your trial ends in ${daysLeft ?? 'a few'} days';
+      title = 'Your trial ends in ${eligibility.trialDaysRemaining} days';
       body = 'Keep all your receipts when you upgrade to Premium.';
       primaryCta = FilledButton(
         onPressed: () {
@@ -296,6 +292,20 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           );
         },
         child: const Text('Upgrade to Premium'),
+      );
+    } else if (eligibility.trialExpired) {
+      badgeLabel = 'Trial ended';
+      badgeIcon = Icons.hourglass_disabled_outlined;
+      title = 'Your trial has ended';
+      body =
+          'You’re now on the Free plan. Upgrade to keep adding receipts without limits.';
+      primaryCta = FilledButton(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+          );
+        },
+        child: const Text('Upgrade'),
       );
     } else {
       badgeLabel = 'Free';
@@ -346,8 +356,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       }
     }
 
-    final bool isTrial = profile.accountStatus == AccountStatus.trial;
-    final String displayBadgeLabel = isTrial ? 'Free Trial' : badgeLabel;
+    final String displayBadgeLabel =
+        eligibility.isActiveTrial ? 'Free Trial' : badgeLabel;
     final Color badgeTextColor = AppColors.primaryNavy;
     final Color descriptionColor = Colors.grey.shade700;
 

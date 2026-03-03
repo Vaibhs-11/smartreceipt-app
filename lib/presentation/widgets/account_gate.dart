@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receiptnest/domain/policies/account_policies.dart';
-import 'package:receiptnest/domain/services/subscription_service.dart';
 import 'package:receiptnest/domain/exceptions/app_config_exception.dart';
 import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
@@ -82,8 +81,8 @@ class _AccountGateState extends ConsumerState<AccountGate>
       }
       final receiptCount = await receiptRepo.getReceiptCount();
 
-      final trialExpired = refreshedProfile.trialEndsAt != null &&
-          now.isAfter(refreshedProfile.trialEndsAt!);
+      final eligibility = AccountPolicies.evaluate(refreshedProfile, now);
+      final trialExpired = eligibility.trialExpired;
       final subscriptionExpired = AccountPolicies.isSubscriptionExpired(
         refreshedProfile,
       );
