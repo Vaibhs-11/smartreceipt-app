@@ -11,6 +11,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
+import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
@@ -220,76 +221,119 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   Widget _buildItemCard(int index) {
     final item = _items[index];
+    final bool priceMissing = item.price == null;
+    const Color warningColor = Color(0xFFD64545);
+    const OutlineInputBorder normalPriceBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(10)),
+      borderSide: BorderSide(color: Color(0xFFD6DCE5), width: 1.5),
+    );
+    const OutlineInputBorder focusedPriceBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(10)),
+      borderSide: BorderSide(color: AppColors.primaryNavy, width: 1.5),
+    );
+    const OutlineInputBorder warningPriceBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(10)),
+      borderSide: BorderSide(color: warningColor, width: 1.5),
+    );
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                // Name field
-                Expanded(
-                  flex: 3,
-                  child: TextFormField(
-                    controller: _itemNameCtrls[index],
-                    decoration: const InputDecoration(labelText: 'Item name'),
-                    onEditingComplete: () => _commitItemEdit(index),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Price field
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: _itemPriceCtrls[index],
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: 'Price',
-                      hintText: item.price == null ? '-' : null,
-                      hintStyle: item.price == null
-                          ? const TextStyle(color: Colors.red)
-                          : null,
-                      helperText: item.price == null ? 'Price missing' : null,
-                      helperStyle: item.price == null
-                          ? const TextStyle(color: Colors.red)
-                          : null,
-                      enabledBorder: item.price == null
-                          ? const OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.red),
-                            )
-                          : null,
-                      focusedBorder: item.price == null
-                          ? const OutlineInputBorder(
-                              borderSide:
-                                  BorderSide(color: Colors.red, width: 2),
-                            )
-                          : null,
+      child: Container(
+        decoration: BoxDecoration(
+          color: priceMissing
+              ? const Color(0xFFFFF4F4)
+              : AppColors.cardBackground,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Name field
+                  Expanded(
+                    flex: 3,
+                    child: TextFormField(
+                      controller: _itemNameCtrls[index],
+                      decoration: const InputDecoration(labelText: 'Item name'),
+                      onEditingComplete: () => _commitItemEdit(index),
                     ),
-                    style: TextStyle(
-                      color: item.price == null ? Colors.red : null,
-                    ),
-                    onEditingComplete: () => _commitItemEdit(index),
                   ),
-                ),
-              ],
-            ),
-            CheckboxListTile(
-              value: item.taxClaimable,
-              onChanged: (val) {
-                _commitItemEdit(
-                  index,
-                  taxClaimable: val ?? false,
-                  commitText: false,
-                );
-              },
-              title: const Text('Mark as tax claimable'),
-              dense: true,
-              controlAffinity: ListTileControlAffinity.leading,
-            ),
-          ],
+                  const SizedBox(width: 8),
+                  // Price field
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _itemPriceCtrls[index],
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Price',
+                            hintText: priceMissing ? '-' : null,
+                            hintStyle: priceMissing
+                                ? const TextStyle(color: warningColor)
+                                : null,
+                            border: normalPriceBorder,
+                            enabledBorder: priceMissing
+                                ? warningPriceBorder
+                                : normalPriceBorder,
+                            focusedBorder: priceMissing
+                                ? warningPriceBorder
+                                : focusedPriceBorder,
+                          ),
+                          onEditingComplete: () => _commitItemEdit(index),
+                        ),
+                        SizedBox(
+                          height: 22,
+                          child: priceMissing
+                              ? const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.warning_amber_rounded,
+                                      size: 16,
+                                      color: warningColor,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Price required',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: warningColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              CheckboxListTile(
+                value: item.taxClaimable,
+                onChanged: (val) {
+                  _commitItemEdit(
+                    index,
+                    taxClaimable: val ?? false,
+                    commitText: false,
+                  );
+                },
+                title: const Text('Mark as tax claimable'),
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1330,8 +1374,16 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         }
 
         return Scaffold(
-          appBar:
-              AppBar(title: Text(_isEditMode ? 'Edit Receipt' : 'Add Receipt')),
+          appBar: AppBar(
+            title: Text(
+              _isEditMode ? 'Edit Receipt' : 'Add Receipt',
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primaryNavy,
+              ),
+            ),
+          ),
           resizeToAvoidBottomInset: true,
           body: Stack(
             children: [
@@ -1378,6 +1430,13 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                   onPressed: _isLoading
                                       ? null
                                       : () => _handleCameraCapture(),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primaryNavy,
+                                    side: const BorderSide(
+                                      color: AppColors.primaryNavy,
+                                      width: 1.5,
+                                    ),
+                                  ),
                                   icon: const Icon(Icons.photo_camera_outlined),
                                   label: const Text('Capture'),
                                 ),
@@ -1387,6 +1446,13 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                 child: OutlinedButton.icon(
                                   onPressed:
                                       _isLoading ? null : _showUploadOptions,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primaryNavy,
+                                    side: const BorderSide(
+                                      color: AppColors.primaryNavy,
+                                      width: 1.5,
+                                    ),
+                                  ),
                                   icon: const Icon(Icons.upload),
                                   label: const Text('Upload'),
                                 ),
@@ -1434,12 +1500,17 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           maxLines: 3,
                         ),
                         const SizedBox(height: 20),
-                        const Text('Items',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold)),
+                        const Text(
+                          'Items',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
                         const SizedBox(height: 6),
                         Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: Colors.blue.shade50,
                             borderRadius: BorderRadius.circular(8),
@@ -1447,8 +1518,11 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           child: const Text(
                             'Review items carefully. Edit names/prices if needed.\n'
                             'Tick the checkbox for tax claimable purchases.',
-                            style:
-                                TextStyle(fontSize: 12, color: Colors.black87),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1482,8 +1556,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.add_circle,
-                                  color: Colors.green),
+                              icon: const Icon(
+                                Icons.add_circle,
+                                color: AppColors.success,
+                              ),
                               onPressed: _addNewItemFromInputs,
                             ),
                           ],

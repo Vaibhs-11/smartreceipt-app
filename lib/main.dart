@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/firebase/app_check_initializer.dart';
+import 'core/theme/app_theme.dart';
 import 'firebase_options.dart';
 import 'presentation/routes/app_routes.dart';
 import 'presentation/screens/onboarding_screen.dart';
@@ -100,7 +101,7 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: AppTheme.lightTheme,
       home: authState.when(
         data: (user) {
           if (user == null) {

@@ -84,6 +84,12 @@ class Receipt extends Equatable {
     required this.date,
     required this.total,
     required this.currency,
+    this.receiptType = 'personal',
+    this.receiptTaxAmount,
+    this.tripId,
+    this.businessSubtotal,
+    this.businessTaxAmount,
+    this.businessTotal,
     this.notes,
     this.tags = const <String>[],
     this.imagePath,
@@ -101,8 +107,16 @@ class Receipt extends Equatable {
   final String id; // Firestore doc ID
   final String storeName;
   final DateTime date;
+  /// Total amount paid for the receipt, including tax.
   final double total;
   final String currency;
+  final String receiptType;
+  /// Tax amount on the receipt, in the same currency as [total].
+  final double? receiptTaxAmount;
+  final String? tripId;
+  final double? businessSubtotal;
+  final double? businessTaxAmount;
+  final double? businessTotal;
   final String? notes;
   final List<String> tags;
   final String? imagePath;
@@ -122,6 +136,12 @@ class Receipt extends Equatable {
     DateTime? date,
     double? total,
     String? currency,
+    String? receiptType,
+    double? receiptTaxAmount,
+    String? tripId,
+    double? businessSubtotal,
+    double? businessTaxAmount,
+    double? businessTotal,
     String? notes,
     List<String>? tags,
     String? imagePath,
@@ -141,6 +161,12 @@ class Receipt extends Equatable {
       date: date ?? this.date,
       total: total ?? this.total,
       currency: currency ?? this.currency,
+      receiptType: receiptType ?? this.receiptType,
+      receiptTaxAmount: receiptTaxAmount ?? this.receiptTaxAmount,
+      tripId: tripId ?? this.tripId,
+      businessSubtotal: businessSubtotal ?? this.businessSubtotal,
+      businessTaxAmount: businessTaxAmount ?? this.businessTaxAmount,
+      businessTotal: businessTotal ?? this.businessTotal,
       notes: notes ?? this.notes,
       tags: tags ?? this.tags,
       imagePath: imagePath ?? this.imagePath,
@@ -176,6 +202,12 @@ class Receipt extends Equatable {
       'searchKeywords': searchKeywords,
       'normalizedBrand': normalizedBrand,
       'metadata': metadata,
+      'receiptType': receiptType,
+      'receiptTaxAmount': receiptTaxAmount,
+      'tripId': tripId,
+      'businessSubtotal': businessSubtotal,
+      'businessTaxAmount': businessTaxAmount,
+      'businessTotal': businessTotal,
     };
   }
 
@@ -187,6 +219,12 @@ class Receipt extends Equatable {
       date: (map['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
       total: (map['total'] as num?)?.toDouble() ?? 0.0,
       currency: map['currency'] as String? ?? "AUD",
+      receiptType: map['receiptType'] as String? ?? 'personal',
+      receiptTaxAmount: (map['receiptTaxAmount'] as num?)?.toDouble(),
+      tripId: map['tripId'] as String?,
+      businessSubtotal: (map['businessSubtotal'] as num?)?.toDouble(),
+      businessTaxAmount: (map['businessTaxAmount'] as num?)?.toDouble(),
+      businessTotal: (map['businessTotal'] as num?)?.toDouble(),
       notes: map['notes'] as String?,
       tags: (map['tags'] as List<Object?>?)?.cast<String>() ?? const [],
       imagePath: map['imagePath'] as String?,
@@ -229,6 +267,12 @@ class Receipt extends Equatable {
       date: (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
       total: (data['total'] as num?)?.toDouble() ?? 0.0,
       currency: data['currency'] as String? ?? "AUD",
+      receiptType: data['receiptType'] as String? ?? 'personal',
+      receiptTaxAmount: (data['receiptTaxAmount'] as num?)?.toDouble(),
+      tripId: data['tripId'] as String?,
+      businessSubtotal: (data['businessSubtotal'] as num?)?.toDouble(),
+      businessTaxAmount: (data['businessTaxAmount'] as num?)?.toDouble(),
+      businessTotal: (data['businessTotal'] as num?)?.toDouble(),
       notes: data['notes'] as String?,
       tags: (data['tags'] as List<dynamic>?)?.cast<String>() ?? const [],
       imagePath: data['imagePath'] as String?,
@@ -257,6 +301,12 @@ class Receipt extends Equatable {
         date,
         total,
         currency,
+        receiptType,
+        receiptTaxAmount,
+        tripId,
+        businessSubtotal,
+        businessTaxAmount,
+        businessTotal,
         notes,
         tags,
         imagePath,

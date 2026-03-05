@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
@@ -60,9 +61,9 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       color: Colors.red,
       alignment: Alignment.centerRight,
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
+      child: const Row(
         mainAxisSize: MainAxisSize.min,
-        children: const [
+        children: [
           Icon(Icons.delete, color: Colors.white),
           SizedBox(width: 8),
           Text(
@@ -97,7 +98,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           style: Theme.of(context)
               .textTheme
               .titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold),
+              ?.copyWith(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(
           DateFormat.yMMMd().format(receipt.date),
@@ -115,9 +116,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
             }
             return Text(
               formattedAmount,
-              style: TextStyle(
-                color: Colors.green[700],
-                fontWeight: FontWeight.bold,
+              style: const TextStyle(
+                color: AppColors.accentTeal,
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
               ),
             );
           },
@@ -168,7 +170,14 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("My Receipts"),
+        title: const Text(
+          "My Receipts",
+          style: TextStyle(
+            fontSize: 27,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primaryNavy,
+          ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.photo_camera_outlined),
@@ -182,116 +191,54 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
               Navigator.pushNamed(context, AppRoutes.account);
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () async {
-              await ref.read(authServiceProvider).signOut();
-              ref.read(receiptSearchFiltersProvider.notifier).state =
-                  const ReceiptSearchFilters();
-            },
-          ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildSearchControls(filters),
-          _buildActiveFilters(filters),
-          Expanded(
-            child: receiptsAsync.when(
-              data: (receipts) {
-                final filtered = _applyFilters(receipts, filters);
-                if (filtered.isEmpty) {
-                  final bool canClear = filters.query.trim().isNotEmpty ||
-                      filters.hasActiveFilters;
-                  return _EmptyState(
-                    showClear: canClear,
-                    onClear: () => _clearAll(clearQuery: true),
-                  );
-                }
+      body: receiptsAsync.when(
+        data: (receipts) {
+          final filtered = _applyFilters(receipts, filters);
+          final bool canClear =
+              filters.query.trim().isNotEmpty || filters.hasActiveFilters;
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) {
-                    final receipt = filtered[index];
-                    return Dismissible(
-                      key: ValueKey(receipt.id),
-                      background: _buildDeleteBackground(),
-                      secondaryBackground: _buildDeleteBackground(),
-                      direction: DismissDirection.endToStart,
-                      confirmDismiss: (_) async {
-                        final connectivity =
-                            ref.read(connectivityServiceProvider);
-                        if (!await ensureInternetConnection(
-                          context,
-                          connectivity,
-                        )) {
-                          return false;
-                        }
-                        return await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text("Delete Receipt"),
-                                content: const Text(
-                                    "Are you sure you want to delete this receipt?"),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: const Text("Cancel"),
-                                  ),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: const Text("Delete"),
-                                  ),
-                                ],
-                              ),
-                            ) ??
-                            false;
-                      },
-                      onDismissed: (_) async {
-                        try {
-                          await ref
-                              .read(receiptRepositoryProviderOverride)
-                              .deleteReceipt(receipt.id);
-                        } catch (e) {
-                          if (isNetworkException(e)) {
-                            if (mounted) {
-                              await showNoInternetDialog(context);
-                            }
-                            return;
-                          }
-                          rethrow;
-                        }
-
-                        _dismissSwipeHint();
-                        showRootSnackBar(
-                          const SnackBar(content: Text("Receipt deleted")),
-                        );
-                      },
-                      child: Stack(
-                        children: [
-                          _buildReceiptTile(receipt),
-                          _buildSwipeHintOverlay(index),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) {
-                WidgetsBinding.instance.addPostFrameCallback((_) async {
-                  if (!mounted) return;
-                  if (isNetworkException(e)) {
-                    await showNoInternetDialog(context);
-                  }
-                });
-                return Center(child: Text('Error: $e'));
-              },
-            ),
-          ),
-        ],
+          return Column(
+            children: [
+              const SizedBox(height: 8),
+              _buildSearchControls(filters),
+              _buildActiveFilters(filters),
+              Expanded(
+                child: filtered.isEmpty
+                    ? _EmptyState(
+                        showClear: canClear,
+                        onClear: () => _clearAll(clearQuery: true),
+                      )
+                    : _buildGroupedReceiptsList(filtered),
+              ),
+            ],
+          );
+        },
+        loading: () => Column(
+          children: [
+            const SizedBox(height: 8),
+            _buildSearchControls(filters),
+            _buildActiveFilters(filters),
+            const Expanded(child: Center(child: CircularProgressIndicator())),
+          ],
+        ),
+        error: (e, _) {
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            if (isNetworkException(e)) {
+              await showNoInternetDialog(context);
+            }
+          });
+          return Column(
+            children: [
+              const SizedBox(height: 8),
+              _buildSearchControls(filters),
+              _buildActiveFilters(filters),
+              Expanded(child: Center(child: Text('Error: $e'))),
+            ],
+          );
+        },
       ),
       floatingActionButton: _AddReceiptFab(
         onPressed: () => Navigator.pushNamed(context, '/addReceipt'),
@@ -322,13 +269,28 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                       )
                     : null,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(
+                    color: AppColors.accentTeal,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 12),
           FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryNavy,
+              foregroundColor: Colors.white,
+            ),
             onPressed: _openFiltersSheet,
             icon: const Icon(Icons.tune),
             label: const Text("Filters"),
@@ -422,6 +384,119 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildGroupedReceiptsList(List<Receipt> receipts) {
+    final monthGroups = _groupReceiptsByMonth(receipts);
+    final children = <Widget>[];
+    var overallIndex = 0;
+
+    for (var groupIndex = 0; groupIndex < monthGroups.length; groupIndex++) {
+      final group = monthGroups[groupIndex];
+      children.add(
+        Padding(
+          padding: EdgeInsets.fromLTRB(16, groupIndex == 0 ? 0 : 24, 16, 8),
+          child: Text(
+            group.label,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryNavy,
+            ),
+          ),
+        ),
+      );
+
+      for (final receipt in group.receipts) {
+        final currentIndex = overallIndex++;
+        children.add(
+          Dismissible(
+            key: ValueKey(receipt.id),
+            background: _buildDeleteBackground(),
+            secondaryBackground: _buildDeleteBackground(),
+            direction: DismissDirection.endToStart,
+            confirmDismiss: (_) async {
+              final connectivity = ref.read(connectivityServiceProvider);
+              if (!await ensureInternetConnection(context, connectivity)) {
+                return false;
+              }
+              if (!mounted) return false;
+              return await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text("Delete Receipt"),
+                      content: const Text(
+                          "Are you sure you want to delete this receipt?"),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Cancel"),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text("Delete"),
+                        ),
+                      ],
+                    ),
+                  ) ??
+                  false;
+            },
+            onDismissed: (_) async {
+              try {
+                await ref
+                    .read(receiptRepositoryProviderOverride)
+                    .deleteReceipt(receipt.id);
+              } catch (e) {
+                if (isNetworkException(e)) {
+                  if (mounted) {
+                    await showNoInternetDialog(context);
+                  }
+                  return;
+                }
+                rethrow;
+              }
+
+              _dismissSwipeHint();
+              showRootSnackBar(
+                const SnackBar(content: Text("Receipt deleted")),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Stack(
+                children: [
+                  _buildReceiptTile(receipt),
+                  _buildSwipeHintOverlay(currentIndex),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 12),
+      children: children,
+    );
+  }
+
+  List<_MonthGroup> _groupReceiptsByMonth(List<Receipt> receipts) {
+    final sorted = List<Receipt>.from(receipts)
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final grouped = <DateTime, List<Receipt>>{};
+
+    for (final receipt in sorted) {
+      final key = DateTime(receipt.date.year, receipt.date.month);
+      grouped.putIfAbsent(key, () => <Receipt>[]).add(receipt);
+    }
+
+    return grouped.entries.map((entry) {
+      return _MonthGroup(
+        label: DateFormat('MMMM yyyy').format(entry.key),
+        receipts: entry.value,
+      );
+    }).toList();
   }
 
   void _onQueryChanged(String value) {
@@ -536,26 +611,21 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     final selection = await imageService.showCameraFallbackDialog(context);
     if (!mounted || selection == null) return;
 
-    AddReceiptScreenArgs? args;
+    late final AddReceiptScreenArgs args;
     switch (selection) {
       case CameraFallbackSelection.gallery:
         args = const AddReceiptScreenArgs(
           initialAction: AddReceiptInitialAction.pickGallery,
         );
-        break;
       case CameraFallbackSelection.files:
         args = const AddReceiptScreenArgs(
           initialAction: AddReceiptInitialAction.pickFiles,
         );
-        break;
     }
-
-    if (args != null) {
-      await navigator.pushNamed(
-        AppRoutes.addReceipt,
-        arguments: args,
-      );
-    }
+    await navigator.pushNamed(
+      AppRoutes.addReceipt,
+      arguments: args,
+    );
   }
 
   bool _matchesQuery(Receipt receipt, String query) {
@@ -583,6 +653,16 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
 
     return false;
   }
+}
+
+class _MonthGroup {
+  final String label;
+  final List<Receipt> receipts;
+
+  const _MonthGroup({
+    required this.label,
+    required this.receipts,
+  });
 }
 
 class _AddReceiptFab extends StatelessWidget {
@@ -768,7 +848,7 @@ class _ReceiptFiltersSheetState extends State<_ReceiptFiltersSheet> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<bool?>(
-              value: _taxClaimable,
+              initialValue: _taxClaimable,
               decoration: const InputDecoration(
                 labelText: "Tax claimable",
                 border: OutlineInputBorder(),

@@ -5,8 +5,10 @@ import 'package:intl/intl.dart';
 import 'package:receiptnest/data/services/auth/auth_service.dart';
 import 'package:receiptnest/domain/entities/app_config.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/exceptions/account_deletion_exception.dart';
+import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
@@ -77,7 +79,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Account'),
+        title: const Text(
+          'Account',
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primaryNavy,
+          ),
+        ),
       ),
       body: SafeArea(
         child: userAsync.when(
@@ -126,7 +135,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   children: [
                     _sectionTitle('Profile'),
                     _userInfo(profile),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 24),
+                    _sectionTitle('Subscription'),
                     configAsync.when(
                       loading: () => _configLoadingCard(),
                       error: (e, _) => _configErrorCard(e),
@@ -153,66 +163,72 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
   Widget _sectionTitle(String text) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
       ),
     );
   }
 
   Widget _userInfo(AppUserProfile profile) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              profile.isAnonymous
-                  ? 'Anonymous user'
-                  : (profile.email ?? 'No email'),
-              style: Theme.of(context).textTheme.titleMedium,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            profile.isAnonymous ? 'Anonymous user' : (profile.email ?? 'No email'),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryNavy,
             ),
-            const SizedBox(height: 4),
-            if (profile.createdAt != null)
-              Text(
-                'Joined ${DateFormat.yMMMd().format(profile.createdAt!.toLocal())}',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.grey[700]),
+          ),
+          const SizedBox(height: 4),
+          if (profile.createdAt != null)
+            Text(
+              'Joined ${DateFormat.yMMMd().format(profile.createdAt!.toLocal())}',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
               ),
-            if (profile.isAnonymous) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Create an account to keep your receipts safe',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton(
-                      onPressed: () {
-                        Navigator.of(context).pushNamed(AppRoutes.signup);
-                      },
-                      child: const Text('Sign up'),
-                    ),
-                  ],
-                ),
+            ),
+          if (profile.isAnonymous) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primaryNavy.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
               ),
-            ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Create an account to keep your receipts safe',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primaryNavy,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () {
+                      Navigator.of(context).pushNamed(AppRoutes.signup);
+                    },
+                    child: const Text('Sign up'),
+                  ),
+                ],
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -220,13 +236,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Widget _statusCard(
       AppUserProfile profile, int receiptCount, AppConfig appConfig) {
     final now = DateTime.now().toUtc();
+    final eligibility = AccountPolicies.evaluate(profile, now);
     final freeLimit = appConfig.freeReceiptLimit;
     final remaining = freeLimit - receiptCount;
     final remainingClamped = remaining < 0 ? 0 : remaining;
-    final trialEnds = profile.trialEndsAt;
-    final subscriptionActive = profile.subscriptionStatus ==
-            SubscriptionStatus.active &&
-        profile.subscriptionTier.isPaid;
+    final subscriptionActive = eligibility.isPaid;
     final subscriptionExpired =
         profile.subscriptionStatus == SubscriptionStatus.expired;
 
@@ -235,7 +249,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     String? caption;
     Widget primaryCta = const SizedBox.shrink();
     Widget? secondaryCta;
-    Color badgeColor;
     IconData badgeIcon;
     String badgeLabel;
     if (subscriptionActive) {
@@ -243,7 +256,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           ? 'Yearly'
           : 'Monthly';
       badgeIcon = Icons.workspace_premium_outlined;
-      badgeColor = Colors.green;
       title = 'You’re on the ${badgeLabel} plan';
       body = 'Unlimited receipts while your subscription is active.';
       caption = 'Billing managed through your subscription settings';
@@ -268,14 +280,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         },
         child: const Text('Manage subscription'),
       );
-    } else if (profile.accountStatus == AccountStatus.trial) {
-      final daysLeft = trialEnds != null
-          ? trialEnds.difference(now).inDays.clamp(0, 999)
-          : null;
+    } else if (eligibility.isActiveTrial) {
       badgeLabel = 'Free trial';
       badgeIcon = Icons.hourglass_empty_outlined;
-      badgeColor = Colors.orange;
-      title = 'Your trial ends in ${daysLeft ?? 'a few'} days';
+      title = 'Your trial ends in ${eligibility.trialDaysRemaining} days';
       body = 'Keep all your receipts when you upgrade to Premium.';
       primaryCta = FilledButton(
         onPressed: () {
@@ -285,10 +293,23 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         },
         child: const Text('Upgrade to Premium'),
       );
+    } else if (eligibility.trialExpired) {
+      badgeLabel = 'Trial ended';
+      badgeIcon = Icons.hourglass_disabled_outlined;
+      title = 'Your trial has ended';
+      body =
+          'You’re now on the Free plan. Upgrade to keep adding receipts without limits.';
+      primaryCta = FilledButton(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+          );
+        },
+        child: const Text('Upgrade'),
+      );
     } else {
       badgeLabel = 'Free';
       badgeIcon = Icons.lock_open_outlined;
-      badgeColor = Colors.blue;
       title = subscriptionExpired
           ? 'Your subscription has expired'
           : 'You’re on the Free plan';
@@ -335,124 +356,128 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       }
     }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    final String displayBadgeLabel =
+        eligibility.isActiveTrial ? 'Free Trial' : badgeLabel;
+    final Color badgeTextColor = AppColors.primaryNavy;
+    final Color descriptionColor = Colors.grey.shade700;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.primaryNavy.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(badgeIcon, color: badgeColor, size: 18),
-                      const SizedBox(width: 6),
-                      Text(
-                        badgeLabel,
-                        style: TextStyle(
-                          color: badgeColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                Icon(badgeIcon, color: badgeTextColor, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  displayBadgeLabel,
+                  style: const TextStyle(
+                    color: AppColors.primaryNavy,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryNavy,
             ),
-            const SizedBox(height: 6),
-            Text(
-              body,
-              style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            body,
+            style: TextStyle(
+              fontSize: 15,
+              color: descriptionColor,
             ),
-            if (caption != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                caption!,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.grey[700]),
+          ),
+          if (caption != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              caption!,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
               ),
-            ],
-            const SizedBox(height: 16),
-            primaryCta,
-            if (secondaryCta != null) ...[
-              const SizedBox(height: 6),
-              secondaryCta!,
-            ],
-            const SizedBox(height: 6),
-            TextButton.icon(
-              onPressed: _restoringPurchases ? null : _restorePurchases,
-              icon: _restoringPurchases
-                  ? const SizedBox(
-                      height: 16,
-                      width: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.restore),
-              label: const Text('Restore purchases'),
             ),
           ],
-        ),
+          const SizedBox(height: 16),
+          primaryCta,
+          if (secondaryCta != null) ...[
+            const SizedBox(height: 8),
+            secondaryCta!,
+          ],
+          const SizedBox(height: 4),
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primaryNavy,
+              textStyle: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+            onPressed: _restoringPurchases ? null : _restorePurchases,
+            icon: _restoringPurchases
+                ? const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.restore, size: 18),
+            label: const Text('Restore purchases'),
+          ),
+        ],
       ),
     );
   }
 
   Widget _configLoadingCard() {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 12),
-            Text('Loading account settings...'),
-          ],
-        ),
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 12),
+          Text('Loading account settings...'),
+        ],
       ),
     );
   }
 
   Widget _configErrorCard(Object error) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Account settings unavailable.'),
-            const SizedBox(height: 8),
-            Text(
-              'Pull to refresh or tap retry.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () {
-                ref.refresh(appConfigProvider);
-              },
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Account settings unavailable.'),
+          const SizedBox(height: 8),
+          Text(
+            'Pull to refresh or tap retry.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () {
+              ref.refresh(appConfigProvider);
+            },
+            child: const Text('Retry'),
+          ),
+        ],
       ),
     );
   }
@@ -478,7 +503,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     )
                   : const Icon(Icons.chevron_right),
             ),
-            const Divider(),
+            Divider(
+              color: Colors.grey.withValues(alpha: 0.25),
+              thickness: 1,
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.mark_email_read_outlined),

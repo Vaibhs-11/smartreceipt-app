@@ -8,6 +8,7 @@ import 'package:receiptnest/presentation/utils/auth_error_messages.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
+import 'package:receiptnest/core/theme/app_colors.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -59,7 +60,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final bool isLoading = authState.isLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
+      appBar: AppBar(title: const SizedBox.shrink()),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -68,18 +69,39 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Text(
+                  Center(
+                    child: Image.asset(
+                      'assets/branding/receipt_nest_logo.png',
+                      height: 60,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
                     AppConstants.appName,
-                    style: Theme.of(context).textTheme.headlineMedium,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primaryNavy,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Organise your receipts with confidence.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.grey[600],
+                    ),
                   ),
                   const SizedBox(height: 24),
 
                   /// Email
                   TextField(
                     controller: _emailController,
-                    decoration: const InputDecoration(
-                      labelText: "Email",
-                      border: OutlineInputBorder(),
+                    decoration: _inputDecoration(
+                      labelText: 'Email',
+                      hintText: 'you@example.com',
                     ),
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
@@ -93,8 +115,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   TextField(
                     controller: _passwordController,
                     decoration: InputDecoration(
-                      labelText: "Password",
-                      border: const OutlineInputBorder(),
+                      labelText: 'Password',
+                      hintText: 'Enter your password',
+                      hintStyle: const TextStyle(color: Color(0xFF6B7280)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(
+                          color: AppColors.primaryNavy,
+                          width: 1.5,
+                        ),
+                      ),
                       suffixIcon: IconButton(
                         onPressed: () {
                           setState(() {
@@ -118,27 +155,47 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     alignment: Alignment.centerLeft,
                     child: TextButton(
                       onPressed: isLoading ? null : _forgotPassword,
-                      child: const Text('Forgot password?'),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        'Forgot password?',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
                     ),
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: isLoading ? null : _submit,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       child: isLoading
                           ? const SizedBox(
                               height: 18,
                               width: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text("Login"),
+                          : const Text('Login'),
                     ),
                   ),
 
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
                   TextButton(
                     onPressed: isLoading
@@ -150,7 +207,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             );
                           },
-                    child: const Text("Don’t have an account? Register"),
+                    child: RichText(
+                      text: const TextSpan(
+                        text: "Don’t have an account? ",
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: 'Register',
+                            style: TextStyle(
+                              color: AppColors.primaryNavy,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -190,6 +265,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: const Text('OK'),
           ),
         ],
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration({
+    required String labelText,
+    required String hintText,
+  }) {
+    return InputDecoration(
+      labelText: labelText,
+      hintText: hintText,
+      hintStyle: const TextStyle(color: Color(0xFF6B7280)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(
+          color: AppColors.primaryNavy,
+          width: 1.5,
+        ),
       ),
     );
   }

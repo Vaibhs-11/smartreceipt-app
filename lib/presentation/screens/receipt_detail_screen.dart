@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
@@ -19,7 +20,14 @@ class ReceiptDetailScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Receipt Detail'),
+        title: const Text(
+          'Receipt Detail',
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primaryNavy,
+          ),
+        ),
         actions: [
           receiptAsync.when(
             loading: () => const SizedBox.shrink(),
@@ -27,7 +35,18 @@ class ReceiptDetailScreen extends ConsumerWidget {
             data: (receipt) {
               if (receipt == null) return const SizedBox.shrink();
               return IconButton(
-                icon: const Icon(Icons.edit_outlined),
+                icon: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryNavy.withValues(alpha: 0.08),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.edit_outlined,
+                    color: AppColors.primaryNavy,
+                    size: 20,
+                  ),
+                ),
                 tooltip: 'Edit receipt',
                 onPressed: () async {
                   await Navigator.of(context).push(
@@ -52,7 +71,7 @@ class ReceiptDetailScreen extends ConsumerWidget {
           }
 
           final currencyFormatter =
-              NumberFormat.currency(symbol: receipt.currency);
+              NumberFormat.currency(symbol: '${receipt.currency} ');
 
           final displayImagePath = _resolveReceiptImagePath(receipt);
           final showProcessingBanner = displayImagePath != null &&
@@ -73,8 +92,8 @@ class ReceiptDetailScreen extends ConsumerWidget {
                           context, displayImagePath, receipt.storeName),
                       if (showProcessingBanner) ...[
                         const SizedBox(height: 8),
-                        Row(
-                          children: const [
+                        const Row(
+                          children: [
                             SizedBox(
                                 width: 16,
                                 height: 16,
@@ -104,8 +123,9 @@ class ReceiptDetailScreen extends ConsumerWidget {
                 Text(
                   currencyFormatter.format(receipt.total),
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 22,
+                    color: AppColors.accentTeal,
                   ),
                 ),
 
@@ -116,12 +136,19 @@ class ReceiptDetailScreen extends ConsumerWidget {
                     'Items',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                  const Divider(),
+                  Divider(
+                    color: Colors.grey.withValues(alpha: 0.3),
+                    thickness: 1,
+                  ),
                   ListView.separated(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: receipt.items.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => Divider(
+                      height: 1,
+                      color: Colors.grey.withValues(alpha: 0.3),
+                      thickness: 1,
+                    ),
                     itemBuilder: (context, index) {
                       final item = receipt.items[index];
                       return ListTile(
@@ -267,24 +294,23 @@ class ReceiptDetailScreen extends ConsumerWidget {
   /// --- Builds a visible, clickable link card for any network file ---
   Widget _buildOpenFileLink(
       BuildContext context, String fileUrl, String storeName, bool isPdf) {
-    final icon = isPdf ? Icons.picture_as_pdf : Icons.link;
-
-    // Extract readable filename
-    final uri = Uri.parse(fileUrl);
-    final rawName =
-        uri.pathSegments.isNotEmpty ? uri.pathSegments.last : fileUrl;
-    final decodedName = Uri.decodeComponent(rawName);
+    final icon = isPdf ? Icons.picture_as_pdf : Icons.link_rounded;
 
     return Card(
       color: Colors.grey[100],
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: ListTile(
-        leading: Icon(icon, color: isPdf ? Colors.red : Colors.blue),
-        title: Text(
-          decodedName,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w500),
+        leading: Icon(
+          icon,
+          color: isPdf ? Colors.red : AppColors.primaryNavy,
+          size: 18,
+        ),
+        title: const Text(
+          'View receipt image',
+          style: TextStyle(
+            color: AppColors.primaryNavy,
+            fontWeight: FontWeight.w500,
+          ),
         ),
         subtitle: Text(storeName),
         trailing: const Icon(Icons.open_in_new),
@@ -304,7 +330,7 @@ class ReceiptDetailScreen extends ConsumerWidget {
   void _openFullImage(BuildContext context, File imageFile) {
     Navigator.push(
       context,
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => _FullImageView(imageProvider: FileImage(imageFile)),
       ),
     );
