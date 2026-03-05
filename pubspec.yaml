@@ -63,6 +63,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - config/.env
+   # - config/.env
     - config/env.example
     - assets/branding/receipt_nest_logo.png
