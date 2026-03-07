@@ -7,6 +7,9 @@ import * as admin from "firebase-admin";
 import sharp from "sharp";
 import * as path from "path";
 import * as fs from "fs/promises";
+import {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
+export {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
+export {processReceiptEnrichment} from "./enrichment/processReceiptEnrichment";
 export {startTrial} from "./subscriptions/startTrial";
 export {
   syncSubscriptionEntitlement,
@@ -530,6 +533,24 @@ export const createReceipt = onCall(async (request) => {
     }
     tx.set(receiptRef, payload);
   });
+
+  const updatedUserDoc = await userRef.get();
+  const subscriptionTier = updatedUserDoc.data()
+    ? (updatedUserDoc.data() as Record<string, unknown>)["subscriptionTier"]
+    : undefined;
+
+  if (subscriptionTier === "premium") {
+    try {
+      await enqueueReceiptEnrichment(uid, receiptId);
+      logger.info("Enqueued receipt enrichment", {uid, receiptId});
+    } catch (error) {
+      logger.error("Failed to enqueue receipt enrichment", {
+        uid,
+        receiptId,
+        error,
+      });
+    }
+  }
   return {ok: true};
 });
 
