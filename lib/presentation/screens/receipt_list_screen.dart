@@ -538,9 +538,16 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     ReceiptSearchFilters filters,
   ) {
     final lowerQuery = filters.query.trim().toLowerCase();
+    final tokens =
+        lowerQuery.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+
     return receipts.where((receipt) {
-      if (lowerQuery.isNotEmpty && !_matchesQuery(receipt, lowerQuery)) {
-        return false;
+      if (tokens.isNotEmpty) {
+        final matchesAllTokens =
+            tokens.every((token) => _matchesQuery(receipt, token));
+        if (!matchesAllTokens) {
+          return false;
+        }
       }
 
       if (filters.store != null && filters.store!.trim().isNotEmpty) {
@@ -638,6 +645,11 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     }
 
     if (receipt.items.any((item) => item.name.toLowerCase().contains(query))) {
+      return true;
+    }
+
+    final notes = receipt.notes ?? '';
+    if (notes.toLowerCase().contains(query)) {
       return true;
     }
 
