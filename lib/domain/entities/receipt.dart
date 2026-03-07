@@ -1,5 +1,5 @@
-import 'package:equatable/equatable.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
 
 /// Filters out receipt items that have no price or a non-positive price.
@@ -16,6 +16,12 @@ class ReceiptItem extends Equatable {
   final bool taxClaimable;
   final double? quantity;
   final double? unitPrice;
+  final String? category;
+  final String? brand;
+  final String? canonicalName;
+  final List<String> searchTokens;
+  final int? enrichmentVersion;
+  final ReceiptItemManualOverrides? manualOverrides;
 
   const ReceiptItem({
     required this.name,
@@ -23,6 +29,12 @@ class ReceiptItem extends Equatable {
     this.taxClaimable = false,
     this.quantity,
     this.unitPrice,
+    this.category,
+    this.brand,
+    this.canonicalName,
+    this.searchTokens = const <String>[],
+    this.enrichmentVersion,
+    this.manualOverrides,
   });
 
   ReceiptItem copyWith({
@@ -31,6 +43,12 @@ class ReceiptItem extends Equatable {
     bool? taxClaimable,
     double? quantity,
     double? unitPrice,
+    String? category,
+    String? brand,
+    String? canonicalName,
+    List<String>? searchTokens,
+    int? enrichmentVersion,
+    ReceiptItemManualOverrides? manualOverrides,
   }) {
     return ReceiptItem(
       name: name ?? this.name,
@@ -38,6 +56,12 @@ class ReceiptItem extends Equatable {
       taxClaimable: taxClaimable ?? this.taxClaimable,
       quantity: quantity ?? this.quantity,
       unitPrice: unitPrice ?? this.unitPrice,
+      category: category ?? this.category,
+      brand: brand ?? this.brand,
+      canonicalName: canonicalName ?? this.canonicalName,
+      searchTokens: searchTokens ?? this.searchTokens,
+      enrichmentVersion: enrichmentVersion ?? this.enrichmentVersion,
+      manualOverrides: manualOverrides ?? this.manualOverrides,
     );
   }
 
@@ -46,12 +70,28 @@ class ReceiptItem extends Equatable {
       'name': name,
       'price': price,
       'taxClaimable': taxClaimable,
+      'search_tokens': searchTokens,
     };
     if (quantity != null) {
       map['quantity'] = quantity;
     }
     if (unitPrice != null) {
       map['unitPrice'] = unitPrice;
+    }
+    if (category != null) {
+      map['category'] = category;
+    }
+    if (brand != null) {
+      map['brand'] = brand;
+    }
+    if (canonicalName != null) {
+      map['canonical_name'] = canonicalName;
+    }
+    if (enrichmentVersion != null) {
+      map['enrichment_version'] = enrichmentVersion;
+    }
+    if (manualOverrides != null) {
+      map['manual_overrides'] = manualOverrides!.toMap();
     }
     return map;
   }
@@ -63,6 +103,20 @@ class ReceiptItem extends Equatable {
       taxClaimable: map['taxClaimable'] as bool? ?? false,
       quantity: (map['quantity'] as num?)?.toDouble(),
       unitPrice: (map['unitPrice'] as num?)?.toDouble(),
+      category: map['category'] as String?,
+      brand: map['brand'] as String?,
+      canonicalName: map['canonical_name'] as String?,
+      searchTokens:
+          (map['search_tokens'] as List<dynamic>?)?.cast<String>() ??
+              const <String>[],
+      enrichmentVersion: (map['enrichment_version'] as num?)?.toInt(),
+      manualOverrides: map['manual_overrides'] is Map
+          ? ReceiptItemManualOverrides.fromMap(
+              Map<String, Object?>.from(
+                map['manual_overrides'] as Map<dynamic, dynamic>,
+              ),
+            )
+          : null,
     );
   }
 
@@ -73,7 +127,45 @@ class ReceiptItem extends Equatable {
         taxClaimable,
         quantity,
         unitPrice,
+        category,
+        brand,
+        canonicalName,
+        searchTokens,
+        enrichmentVersion,
+        manualOverrides,
       ];
+}
+
+@immutable
+class ReceiptItemManualOverrides extends Equatable {
+  final bool category;
+  final bool brand;
+  final bool canonicalName;
+
+  const ReceiptItemManualOverrides({
+    this.category = false,
+    this.brand = false,
+    this.canonicalName = false,
+  });
+
+  factory ReceiptItemManualOverrides.fromMap(Map<String, Object?> map) {
+    return ReceiptItemManualOverrides(
+      category: map['category'] as bool? ?? false,
+      brand: map['brand'] as bool? ?? false,
+      canonicalName: map['canonical_name'] as bool? ?? false,
+    );
+  }
+
+  Map<String, Object?> toMap() {
+    return <String, Object?>{
+      'category': category,
+      'brand': brand,
+      'canonical_name': canonicalName,
+    };
+  }
+
+  @override
+  List<Object?> get props => [category, brand, canonicalName];
 }
 
 @immutable
@@ -98,6 +190,7 @@ class Receipt extends Equatable {
     this.imageProcessingStatus,
     this.extractedText,
     this.fileUrl,
+    this.enrichment,
     this.items = const <ReceiptItem>[],
     this.searchKeywords = const <String>[],
     this.normalizedBrand,
@@ -125,6 +218,7 @@ class Receipt extends Equatable {
   final String? imageProcessingStatus;
   final String? extractedText;
   final String? fileUrl;
+  final ReceiptEnrichment? enrichment;
   final List<ReceiptItem> items;
   final List<String> searchKeywords;
   final String? normalizedBrand;
@@ -150,6 +244,7 @@ class Receipt extends Equatable {
     String? imageProcessingStatus,
     String? extractedText,
     String? fileUrl,
+    ReceiptEnrichment? enrichment,
     List<ReceiptItem>? items,
     List<String>? searchKeywords,
     String? normalizedBrand,
@@ -176,6 +271,7 @@ class Receipt extends Equatable {
           imageProcessingStatus ?? this.imageProcessingStatus,
       extractedText: extractedText ?? this.extractedText,
       fileUrl: fileUrl ?? this.fileUrl,
+      enrichment: enrichment ?? this.enrichment,
       items: items ?? this.items,
       searchKeywords: searchKeywords ?? this.searchKeywords,
       normalizedBrand: normalizedBrand ?? this.normalizedBrand,
@@ -198,6 +294,7 @@ class Receipt extends Equatable {
       'imageProcessingStatus': imageProcessingStatus,
       'extractedText': extractedText,
       'fileUrl': fileUrl,
+      'enrichment': enrichment?.toMap(),
       'items': cleanedItems.map((i) => i.toMap()).toList(),
       'searchKeywords': searchKeywords,
       'normalizedBrand': normalizedBrand,
@@ -213,6 +310,13 @@ class Receipt extends Equatable {
 
   /// Only use this if mapping raw maps (non-Firestore).
   static Receipt fromMap(Map<String, Object?> map, {String? id}) {
+    final rawEnrichment = map['enrichment'];
+    final receiptEnrichment = rawEnrichment is Map
+        ? ReceiptEnrichment.fromMap(
+            Map<String, Object?>.from(rawEnrichment as Map<dynamic, dynamic>),
+          )
+        : null;
+
     return Receipt(
       id: id ?? (map['id'] as String? ?? ''),
       storeName: map['storeName'] as String? ?? '',
@@ -233,13 +337,15 @@ class Receipt extends Equatable {
       imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
       fileUrl: map['fileUrl'] as String?,
+      enrichment: receiptEnrichment,
       items: (map['items'] as List<dynamic>?)
               ?.map((i) => ReceiptItem.fromMap(
                   Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
               .toList() ??
           const [],
       searchKeywords:
-          (map['searchKeywords'] as List<dynamic>?)?.cast<String>() ?? const [],
+          (map['searchKeywords'] as List<dynamic>?)?.cast<String>() ??
+              const [],
       normalizedBrand: map['normalizedBrand'] as String?,
       metadata: map['metadata'] is Map
           ? Map<String, Object?>.from(map['metadata'] as Map)
@@ -258,6 +364,17 @@ class Receipt extends Equatable {
     final Map<String, Object?>? metadata = rawMetadata is Map
         ? rawMetadata.map(
             (key, value) => MapEntry(key.toString(), value),
+          )
+        : null;
+
+    final rawEnrichment = data['enrichment'];
+    final ReceiptEnrichment? enrichment = rawEnrichment is Map
+        ? ReceiptEnrichment.fromMap(
+            rawEnrichment is Map<String, dynamic>
+                ? Map<String, Object?>.from(rawEnrichment)
+                : Map<String, Object?>.from(
+                    rawEnrichment as Map<dynamic, dynamic>,
+                  ),
           )
         : null;
 
@@ -281,6 +398,7 @@ class Receipt extends Equatable {
       imageProcessingStatus: data['imageProcessingStatus'] as String?,
       extractedText: data['extractedText'] as String?,
       fileUrl: data['fileUrl'] as String?,
+      enrichment: enrichment,
       items: (data['items'] as List<dynamic>?)
               ?.map((i) => ReceiptItem.fromMap(
                   Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
@@ -315,9 +433,55 @@ class Receipt extends Equatable {
         imageProcessingStatus,
         extractedText,
         fileUrl,
+        enrichment,
         items,
         searchKeywords,
         normalizedBrand,
         metadata,
       ];
+}
+
+@immutable
+class ReceiptEnrichment extends Equatable {
+  final String? status;
+  final int? retryCount;
+  final int? version;
+  final DateTime? enrichedAt;
+
+  const ReceiptEnrichment({
+    this.status,
+    this.retryCount,
+    this.version,
+    this.enrichedAt,
+  });
+
+  factory ReceiptEnrichment.fromMap(Map<String, Object?> map) {
+    final Object? enrichedAt = map['enrichedAt'];
+    final DateTime? parsedEnrichedAt = enrichedAt is Timestamp
+        ? enrichedAt.toDate()
+        : enrichedAt is String
+            ? DateTime.tryParse(enrichedAt)
+            : enrichedAt is DateTime
+                ? enrichedAt
+                : null;
+
+    return ReceiptEnrichment(
+      status: map['status'] as String?,
+      retryCount: (map['retryCount'] as num?)?.toInt(),
+      version: (map['version'] as num?)?.toInt(),
+      enrichedAt: parsedEnrichedAt,
+    );
+  }
+
+  Map<String, Object?> toMap() {
+    return <String, Object?>{
+      'status': status,
+      'retryCount': retryCount,
+      'version': version,
+      'enrichedAt': enrichedAt == null ? null : Timestamp.fromDate(enrichedAt!),
+    };
+  }
+
+  @override
+  List<Object?> get props => [status, retryCount, version, enrichedAt];
 }
