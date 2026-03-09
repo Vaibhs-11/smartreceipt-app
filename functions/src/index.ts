@@ -535,9 +535,9 @@ export const createReceipt = onCall(async (request) => {
   });
 
   const updatedUserDoc = await userRef.get();
-  const subscriptionTier = updatedUserDoc.data()
-    ? (updatedUserDoc.data() as Record<string, unknown>)["subscriptionTier"]
-    : undefined;
+  const subscriptionTier = updatedUserDoc.data() ?
+    (updatedUserDoc.data() as Record<string, unknown>)["subscriptionTier"] :
+    undefined;
 
   if (subscriptionTier === "premium") {
     try {

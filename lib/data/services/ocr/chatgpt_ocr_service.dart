@@ -103,11 +103,31 @@ Extract these exact values:
   0-based index into the totals array indicating which total you selected.
 
 - currency:
-  currency code (e.g. AUD, USD, GBP).
-  If missing, try to infer from context:
-    - .au domain, ABN, GST → AUD
-    - HST → CAD
-  Never assume USD unless explicitly stated.
+  currency code using ISO-4217 format (e.g. AUD, USD, GBP, CAD, INR, EUR).
+  Before deciding currency, internally identify the strongest country evidence in the receipt text.
+
+  Determine currency using explicit evidence from the receipt text.
+  If the receipt address clearly indicates a country or city,
+  derive the currency from that location.
+  First identify currency indicators such as:
+  - currency symbols
+  - tax names
+  - address location
+  - government identifiers
+  - tax ID formats
+  - country-specific tax terms
+
+  Then determine the most likely currency.
+
+  Examples of evidence:
+
+  • SGST / CGST / HSN / GSTIN → India → INR  
+  • HST / GST-HST → Canada → CAD  
+  • ABN / .au domain → Australia → AUD  
+
+  Prefer location and tax system evidence over generic tax labels like "GST".
+
+  If no reliable evidence exists, return null instead of guessing.
 
 ────────────────────────────────────────
 RECEIPT-LEVEL ENRICHMENT (SEARCH METADATA)

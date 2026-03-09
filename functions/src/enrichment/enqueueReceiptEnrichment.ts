@@ -1,5 +1,5 @@
-import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
+import {getFunctions} from "firebase-admin/functions";
 
 interface ReceiptEnrichmentTaskPayload {
   userId: string;
@@ -17,7 +17,7 @@ export const enqueueReceiptEnrichment = async (
     receiptId,
   };
 
-  const queue = admin.functions().taskQueue("processReceiptEnrichment");
+  const queue = getFunctions().taskQueue("processReceiptEnrichment");
 
   const taskId = `${RECEIPT_ENRICHMENT_TASK_ID_PREFIX}-${userId}-${receiptId}`;
 

@@ -86,7 +86,9 @@ const sanitizeSearchTokens = (value: unknown): string[] => {
   return result;
 };
 
-const parseEnrichmentResponse = (raw: string): {items: ReceiptItemSuggestion[]} => {
+const parseEnrichmentResponse = (
+  raw: string
+): {items: ReceiptItemSuggestion[]} => {
   const trimmed = raw.trim();
   const fencedJsonMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
   const jsonText = fencedJsonMatch ? fencedJsonMatch[1] : trimmed;
@@ -203,7 +205,7 @@ const parseOpenAIConfigFromResponse = async (payload: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${apiKey}`,
       },
       signal: controller.signal,
       body: JSON.stringify({
@@ -213,7 +215,11 @@ const parseOpenAIConfigFromResponse = async (payload: {
           {
             role: "system",
             content:
-              'You are a receipt enrichment assistant. Return only valid JSON with the exact shape {"items":[{"index":number,"category":string,"brand":string|null,"canonical_name":string|null,"search_tokens":[string]}]}. ' +
+              "You are a receipt enrichment assistant. Return only valid JSON" +
+              " with the exact shape " +
+              "{\"items\":[{\"index\":number,\"category\":string," +
+              "\"brand\":string|null,\"canonical_name\":string|null," +
+              "\"search_tokens\":[string]}]}. " +
               "Do not include markdown or explanatory text. " +
               "Use only categories provided in allowed_categories. " +
               "Use null for brand or canonical_name when unknown.",
@@ -253,9 +259,9 @@ const parseReceiptItems = (
   }
 
   return rawItems.map((item) =>
-    typeof item === "object" && item !== null
-      ? (item as Record<string, unknown>)
-      : {}
+    typeof item === "object" && item !== null ?
+      (item as Record<string, unknown>) :
+      {}
   );
 };
 
@@ -267,7 +273,10 @@ const setEnrichmentStatus = async (
 };
 
 const getItemNameForEnrichment = (item: Record<string, unknown>): string => {
-  if (typeof item["original_name"] === "string" && item["original_name"].trim()) {
+  if (
+    typeof item["original_name"] === "string" &&
+    item["original_name"].trim()
+  ) {
     return item["original_name"];
   }
 
@@ -339,11 +348,11 @@ export const processReceiptEnrichment = onTaskDispatched(async (request) => {
   }
 
   const merchant =
-    typeof receiptData["merchant"] === "string"
-      ? receiptData["merchant"]
-      : typeof receiptData["storeName"] === "string"
-      ? receiptData["storeName"]
-      : "";
+    typeof receiptData["merchant"] === "string" ?
+      receiptData["merchant"] :
+      typeof receiptData["storeName"] === "string" ?
+        receiptData["storeName"] :
+        "";
 
   const items = parseReceiptItems(receiptData);
 
@@ -410,7 +419,7 @@ export const processReceiptEnrichment = onTaskDispatched(async (request) => {
     });
 
     await receiptRef.update({
-      items: enrichedItems,
+      "items": enrichedItems,
       "enrichment.status": "completed",
       "enrichment.version": CURRENT_ENRICHMENT_VERSION,
       "enrichment.enrichedAt": admin.firestore.FieldValue.serverTimestamp(),

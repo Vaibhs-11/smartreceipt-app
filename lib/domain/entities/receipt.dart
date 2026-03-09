@@ -97,6 +97,11 @@ class ReceiptItem extends Equatable {
   }
 
   factory ReceiptItem.fromMap(Map<String, Object?> map) {
+    final rawSearchTokens = map['search_tokens'];
+    final safeSearchTokens = rawSearchTokens is List<dynamic>
+        ? rawSearchTokens.whereType<String>().toList()
+        : const <String>[];
+
     return ReceiptItem(
       name: map['name'] as String? ?? '',
       price: (map['price'] as num?)?.toDouble(),
@@ -106,13 +111,11 @@ class ReceiptItem extends Equatable {
       category: map['category'] as String?,
       brand: map['brand'] as String?,
       canonicalName: map['canonical_name'] as String?,
-      searchTokens:
-          (map['search_tokens'] as List<dynamic>?)?.cast<String>() ??
-              const <String>[],
+      searchTokens: safeSearchTokens,
       enrichmentVersion: (map['enrichment_version'] as num?)?.toInt(),
       manualOverrides: map['manual_overrides'] is Map
           ? ReceiptItemManualOverrides.fromMap(
-              Map<String, Object?>.from(
+              Map<dynamic, dynamic>.from(
                 map['manual_overrides'] as Map<dynamic, dynamic>,
               ),
             )
@@ -148,7 +151,7 @@ class ReceiptItemManualOverrides extends Equatable {
     this.canonicalName = false,
   });
 
-  factory ReceiptItemManualOverrides.fromMap(Map<String, Object?> map) {
+  factory ReceiptItemManualOverrides.fromMap(Map<dynamic, dynamic> map) {
     return ReceiptItemManualOverrides(
       category: map['category'] as bool? ?? false,
       brand: map['brand'] as bool? ?? false,
