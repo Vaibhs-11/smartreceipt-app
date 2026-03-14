@@ -27,48 +27,18 @@ class _PremiumReceiptHomeScreenState
   late final TextEditingController _searchController;
   static const String _swipeHintPrefKey = 'receipt_swipe_hint_shown';
   static const List<_CategoryChipItem> _categoryChips = [
-    _CategoryChipItem(label: 'All', icon: Icons.list_alt),
-    _CategoryChipItem(label: 'Groceries', icon: Icons.shopping_cart),
-    _CategoryChipItem(label: 'Dining & Takeaway', icon: Icons.restaurant),
-    _CategoryChipItem(label: 'Transport', icon: Icons.directions_car),
+    _CategoryChipItem(label: 'All', icon: Icons.receipt_long),
+    _CategoryChipItem(label: 'Food & Dining', icon: Icons.restaurant),
+    _CategoryChipItem(label: 'Travel & Transport', icon: Icons.directions_car),
     _CategoryChipItem(
-      label: 'Travel & Accommodation',
-      icon: Icons.hotel,
+      label: 'Electronics & Appliances',
+      icon: Icons.devices,
     ),
-    _CategoryChipItem(
-      label: 'Clothing & Accessories',
-      icon: Icons.checkroom,
-    ),
-    _CategoryChipItem(
-      label: 'Electronics & Gadgets',
-      icon: Icons.tv,
-    ),
-    _CategoryChipItem(
-      label: 'Home & Household',
-      icon: Icons.home_outlined,
-    ),
-    _CategoryChipItem(
-      label: 'Health & Medical',
-      icon: Icons.medical_services,
-    ),
-    _CategoryChipItem(
-      label: 'Personal Care & Beauty',
-      icon: Icons.spa,
-    ),
-    _CategoryChipItem(label: 'Subscriptions', icon: Icons.subscriptions),
-    _CategoryChipItem(label: 'Utilities', icon: Icons.power),
-    _CategoryChipItem(label: 'Insurance', icon: Icons.shield),
-    _CategoryChipItem(label: 'Education', icon: Icons.school),
-    _CategoryChipItem(
-      label: 'Professional Services',
-      icon: Icons.business_center,
-    ),
-    _CategoryChipItem(label: 'Entertainment', icon: Icons.movie_filter),
-    _CategoryChipItem(
-      label: 'Gifts & Donations',
-      icon: Icons.favorite,
-    ),
-    _CategoryChipItem(label: 'Other', icon: Icons.more_horiz),
+    _CategoryChipItem(label: 'Home & Household', icon: Icons.home),
+    _CategoryChipItem(label: 'Fashion & Personal Care', icon: Icons.checkroom),
+    _CategoryChipItem(label: 'Bills & Utilities', icon: Icons.receipt),
+    _CategoryChipItem(label: 'Health & Medical', icon: Icons.local_hospital),
+    _CategoryChipItem(label: 'Other', icon: Icons.category),
   ];
   bool _showSwipeHint = false;
   String _selectedCategory = 'All';
@@ -113,6 +83,14 @@ class _PremiumReceiptHomeScreenState
     });
   }
 
+  Map<String, String?> _receiptDetailArguments(String receiptId) {
+    return {
+      'receiptId': receiptId,
+      'highlightCategory':
+          _selectedCategory == 'All' ? null : _selectedCategory,
+    };
+  }
+
   Widget _buildDeleteBackground() {
     return Container(
       color: Colors.red,
@@ -136,50 +114,71 @@ class _PremiumReceiptHomeScreenState
   }
 
   Widget _buildReceiptTile(Receipt receipt) {
-    return Card(
-      elevation: 2,
+    return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
-      shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
-      child: ListTile(
-        onTap: () {
-          Navigator.pushNamed(
-            context,
-            '/receiptDetail',
-            arguments: receipt.id,
-          );
-        },
-        title: Text(
-          receipt.storeName,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
+      child: Card(
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
         ),
-        subtitle: Text(
-          DateFormat.yMMMd().format(receipt.date),
-        ),
-        trailing: Builder(
-          builder: (_) {
-            String formattedAmount;
-            try {
-              formattedAmount =
-                  NumberFormat.simpleCurrency(name: receipt.currency)
-                      .format(receipt.total);
-            } catch (_) {
-              formattedAmount =
-                  '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
-            }
-            return Text(
-              formattedAmount,
-              style: const TextStyle(
-                color: AppColors.accentTeal,
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-              ),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+          onTap: () {
+            Navigator.pushNamed(
+              context,
+              '/receiptDetail',
+              arguments: _receiptDetailArguments(receipt.id),
             );
           },
+          title: Text(
+            receipt.storeName,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            DateFormat.yMMMd().format(receipt.date),
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[600],
+            ),
+          ),
+          trailing: Builder(
+            builder: (_) {
+              String formattedAmount;
+              try {
+                formattedAmount =
+                    NumberFormat.simpleCurrency(name: receipt.currency)
+                        .format(receipt.total);
+              } catch (_) {
+                formattedAmount =
+                    '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
+              }
+              return Text(
+                formattedAmount,
+                style: const TextStyle(
+                  color: AppColors.accentTeal,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -378,29 +377,53 @@ class _PremiumReceiptHomeScreenState
         itemBuilder: (context, index) {
           final item = _categoryChips[index];
           final isSelected = item.label == _selectedCategory;
+          final primaryColor = AppColors.primaryNavy;
 
           return ChoiceChip(
-            label: Text(item.label),
-            avatar: Icon(
-              item.icon,
-              size: 18,
-              color: isSelected ? Colors.white : AppColors.primaryNavy,
+            label: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  item.icon,
+                  size: 22,
+                  color: isSelected ? Colors.white : primaryColor,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  item.label,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : primaryColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 10,
             ),
             showCheckmark: false,
             selected: isSelected,
             onSelected: (_) {
-              _onCategorySelected(item.label);
+              _onCategorySelected(
+                item.label == _selectedCategory ? 'All' : item.label,
+              );
             },
             labelStyle: TextStyle(
-              color: isSelected ? Colors.white : AppColors.primaryNavy,
+              color: isSelected ? Colors.white : primaryColor,
+              fontSize: 14,
               fontWeight: FontWeight.w500,
             ),
             selectedColor: AppColors.primaryNavy,
-            backgroundColor: Colors.grey.shade200,
+            backgroundColor: primaryColor.withOpacity(0.08),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
             side: BorderSide(
               color: isSelected
                   ? AppColors.primaryNavy
-                  : Colors.grey.shade300,
+                  : primaryColor.withOpacity(0.08),
             ),
           );
         },
@@ -419,6 +442,8 @@ class _PremiumReceiptHomeScreenState
       );
     }
 
+    final groupedItems = _groupItemRowsByMonth(selectedItems);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -427,35 +452,110 @@ class _PremiumReceiptHomeScreenState
           child: Text(
             '$_selectedCategory (${selectedItems.length} items)',
             style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primaryNavy,
             ),
           ),
         ),
         Expanded(
-          child: ListView.separated(
-            itemCount: selectedItems.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final item = selectedItems[index];
-              final title = item.itemName;
-              final subtitle =
-                  '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-              final formattedPrice = NumberFormat.simpleCurrency(
-                name: '\$',
-              ).format(item.price);
-
-              return ListTile(
-                onTap: () => _openReceipt(item),
-                title: Text(title),
-                subtitle: Text(subtitle),
-                trailing: Text(formattedPrice),
+          child: ListView(
+            children: groupedItems.expand((group) {
+              final monthlyTotal = group.items.fold<double>(
+                0.0,
+                (value, item) => value + item.price,
               );
-            },
+              final totalText = NumberFormat.simpleCurrency(
+                name: '\$',
+              ).format(monthlyTotal);
+
+              return [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        group.label,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                      Text(
+                        totalText,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, thickness: 1),
+                ..._buildItemGroupRows(group),
+                const SizedBox(height: 16),
+              ];
+            }).toList(),
           ),
         ),
       ],
     );
+  }
+
+  List<_ItemMonthGroup> _groupItemRowsByMonth(
+    List<CategorisedItemView> items,
+  ) {
+    final sorted = List<CategorisedItemView>.from(items)
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final grouped = <DateTime, List<CategorisedItemView>>{};
+
+    for (final item in sorted) {
+      final key = DateTime(item.date.year, item.date.month);
+      grouped.putIfAbsent(key, () => <CategorisedItemView>[]).add(item);
+    }
+
+    final groups = grouped.entries.map((entry) {
+      return _ItemMonthGroup(
+        label: DateFormat('MMMM yyyy').format(entry.key),
+        monthKey: entry.key,
+        items: entry.value,
+      );
+    }).toList();
+
+    groups.sort((a, b) => b.monthKey.compareTo(a.monthKey));
+    return groups;
+  }
+
+  List<Widget> _buildItemGroupRows(_ItemMonthGroup group) {
+    final rows = <Widget>[];
+    final itemCount = group.items.length;
+
+    for (var i = 0; i < itemCount; i++) {
+      final item = group.items[i];
+      final title = item.itemName;
+      final subtitle = '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
+      final formattedPrice = NumberFormat.simpleCurrency(
+        name: '\$',
+      ).format(item.price);
+
+      rows.add(
+        ListTile(
+          onTap: () => _openReceipt(item),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: Text(formattedPrice),
+        ),
+      );
+
+      if (i < itemCount - 1) {
+        rows.add(const Divider(height: 1));
+      }
+    }
+
+    return rows;
   }
 
   Widget _buildSearchResults() {
@@ -610,7 +710,7 @@ class _PremiumReceiptHomeScreenState
   void _openReceipt(CategorisedItemView item) {
     Navigator.of(context).pushNamed(
       AppRoutes.receiptDetail,
-      arguments: item.receiptId,
+      arguments: _receiptDetailArguments(item.receiptId),
     );
   }
 
@@ -998,6 +1098,18 @@ class _MonthGroup {
   const _MonthGroup({
     required this.label,
     required this.receipts,
+  });
+}
+
+class _ItemMonthGroup {
+  final String label;
+  final DateTime monthKey;
+  final List<CategorisedItemView> items;
+
+  const _ItemMonthGroup({
+    required this.label,
+    required this.monthKey,
+    required this.items,
   });
 }
 

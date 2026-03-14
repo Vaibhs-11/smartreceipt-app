@@ -12,7 +12,13 @@ import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
 class ReceiptDetailScreen extends ConsumerWidget {
   final String receiptId;
-  const ReceiptDetailScreen({super.key, required this.receiptId});
+  final String? highlightCategory;
+
+  const ReceiptDetailScreen({
+    super.key,
+    required this.receiptId,
+    this.highlightCategory,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -151,17 +157,53 @@ class ReceiptDetailScreen extends ConsumerWidget {
                     ),
                     itemBuilder: (context, index) {
                       final item = receipt.items[index];
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(item.name),
-                        trailing: Text(
-                          item.price != null
-                              ? currencyFormatter.format(item.price)
-                              : '-',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            color: item.price == null ? Colors.red : null,
+                      final isHighlighted =
+                          highlightCategory != null &&
+                              item.category == highlightCategory;
+                      if (!isHighlighted) {
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(item.name),
+                          trailing: Text(
+                            item.price != null
+                                ? currencyFormatter.format(item.price)
+                                : '-',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: item.price == null ? Colors.red : null,
+                            ),
+                          ),
+                        );
+                      }
+
+                      return TweenAnimationBuilder<Color?>(
+                        tween: ColorTween(
+                          begin: AppColors.primaryNavy.withOpacity(0.20),
+                          end: AppColors.primaryNavy.withOpacity(0.08),
+                        ),
+                        duration: const Duration(milliseconds: 300),
+                        builder: (context, color, child) {
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: color,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: child,
+                          );
+                        },
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(item.name),
+                          trailing: Text(
+                            item.price != null
+                                ? currencyFormatter.format(item.price)
+                                : '-',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: item.price == null ? Colors.red : null,
+                            ),
                           ),
                         ),
                       );

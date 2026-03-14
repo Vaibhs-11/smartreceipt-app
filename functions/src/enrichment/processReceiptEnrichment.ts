@@ -2,27 +2,19 @@ import {onTaskDispatched} from "firebase-functions/v2/tasks";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 
-const CURRENT_ENRICHMENT_VERSION = 1;
-const OPENAI_TIMEOUT_MS = 15000;
+
+const CURRENT_ENRICHMENT_VERSION = 2;
+const OPENAI_TIMEOUT_MS = 45000;
 const MAX_SEARCH_TOKENS = 10;
 
 const FALLBACK_CATEGORIES = [
-  "Groceries",
-  "Dining & Takeaway",
-  "Transport",
-  "Travel & Accommodation",
-  "Clothing & Accessories",
-  "Electronics & Gadgets",
+  "Food & Dining",
+  "Travel & Transport",
+  "Electronics & Appliances",
   "Home & Household",
+  "Fashion & Personal Care",
+  "Bills & Utilities",
   "Health & Medical",
-  "Personal Care & Beauty",
-  "Subscriptions",
-  "Utilities",
-  "Insurance",
-  "Education",
-  "Professional Services",
-  "Entertainment",
-  "Gifts & Donations",
   "Other",
 ];
 
@@ -194,7 +186,7 @@ const parseOpenAIConfigFromResponse = async (payload: {
 }): Promise<ReceiptItemSuggestion[]> => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error("OPENAI_API_KEY environment variable is missing.");
+    throw new Error("OpenAI API key is not configured.");
   }
 
   const controller = new AbortController();
@@ -221,8 +213,33 @@ const parseOpenAIConfigFromResponse = async (payload: {
               "\"brand\":string|null,\"canonical_name\":string|null," +
               "\"search_tokens\":[string]}]}. " +
               "Do not include markdown or explanatory text. " +
-              "Use only categories provided in allowed_categories. " +
-              "Use null for brand or canonical_name when unknown.",
+              "Use ONLY categories provided in allowed_categories. " +
+              "If unsure, choose 'Other'. " +
+              "Classify each item independently based on the item name, " +
+              "not only the merchant. " +
+              "If a receipt is from a supermarket or mixed retailer, " +
+              "different items may belong to different categories. " +
+              "Use null for brand or canonical_name when unknown." +
+              "Category meanings: " +
+              "Food & Dining: groceries, restaurants, cafes, takeaway food, " +
+              "food delivery, beverages including alcohol and coffee. " +
+              "Travel & Transport: public transport, ride share, fuel, " +
+              "parking, tolls, flights, accommodation, vehicle maintenance. " +
+              "Electronics & Appliances: phones, laptops, TVs, smart " +
+              "devices, home appliances such as refrigerators, " +
+              "washing machines, air fryers. " +
+              "Home & Household: furniture, home decor, hardware store " +
+              "purchases, tools, renovation materials, plants, " +
+              "household supplies. " +
+              "Fashion & Personal Care: clothing, shoes, accessories, " +
+              "grooming products, cosmetics, haircuts, salons, massage or " +
+              "spa services. " +
+              "Bills & Utilities: electricity, water, internet, mobile " +
+              "plans, subscriptions, insurance, council rates. " +
+              "Health & Medical: doctor visits, hospital services, " +
+              "pharmacies, medicines, medical devices, prescription " +
+              "glasses. " +
+              "Other: items that do not clearly belong to any category above.",
           },
           {
             role: "user",
@@ -291,141 +308,150 @@ const getItemPriceForEnrichment = (item: Record<string, unknown>): number => {
   return typeof item["price"] === "number" ? item["price"] : 0;
 };
 
-export const processReceiptEnrichment = onTaskDispatched(async (request) => {
-  const data = request.data as ReceiptEnrichmentTaskPayload;
-  const userId = typeof data.userId === "string" ? data.userId : "";
-  const receiptId = typeof data.receiptId === "string" ? data.receiptId : "";
+export const processReceiptEnrichment = onTaskDispatched(
+  {
+    secrets: ["OPENAI_API_KEY"],
+  },
+  async (request) => {
+    const data = request.data as ReceiptEnrichmentTaskPayload;
+    const userId = typeof data.userId === "string" ? data.userId : "";
+    const receiptId = typeof data.receiptId === "string" ? data.receiptId : "";
 
-  if (!userId || !receiptId) {
-    logger.error("Invalid receipt enrichment task payload", {
-      payload: request.data,
-    });
-    return;
-  }
-
-  logger.info("Processing receipt enrichment task", {
-    userId,
-    receiptId,
-    queueName: request.queueName,
-    taskId: request.id,
-  });
-
-  const firestore = admin.firestore();
-  const receiptRef = firestore
-    .collection("users")
-    .doc(userId)
-    .collection("receipts")
-    .doc(receiptId);
-
-  const receiptSnap = await receiptRef.get();
-  if (!receiptSnap.exists) {
-    logger.warn("Receipt not found for enrichment", {userId, receiptId});
-    return;
-  }
-
-  const receiptData = receiptSnap.data() as admin.firestore.DocumentData;
-  const enrichment =
-    ((receiptData["enrichment"] as
-      | {
-          status?: unknown;
-          version?: unknown;
-        }
-      | undefined) ?? {});
-
-  const status = enrichment.status;
-  const version = enrichment.version;
-
-  if (
-    status === "completed" &&
-    typeof version === "number" &&
-    version === CURRENT_ENRICHMENT_VERSION
-  ) {
-    logger.info("Receipt enrichment already up-to-date; skipping", {
-      userId,
-      receiptId,
-    });
-    return;
-  }
-
-  const merchant =
-    typeof receiptData["merchant"] === "string" ?
-      receiptData["merchant"] :
-      typeof receiptData["storeName"] === "string" ?
-        receiptData["storeName"] :
-        "";
-
-  const items = parseReceiptItems(receiptData);
-
-  await setEnrichmentStatus(receiptRef, "processing");
-
-  try {
-    const allowedCategories = await fetchAllowedCategories(firestore);
-
-    const gptInput = {
-      merchant,
-      allowed_categories: allowedCategories,
-      items: items.map((item) => ({
-        name: getItemNameForEnrichment(item),
-        price: getItemPriceForEnrichment(item),
-      })),
-    };
-
-    const suggestions = await parseOpenAIConfigFromResponse(gptInput);
-    const validatedSuggestions = validateAndMapSuggestions(
-      suggestions,
-      items.length,
-      allowedCategories
-    );
-
-    const suggestionByIndex = new Map<number, ReceiptItemSuggestion>();
-    for (const suggestion of validatedSuggestions) {
-      suggestionByIndex.set(suggestion.index as number, suggestion);
+    if (!userId || !receiptId) {
+      logger.error("Invalid receipt enrichment task payload", {
+        payload: request.data,
+      });
+      return;
     }
 
-    const enrichedItems = items.map((item, index) => {
-      const suggestion = suggestionByIndex.get(index);
-      const currentItem = {...item};
+    logger.info("Processing receipt enrichment task", {
+      userId,
+      receiptId,
+      queueName: request.queueName,
+      taskId: request.id,
+    });
 
-      if (suggestion) {
-        if (!isManualOverrideEnabled(currentItem, "category")) {
-          currentItem["category"] = suggestion.category as string;
-        }
+    const firestore = admin.firestore();
+    const receiptRef = firestore
+      .collection("users")
+      .doc(userId)
+      .collection("receipts")
+      .doc(receiptId);
 
-        if (
-          !isManualOverrideEnabled(currentItem, "brand") &&
-          (suggestion.brand === null ||
-            suggestion.brand === undefined ||
-            typeof suggestion.brand === "string")
-        ) {
-          currentItem["brand"] = suggestion.brand ?? null;
-        }
+    const receiptSnap = await receiptRef.get();
+    if (!receiptSnap.exists) {
+      logger.warn("Receipt not found for enrichment", {userId, receiptId});
+      return;
+    }
 
-        if (
-          !isManualOverrideEnabled(currentItem, "canonical_name") &&
-          (suggestion.canonical_name === null ||
-            suggestion.canonical_name === undefined ||
-            typeof suggestion.canonical_name === "string")
-        ) {
-          currentItem["canonical_name"] = suggestion.canonical_name ?? null;
-        }
+    const receiptData = receiptSnap.data() as admin.firestore.DocumentData;
+    const enrichment =
+      ((receiptData["enrichment"] as
+        | {
+            status?: unknown;
+            version?: unknown;
+          }
+        | undefined) ?? {});
 
-        currentItem["search_tokens"] = sanitizeSearchTokens(
-          suggestion.search_tokens
-        );
+    const status = enrichment.status;
+    const version = enrichment.version;
+
+    if (
+      status === "completed" &&
+      typeof version === "number" &&
+      version === CURRENT_ENRICHMENT_VERSION
+    ) {
+      logger.info("Receipt enrichment already up-to-date; skipping", {
+        userId,
+        receiptId,
+      });
+      return;
+    }
+
+    const merchant =
+      typeof receiptData["merchant"] === "string" ?
+        receiptData["merchant"] :
+        typeof receiptData["storeName"] === "string" ?
+          receiptData["storeName"] :
+          "";
+
+    const items = parseReceiptItems(receiptData);
+
+    await setEnrichmentStatus(receiptRef, "processing");
+
+    try {
+      const allowedCategories = await fetchAllowedCategories(firestore);
+
+      const gptInput = {
+        merchant,
+        allowed_categories: allowedCategories,
+        items: items.map((item) => ({
+          name: getItemNameForEnrichment(item),
+          price: getItemPriceForEnrichment(item),
+        })),
+      };
+
+      const suggestions = await parseOpenAIConfigFromResponse(gptInput);
+      const validatedSuggestions = validateAndMapSuggestions(
+        suggestions,
+        items.length,
+        allowedCategories
+      );
+
+      const suggestionByIndex = new Map<number, ReceiptItemSuggestion>();
+      for (const suggestion of validatedSuggestions) {
+        suggestionByIndex.set(suggestion.index as number, suggestion);
       }
 
-      currentItem["enrichment_version"] = CURRENT_ENRICHMENT_VERSION;
-      return currentItem;
-    });
+      const enrichedItems = items.map((item, index) => {
+        const suggestion = suggestionByIndex.get(index);
+        const currentItem = {...item};
 
-    await receiptRef.update({
-      "items": enrichedItems,
-      "enrichment.status": "completed",
-      "enrichment.version": CURRENT_ENRICHMENT_VERSION,
-      "enrichment.enrichedAt": admin.firestore.FieldValue.serverTimestamp(),
-    });
-  } catch (error) {
-    logger.error("Receipt enrichment failed", {userId, receiptId, error});
-    await setEnrichmentStatus(receiptRef, "failed");
-  }
-});
+        if (suggestion) {
+          if (!isManualOverrideEnabled(currentItem, "category")) {
+            currentItem["category"] = suggestion.category as string;
+          }
+
+          if (
+            !isManualOverrideEnabled(currentItem, "brand") &&
+            (suggestion.brand === null ||
+              suggestion.brand === undefined ||
+              typeof suggestion.brand === "string")
+          ) {
+            currentItem["brand"] = suggestion.brand ?? null;
+          }
+
+          if (
+            !isManualOverrideEnabled(currentItem, "canonical_name") &&
+            (suggestion.canonical_name === null ||
+              suggestion.canonical_name === undefined ||
+              typeof suggestion.canonical_name === "string")
+          ) {
+            currentItem["canonical_name"] = suggestion.canonical_name ?? null;
+          }
+
+          currentItem["search_tokens"] = sanitizeSearchTokens(
+            suggestion.search_tokens
+          );
+        }
+
+        currentItem["enrichment_version"] = CURRENT_ENRICHMENT_VERSION;
+        return currentItem;
+      });
+
+      await receiptRef.update({
+        "items": enrichedItems,
+        "enrichment.status": "completed",
+        "enrichment.version": CURRENT_ENRICHMENT_VERSION,
+        "enrichment.enrichedAt": admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (error) {
+      logger.error("Receipt enrichment failed", {
+        userId,
+        receiptId,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : null,
+      });
+      await setEnrichmentStatus(receiptRef, "failed");
+    }
+  });

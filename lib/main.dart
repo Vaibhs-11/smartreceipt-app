@@ -19,8 +19,8 @@ import 'presentation/screens/trial_ended_gate_screen.dart';
 import 'presentation/screens/keep3_selection_screen.dart';
 import 'presentation/screens/purchase_screen.dart';
 import 'presentation/screens/account_screen.dart';
-import 'presentation/screens/home_screen.dart';
 import 'presentation/screens/login_screen.dart';
+import 'presentation/screens/home_screen_router.dart';
 import 'presentation/widgets/account_gate.dart';
 import 'presentation/providers/providers.dart';
 import 'presentation/utils/root_scaffold_messenger.dart'
@@ -107,7 +107,7 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
           if (user == null) {
             return const LoginScreen();
           }
-          return const AccountGate(child: HomeScreen());
+          return const AccountGate(child: HomeScreenRouter());
         },
         loading: () => const Scaffold(
           body: Center(child: CircularProgressIndicator()),
@@ -135,10 +135,17 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
       case AppRoutes.scanReceipt:
         return MaterialPageRoute(builder: (_) => const ScanReceiptScreen());
       case AppRoutes.receiptDetail:
-        final receiptId = settings.arguments as String?;
-        if (receiptId != null) {
+        final args = settings.arguments;
+        final receiptId = args is String ? args : args is Map ? args['receiptId'] : null;
+        final highlightCategory = args is Map
+            ? args['highlightCategory'] as String?
+            : null;
+        if (receiptId is String) {
           return MaterialPageRoute(
-            builder: (_) => ReceiptDetailScreen(receiptId: receiptId),
+            builder: (_) => ReceiptDetailScreen(
+              receiptId: receiptId,
+              highlightCategory: highlightCategory,
+            ),
           );
         }
         return _errorRoute('Missing receiptId');

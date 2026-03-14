@@ -305,6 +305,14 @@ const canAddReceipt = (
   return receiptCount < config.freeReceiptLimit;
 };
 
+const canReceiveReceiptEnrichment = (
+  user: UserDoc,
+  now: Date
+): boolean => {
+  const status = getEffectiveAccountState(user, now);
+  return status === "paid" || status === "trial";
+};
+
 const resolveStoragePath = (
   value: unknown,
   uid: string,
@@ -535,11 +543,9 @@ export const createReceipt = onCall(async (request) => {
   });
 
   const updatedUserDoc = await userRef.get();
-  const subscriptionTier = updatedUserDoc.data() ?
-    (updatedUserDoc.data() as Record<string, unknown>)["subscriptionTier"] :
-    undefined;
+  const updatedUserData = updatedUserDoc.data() as UserDoc | undefined;
 
-  if (subscriptionTier === "premium") {
+  if (updatedUserData && canReceiveReceiptEnrichment(updatedUserData, now)) {
     try {
       await enqueueReceiptEnrichment(uid, receiptId);
       logger.info("Enqueued receipt enrichment", {uid, receiptId});
