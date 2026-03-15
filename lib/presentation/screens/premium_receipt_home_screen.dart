@@ -274,7 +274,7 @@ class _PremiumReceiptHomeScreenState
                                 onClear: () => _clearAll(clearQuery: true),
                               )
                             : _buildGroupedReceiptsList(filtered))
-                        : _buildCategoryResults(),
+                        : _buildCategoryResults(receipts),
               ),
             ],
           );
@@ -431,7 +431,7 @@ class _PremiumReceiptHomeScreenState
     );
   }
 
-  Widget _buildCategoryResults() {
+  Widget _buildCategoryResults(List<Receipt> receipts) {
     final selectedItems = _itemIndex
         .where((item) => (item.category ?? 'Other') == _selectedCategory)
         .toList();
@@ -442,6 +442,9 @@ class _PremiumReceiptHomeScreenState
       );
     }
 
+    final receiptCurrencyById = {
+      for (final receipt in receipts) receipt.id: receipt.currency,
+    };
     final groupedItems = _groupItemRowsByMonth(selectedItems);
 
     return Column(
@@ -461,13 +464,9 @@ class _PremiumReceiptHomeScreenState
         Expanded(
           child: ListView(
             children: groupedItems.expand((group) {
-              final monthlyTotal = group.items.fold<double>(
-                0.0,
-                (value, item) => value + item.price,
-              );
-              final totalText = NumberFormat.simpleCurrency(
-                name: '\$',
-              ).format(monthlyTotal);
+              final totalsByCurrency =
+                  _monthlyTotalsByCurrency(group.items, receiptCurrencyById);
+              final totalText = _formatCurrencyTotals(totalsByCurrency);
 
               return [
                 Padding(
@@ -494,11 +493,11 @@ class _PremiumReceiptHomeScreenState
                     ],
                   ),
                 ),
-                const Divider(height: 1, thickness: 1),
-                ..._buildItemGroupRows(group),
+                ..._buildItemGroupRows(group, receiptCurrencyById),
                 const SizedBox(height: 16),
               ];
             }).toList(),
+            padding: const EdgeInsets.only(bottom: 80),
           ),
         ),
       ],
@@ -529,7 +528,56 @@ class _PremiumReceiptHomeScreenState
     return groups;
   }
 
-  List<Widget> _buildItemGroupRows(_ItemMonthGroup group) {
+  Map<String, double> _monthlyTotalsByCurrency(
+    List<CategorisedItemView> items,
+    Map<String, String> receiptCurrencyById,
+  ) {
+    final totals = <String, double>{};
+
+    for (final item in items) {
+      final currencyCode = _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
+      totals[currencyCode] = (totals[currencyCode] ?? 0.0) + item.price;
+    }
+
+    return totals;
+  }
+
+  Map<String, double> _monthlyTotalsByCurrencyForReceipts(
+    List<Receipt> receipts,
+  ) {
+    final totals = <String, double>{};
+
+    for (final receipt in receipts) {
+      final currencyCode = _normalizeCurrencyCode(receipt.currency);
+      totals[currencyCode] = (totals[currencyCode] ?? 0.0) + receipt.total;
+    }
+
+    return totals;
+  }
+
+  String _normalizeCurrencyCode(String? currencyCode) {
+    final normalized = currencyCode?.trim() ?? '';
+    return normalized.isEmpty ? 'AUD' : normalized;
+  }
+
+  String _formatCurrencyTotals(Map<String, double> totalsByCurrency) {
+    final sortedEntries = totalsByCurrency.entries
+        .where((entry) => entry.value != 0)
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+
+    if (sortedEntries.isEmpty) return '';
+
+    final formatter = NumberFormat('#,##0.##');
+    return sortedEntries
+        .map((entry) => '${entry.key} ${formatter.format(entry.value)}')
+        .join(' • ');
+  }
+
+  List<Widget> _buildItemGroupRows(
+    _ItemMonthGroup group,
+    Map<String, String> receiptCurrencyById,
+  ) {
     final rows = <Widget>[];
     final itemCount = group.items.length;
 
@@ -537,22 +585,50 @@ class _PremiumReceiptHomeScreenState
       final item = group.items[i];
       final title = item.itemName;
       final subtitle = '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
+      final currencyCode = _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
       final formattedPrice = NumberFormat.simpleCurrency(
-        name: '\$',
+        name: currencyCode,
       ).format(item.price);
 
       rows.add(
-        ListTile(
-          onTap: () => _openReceipt(item),
-          title: Text(title),
-          subtitle: Text(subtitle),
-          trailing: Text(formattedPrice),
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              onTap: () => _openReceipt(item),
+              title: Text(title),
+              subtitle: Text(subtitle),
+              trailing: Text(
+                formattedPrice,
+                style: const TextStyle(
+                  color: AppColors.accentTeal,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ),
         ),
       );
-
-      if (i < itemCount - 1) {
-        rows.add(const Divider(height: 1));
-      }
     }
 
     return rows;
@@ -807,16 +883,31 @@ class _PremiumReceiptHomeScreenState
 
     for (var groupIndex = 0; groupIndex < monthGroups.length; groupIndex++) {
       final group = monthGroups[groupIndex];
+      final totalsByCurrency = _monthlyTotalsByCurrencyForReceipts(group.receipts);
+      final totalText = _formatCurrencyTotals(totalsByCurrency);
       children.add(
         Padding(
           padding: EdgeInsets.fromLTRB(16, groupIndex == 0 ? 0 : 24, 16, 8),
-          child: Text(
-            group.label,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: AppColors.primaryNavy,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                group.label,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primaryNavy,
+                ),
+              ),
+              Text(
+                totalText,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primaryNavy,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -890,7 +981,7 @@ class _PremiumReceiptHomeScreenState
     }
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 80),
       children: children,
     );
   }
