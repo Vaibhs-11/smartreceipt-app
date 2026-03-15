@@ -1,7 +1,7 @@
 name: receiptnest
 description: A mobile-first receipt scanning & organisation app
 publish_to: "none"
-version: 1.2.1+23
+version: 1.2.2+24
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -63,6 +63,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-   # - config/.env
+    - config/.env
     - config/env.example
     - assets/branding/receipt_nest_logo.png
