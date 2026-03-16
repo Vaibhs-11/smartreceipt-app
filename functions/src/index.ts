@@ -7,6 +7,9 @@ import * as admin from "firebase-admin";
 import sharp from "sharp";
 import * as path from "path";
 import * as fs from "fs/promises";
+import {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
+export {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
+export {processReceiptEnrichment} from "./enrichment/processReceiptEnrichment";
 export {startTrial} from "./subscriptions/startTrial";
 export {
   syncSubscriptionEntitlement,
@@ -302,6 +305,14 @@ const canAddReceipt = (
   return receiptCount < config.freeReceiptLimit;
 };
 
+const canReceiveReceiptEnrichment = (
+  user: UserDoc,
+  now: Date
+): boolean => {
+  const status = getEffectiveAccountState(user, now);
+  return status === "paid" || status === "trial";
+};
+
 const resolveStoragePath = (
   value: unknown,
   uid: string,
@@ -530,6 +541,22 @@ export const createReceipt = onCall(async (request) => {
     }
     tx.set(receiptRef, payload);
   });
+
+  const updatedUserDoc = await userRef.get();
+  const updatedUserData = updatedUserDoc.data() as UserDoc | undefined;
+
+  if (updatedUserData && canReceiveReceiptEnrichment(updatedUserData, now)) {
+    try {
+      await enqueueReceiptEnrichment(uid, receiptId);
+      logger.info("Enqueued receipt enrichment", {uid, receiptId});
+    } catch (error) {
+      logger.error("Failed to enqueue receipt enrichment", {
+        uid,
+        receiptId,
+        error,
+      });
+    }
+  }
   return {ok: true};
 });
 

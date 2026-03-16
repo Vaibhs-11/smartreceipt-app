@@ -1,5 +1,8 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import {
+  enqueueEnrichmentForExistingReceipts,
+} from "../enrichment/backfillExistingReceiptEnrichment";
 
 const TRIAL_DAYS = 7;
 const MILLIS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -26,7 +29,7 @@ export const startTrial = onCall(async (request) => {
     new Date(nowDate.getTime() + TRIAL_DAYS * MILLIS_PER_DAY)
   );
 
-  return firestore.runTransaction(async (tx) => {
+  const result = await firestore.runTransaction(async (tx) => {
     const userSnap = await tx.get(userRef);
     if (!userSnap.exists) {
       tx.set(
@@ -77,4 +80,10 @@ export const startTrial = onCall(async (request) => {
       trialEndsAt: trialEndsAt.toMillis(),
     };
   });
+
+  if (result.status === "started") {
+    await enqueueEnrichmentForExistingReceipts(uid);
+  }
+
+  return result;
 });

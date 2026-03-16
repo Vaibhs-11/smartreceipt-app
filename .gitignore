@@ -28,3 +28,5 @@ android/keystores/smartreceipt-upload-keystore.jks
 .vscode/
 .idea/
 
+# Functions
+functions/keys/*

@@ -1,5 +1,8 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import {
+  enqueueEnrichmentForExistingReceipts,
+} from "../enrichment/backfillExistingReceiptEnrichment";
 
 type SubscriptionTier = "free" | "monthly" | "yearly";
 type SubscriptionStatus = "active" | "expired" | "none";
@@ -49,6 +52,11 @@ export const syncSubscriptionEntitlement = onCall(async (request) => {
 
   const firestore = admin.firestore();
   const userRef = firestore.collection("users").doc(uid);
+  const existingUserDoc = await userRef.get();
+  const existingData = existingUserDoc.data() ?? {};
+  const wasActivePaid =
+    asStatus(existingData["subscriptionStatus"]) === "active" &&
+    asTier(existingData["subscriptionTier"]) !== "free";
 
   const tier = asTier(request.data?.tier);
   const status = asStatus(request.data?.status);
@@ -71,5 +79,11 @@ export const syncSubscriptionEntitlement = onCall(async (request) => {
   }
 
   await userRef.set(payload, {merge: true});
+
+  const nowActivePaid = status === "active" && tier !== "free";
+  if (nowActivePaid && !wasActivePaid) {
+    await enqueueEnrichmentForExistingReceipts(uid);
+  }
+
   return {status: "updated"};
 });
