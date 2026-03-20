@@ -11,6 +11,8 @@ import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
+import 'package:receiptnest/domain/models/categorised_item_view.dart';
+import 'package:receiptnest/domain/utils/item_index_builder.dart';
 
 class ReceiptListScreen extends ConsumerStatefulWidget {
   const ReceiptListScreen({super.key});
@@ -23,6 +25,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
   late final TextEditingController _searchController;
   static const String _swipeHintPrefKey = 'receipt_swipe_hint_shown';
   bool _showSwipeHint = false;
+  List<CategorisedItemView> _itemIndex = const [];
 
   @override
   void initState() {
@@ -167,6 +170,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
   Widget build(BuildContext context) {
     final receiptsAsync = ref.watch(receiptsProvider);
     final filters = ref.watch(receiptSearchFiltersProvider);
+    final searchQuery = filters.query.trim().toLowerCase();
 
     return Scaffold(
       appBar: AppBar(
@@ -196,6 +200,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       body: receiptsAsync.when(
         data: (receipts) {
           final filtered = _applyFilters(receipts, filters);
+          _itemIndex = buildItemIndex(filtered);
           final bool canClear =
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
 
@@ -205,12 +210,14 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
               _buildSearchControls(filters),
               _buildActiveFilters(filters),
               Expanded(
-                child: filtered.isEmpty
-                    ? _EmptyState(
-                        showClear: canClear,
-                        onClear: () => _clearAll(clearQuery: true),
-                      )
-                    : _buildGroupedReceiptsList(filtered),
+                child: searchQuery.isNotEmpty
+                    ? _buildSearchResults(filtered, searchQuery)
+                    : filtered.isEmpty
+                        ? _EmptyState(
+                            showClear: canClear,
+                            onClear: () => _clearAll(clearQuery: true),
+                          )
+                        : _buildGroupedReceiptsList(filtered),
               ),
             ],
           );
@@ -298,6 +305,117 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildSearchResults(List<Receipt> receipts, String query) {
+    final itemResults = _searchResults(query);
+
+    if (itemResults.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              'Search results for "$query" (${itemResults.length} items)',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: itemResults.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final item = itemResults[index];
+                final subtitle =
+                    '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
+                final formattedPrice = NumberFormat.simpleCurrency(
+                  name: '\$',
+                ).format(item.price);
+
+                return ListTile(
+                  onTap: () => Navigator.of(context).pushNamed(
+                    '/receiptDetail',
+                    arguments: item.receiptId,
+                  ),
+                  title: Text(item.itemName),
+                  subtitle: Text(subtitle),
+                  trailing: Text(formattedPrice),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
+
+    final receiptFallbackResults = _searchReceiptFallbackResults(receipts, query);
+    if (receiptFallbackResults.isEmpty) {
+      return const Center(
+        child: Text('No matching purchases found'),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            'Search results for "$query" (${receiptFallbackResults.length} receipts)',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.separated(
+            itemCount: receiptFallbackResults.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final receipt = receiptFallbackResults[index];
+              final formattedPrice = NumberFormat.simpleCurrency(
+                name: receipt.currency,
+              ).format(receipt.total);
+              return ListTile(
+                onTap: () => Navigator.of(context).pushNamed(
+                  '/receiptDetail',
+                  arguments: receipt.id,
+                ),
+                title: Text(receipt.storeName),
+                subtitle: Text(DateFormat.yMMMd().format(receipt.date)),
+                trailing: Text(formattedPrice),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<CategorisedItemView> _searchResults(String query) {
+    if (query.isEmpty) return const [];
+
+    final results = _itemIndex.where((item) {
+      final itemName = item.itemName.toLowerCase();
+      final merchant = item.merchant.toLowerCase();
+
+      return itemName.contains(query) || merchant.contains(query);
+    }).toList();
+    results.sort((a, b) => b.date.compareTo(a.date));
+    return results;
+  }
+
+  List<Receipt> _searchReceiptFallbackResults(List<Receipt> receipts, String query) {
+    if (query.isEmpty) return const <Receipt>[];
+    final tokens = query.split(RegExp(r'\s+')).where((token) => token.isNotEmpty).toList();
+    return receipts.where((receipt) {
+      return tokens.every((token) => _matchesQuery(receipt, token));
+    }).toList();
   }
 
   Widget _buildActiveFilters(ReceiptSearchFilters filters) {

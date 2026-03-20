@@ -266,7 +266,7 @@ class _PremiumReceiptHomeScreenState
               _buildActiveFilters(filters),
               Expanded(
                 child: _searchQuery.isNotEmpty
-                    ? _buildSearchResults()
+                    ? _buildSearchResults(receipts)
                     : isAllCategory
                         ? (filtered.isEmpty
                             ? _EmptyState(
@@ -634,14 +634,59 @@ class _PremiumReceiptHomeScreenState
     return rows;
   }
 
-  Widget _buildSearchResults() {
-    final results = _searchResults();
+  Widget _buildSearchResults(List<Receipt> receipts) {
+    final itemResults = _searchResults();
 
-    if (results.isEmpty) {
+    if (itemResults.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              'Search results for "${_searchQuery}" (${itemResults.length} items)',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: itemResults.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final item = itemResults[index];
+                final itemTitle = _safeCanonicalName(item).isNotEmpty
+                    ? _safeCanonicalName(item)
+                    : _safeOriginalName(item);
+                final subtitle =
+                    '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
+                final formattedPrice = NumberFormat.simpleCurrency(
+                  name: '\$',
+                ).format(item.price);
+
+                return ListTile(
+                  onTap: () => _openReceipt(item),
+                  title: Text(itemTitle),
+                  subtitle: Text(subtitle),
+                  trailing: Text(formattedPrice),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
+
+    final receiptFallbackResults = _searchReceiptFallbackResults(receipts);
+    if (receiptFallbackResults.isEmpty) {
       return const Center(
         child: Text('No matching purchases found'),
       );
     }
+
+    receiptFallbackResults.sort((a, b) => b.date.compareTo(a.date));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -649,7 +694,7 @@ class _PremiumReceiptHomeScreenState
         Padding(
           padding: const EdgeInsets.all(12),
           child: Text(
-            'Search results for "${_searchQuery}" (${results.length} items)',
+            'Search results for "${_searchQuery}" (${receiptFallbackResults.length} receipts)',
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -658,23 +703,22 @@ class _PremiumReceiptHomeScreenState
         ),
         Expanded(
           child: ListView.separated(
-            itemCount: results.length,
+            itemCount: receiptFallbackResults.length,
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
-              final item = results[index];
-              final itemTitle = _safeCanonicalName(item).isNotEmpty
-                  ? _safeCanonicalName(item)
-                  : _safeOriginalName(item);
-              final subtitle =
-                  '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
+              final receipt = receiptFallbackResults[index];
               final formattedPrice = NumberFormat.simpleCurrency(
-                name: '\$',
-              ).format(item.price);
-
+                name: receipt.currency,
+              ).format(receipt.total);
               return ListTile(
-                onTap: () => _openReceipt(item),
-                title: Text(itemTitle),
-                subtitle: Text(subtitle),
+                onTap: () => Navigator.of(context).pushNamed(
+                  AppRoutes.receiptDetail,
+                  arguments: _receiptDetailArguments(receipt.id),
+                ),
+                title: Text(receipt.storeName),
+                subtitle: Text(
+                  DateFormat.yMMMd().format(receipt.date),
+                ),
                 trailing: Text(formattedPrice),
               );
             },
@@ -682,6 +726,19 @@ class _PremiumReceiptHomeScreenState
         ),
       ],
     );
+  }
+
+  List<Receipt> _searchReceiptFallbackResults(List<Receipt> receipts) {
+    if (_searchQuery.isEmpty) return const <Receipt>[];
+
+    final tokens = _searchQuery
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+
+    return receipts.where((receipt) {
+      return tokens.every((token) => _matchesQuery(receipt, token));
+    }).toList();
   }
 
   List<CategorisedItemView> _searchResults() {
