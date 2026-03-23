@@ -467,6 +467,26 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     });
   }
 
+  bool get _allItemsTaxClaimable =>
+      _items.isNotEmpty && _items.every((item) => item.taxClaimable);
+
+  bool get _noItemsTaxClaimable =>
+      _items.isEmpty || _items.every((item) => !item.taxClaimable);
+
+  bool? get _allTaxClaimableValue {
+    if (_allItemsTaxClaimable) return true;
+    if (_noItemsTaxClaimable) return false;
+    return null;
+  }
+
+  void _setAllItemsTaxClaimable(bool value) {
+    setState(() {
+      _items = _items
+          .map((item) => item.copyWith(taxClaimable: value))
+          .toList(growable: false);
+    });
+  }
+
   Map<String, Object?>? _buildMetadata() {
     final category = _category?.trim();
     if (category == null || category.isEmpty) return null;
@@ -1598,6 +1618,19 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        CheckboxListTile(
+                          value: _allTaxClaimableValue,
+                          tristate: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: const Text('Mark all as tax claimable'),
+                          onChanged: _items.isEmpty
+                              ? null
+                              : (value) {
+                                  _setAllItemsTaxClaimable(value == true);
+                                },
+                        ),
+                        const SizedBox(height: 8),
 
                         // Build item cards
                         ..._items.asMap().entries.map((entry) {

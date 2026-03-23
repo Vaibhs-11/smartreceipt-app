@@ -255,6 +255,8 @@ class _PremiumReceiptHomeScreenState
           final filtered = _applyFilters(receipts, filters);
           final bool canClear =
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
+          final bool showItemLevelResults =
+              _searchQuery.isNotEmpty || filters.taxClaimable == true;
 
           final isAllCategory = _selectedCategory == 'All';
 
@@ -265,8 +267,8 @@ class _PremiumReceiptHomeScreenState
               _buildCategoryChipBar(),
               _buildActiveFilters(filters),
               Expanded(
-                child: _searchQuery.isNotEmpty
-                    ? _buildSearchResults(receipts)
+                child: showItemLevelResults
+                    ? _buildSearchResults(receipts, filtered, filters)
                     : isAllCategory
                         ? (filtered.isEmpty
                             ? _EmptyState(
@@ -634,17 +636,27 @@ class _PremiumReceiptHomeScreenState
     return rows;
   }
 
-  Widget _buildSearchResults(List<Receipt> receipts) {
-    final itemResults = _searchResults();
+  Widget _buildSearchResults(
+    List<Receipt> receipts,
+    List<Receipt> filteredReceipts,
+    ReceiptSearchFilters filters,
+  ) {
+    final itemResults = _searchResults(
+      allowedReceiptIds: filteredReceipts.map((receipt) => receipt.id).toSet(),
+      taxClaimable: filters.taxClaimable,
+    );
 
     if (itemResults.isNotEmpty) {
+      final title = _searchQuery.isNotEmpty
+          ? 'Search results for "${_searchQuery}" (${itemResults.length} items)'
+          : 'Tax claimable items (${itemResults.length} items)';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
             child: Text(
-              'Search results for "${_searchQuery}" (${itemResults.length} items)',
+              title,
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -679,7 +691,16 @@ class _PremiumReceiptHomeScreenState
       );
     }
 
-    final receiptFallbackResults = _searchReceiptFallbackResults(receipts);
+    if (_searchQuery.isEmpty) {
+      if (filteredReceipts.isEmpty) {
+        return const Center(
+          child: Text('No matching purchases found'),
+        );
+      }
+      return _buildGroupedReceiptsList(filteredReceipts);
+    }
+
+    final receiptFallbackResults = _searchReceiptFallbackResults(filteredReceipts);
     if (receiptFallbackResults.isEmpty) {
       return const Center(
         child: Text('No matching purchases found'),
@@ -741,11 +762,27 @@ class _PremiumReceiptHomeScreenState
     }).toList();
   }
 
-  List<CategorisedItemView> _searchResults() {
-    if (_searchQuery.isEmpty) return const [];
+  List<CategorisedItemView> _searchResults({
+    Set<String>? allowedReceiptIds,
+    bool? taxClaimable,
+  }) {
+    if (_searchQuery.isEmpty && taxClaimable == null) return const [];
 
     final query = _searchQuery;
     final results = _itemIndex.where((item) {
+      if (allowedReceiptIds != null && !allowedReceiptIds.contains(item.receiptId)) {
+        return false;
+      }
+      if (taxClaimable != null && item.taxClaimable != taxClaimable) {
+        return false;
+      }
+      if (_selectedCategory != 'All' &&
+          (item.category ?? 'Other') != _selectedCategory) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
       final canonicalName = _safeCanonicalName(item).toLowerCase();
       final brand = _safeBrand(item).toLowerCase();
       final searchTokens = _safeSearchTokens(item)
