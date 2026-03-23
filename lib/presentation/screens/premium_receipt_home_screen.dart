@@ -663,7 +663,7 @@ class _PremiumReceiptHomeScreenState
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
                 final formattedPrice = NumberFormat.simpleCurrency(
-                  name: '\$',
+                  name: _currencyForReceipt(receipts, item.receiptId),
                 ).format(item.price);
 
                 return ListTile(
@@ -771,6 +771,15 @@ class _PremiumReceiptHomeScreenState
     });
 
     return results;
+  }
+
+  String _currencyForReceipt(List<Receipt> receipts, String receiptId) {
+    for (final receipt in receipts) {
+      if (receipt.id == receiptId) {
+        return _normalizeCurrencyCode(receipt.currency);
+      }
+    }
+    return 'AUD';
   }
 
   int _searchMatchRank(CategorisedItemView item, String query) {

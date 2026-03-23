@@ -333,7 +333,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
                 final formattedPrice = NumberFormat.simpleCurrency(
-                  name: '\$',
+                  name: _currencyForReceipt(receipts, item.receiptId),
                 ).format(item.price);
 
                 return ListTile(
@@ -408,6 +408,16 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     }).toList();
     results.sort((a, b) => b.date.compareTo(a.date));
     return results;
+  }
+
+  String _currencyForReceipt(List<Receipt> receipts, String receiptId) {
+    for (final receipt in receipts) {
+      if (receipt.id == receiptId) {
+        final normalizedCurrency = receipt.currency.trim();
+        return normalizedCurrency.isEmpty ? 'AUD' : normalizedCurrency;
+      }
+    }
+    return 'AUD';
   }
 
   List<Receipt> _searchReceiptFallbackResults(List<Receipt> receipts, String query) {

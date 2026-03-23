@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:receiptnest/domain/entities/app_user.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/premium_receipt_home_screen.dart';
 import 'package:receiptnest/presentation/screens/receipt_list_screen.dart';
@@ -12,7 +14,7 @@ class HomeScreenRouter extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final uid = ref.watch(currentUidProvider);
     if (uid == null) {
-      return const ReceiptListScreen();
+      return const SizedBox.shrink();
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -31,12 +33,10 @@ class HomeScreenRouter extends ConsumerWidget {
           return const ReceiptListScreen();
         }
 
-        final data = snapshot.data?.data();
-        final accountStatus = (data?['accountStatus'] as String?)?.toLowerCase();
-        final subscriptionStatus =
-            (data?['subscriptionStatus'] as String?)?.toLowerCase();
+        final profile = AppUserProfile.fromFirestore(snapshot.data!);
         final isPremium =
-            accountStatus == 'trial' || subscriptionStatus == 'active';
+            AccountPolicies.evaluate(profile, DateTime.now().toUtc())
+                .isPremiumEligible;
 
         return isPremium
             ? const PremiumReceiptHomeScreen()
@@ -45,4 +45,3 @@ class HomeScreenRouter extends ConsumerWidget {
     );
   }
 }
-

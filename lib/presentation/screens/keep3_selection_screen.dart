@@ -6,6 +6,7 @@ import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/home_screen.dart';
+import 'package:receiptnest/presentation/screens/purchase_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 
 class Keep3SelectionScreen extends ConsumerStatefulWidget {
@@ -61,6 +62,28 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .secondaryContainer
+                              .withValues(alpha: 0.32),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Keep all your receipts with Premium',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              ElevatedButton(
+                                onPressed: _navigateToUpgrade,
+                                child: const Text('Upgrade Now'),
+                              ),
+                            ],
+                          ),
+                        ),
                         Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 16,
@@ -334,5 +357,14 @@ class _Keep3SelectionScreenState extends ConsumerState<Keep3SelectionScreen> {
         });
       }
     }
+  }
+
+  void _navigateToUpgrade() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const PurchaseScreen(),
+        settings: const RouteSettings(name: AppRoutes.purchase),
+      ),
+    );
   }
 }
