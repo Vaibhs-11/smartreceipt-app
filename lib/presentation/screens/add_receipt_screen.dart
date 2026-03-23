@@ -115,6 +115,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   late final bool _isEditMode;
 
   final ScrollController _scrollController = ScrollController();
+  ReceiptItem? _lastDeletedItem;
+  int? _lastDeletedIndex;
+  TextEditingController? _lastDeletedNameCtrl;
+  TextEditingController? _lastDeletedPriceCtrl;
 
   @override
   void initState() {
@@ -182,6 +186,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       controller.dispose();
     }
     _scrollController.dispose();
+    _lastDeletedNameCtrl?.dispose();
+    _lastDeletedPriceCtrl?.dispose();
     super.dispose();
   }
 
@@ -317,6 +323,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () => _removeItem(index),
+                    tooltip: 'Remove item',
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
               CheckboxListTile(
@@ -393,6 +405,66 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     for (int i = 0; i < count; i++) {
       _commitItemEdit(i);
     }
+  }
+
+  void _removeItem(int index) {
+    if (index < 0 ||
+        index >= _items.length ||
+        index >= _itemNameCtrls.length ||
+        index >= _itemPriceCtrls.length) {
+      return;
+    }
+
+    final deletedItem = _items[index];
+    final deletedNameCtrl = _itemNameCtrls[index];
+    final deletedPriceCtrl = _itemPriceCtrls[index];
+
+    setState(() {
+      _lastDeletedNameCtrl?.dispose();
+      _lastDeletedPriceCtrl?.dispose();
+      _lastDeletedItem = deletedItem;
+      _lastDeletedIndex = index;
+      _lastDeletedNameCtrl = deletedNameCtrl;
+      _lastDeletedPriceCtrl = deletedPriceCtrl;
+      _items.removeAt(index);
+      _itemNameCtrls.removeAt(index);
+      _itemPriceCtrls.removeAt(index);
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: const Text('Item removed'),
+          action: SnackBarAction(
+            label: 'UNDO',
+            onPressed: _undoRemoveItem,
+          ),
+        ),
+      );
+  }
+
+  void _undoRemoveItem() {
+    final item = _lastDeletedItem;
+    final index = _lastDeletedIndex;
+    final nameCtrl = _lastDeletedNameCtrl;
+    final priceCtrl = _lastDeletedPriceCtrl;
+    if (item == null || index == null || nameCtrl == null || priceCtrl == null) {
+      return;
+    }
+
+    final insertIndex = math.min(index, _items.length);
+    setState(() {
+      _items.insert(insertIndex, item);
+      _itemNameCtrls.insert(insertIndex, nameCtrl);
+      _itemPriceCtrls.insert(insertIndex, priceCtrl);
+      _lastDeletedItem = null;
+      _lastDeletedIndex = null;
+      _lastDeletedNameCtrl = null;
+      _lastDeletedPriceCtrl = null;
+    });
   }
 
   Map<String, Object?>? _buildMetadata() {
