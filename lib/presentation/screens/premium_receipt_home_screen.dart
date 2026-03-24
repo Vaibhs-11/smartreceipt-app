@@ -83,11 +83,17 @@ class _PremiumReceiptHomeScreenState
     });
   }
 
-  Map<String, String?> _receiptDetailArguments(String receiptId) {
+  Map<String, String?> _receiptDetailArguments(
+    String receiptId, {
+    String? highlightCategory,
+    String? highlightItem,
+  }) {
     return {
       'receiptId': receiptId,
       'highlightCategory':
-          _selectedCategory == 'All' ? null : _selectedCategory,
+          highlightCategory ??
+          (_selectedCategory == 'All' ? null : _selectedCategory),
+      'highlightItem': highlightItem,
     };
   }
 
@@ -647,9 +653,92 @@ class _PremiumReceiptHomeScreenState
     );
 
     if (itemResults.isNotEmpty) {
+      final receiptCurrencyById = {
+        for (final receipt in receipts) receipt.id: receipt.currency,
+      };
       final title = _searchQuery.isNotEmpty
           ? 'Search results for "${_searchQuery}" (${itemResults.length} items)'
           : 'Tax claimable items (${itemResults.length} items)';
+      if (filters.taxClaimable != null) {
+        final groupedItems = _groupItemRowsByMonth(itemResults);
+        final totalsByCurrency =
+            _monthlyTotalsByCurrency(itemResults, receiptCurrencyById);
+        final totalText = _formatCurrencyTotals(totalsByCurrency);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (totalText.isNotEmpty)
+                    Text(
+                      totalText,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 80),
+                children: groupedItems.expand((group) {
+                  final monthlyTotals = _monthlyTotalsByCurrency(
+                    group.items,
+                    receiptCurrencyById,
+                  );
+                  final monthlyTotalText = _formatCurrencyTotals(monthlyTotals);
+
+                  return [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            group.label,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primaryNavy,
+                            ),
+                          ),
+                          Text(
+                            monthlyTotalText,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primaryNavy,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ..._buildItemGroupRows(group, receiptCurrencyById),
+                    const SizedBox(height: 16),
+                  ];
+                }).toList(),
+              ),
+            ),
+          ],
+        );
+      }
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -889,7 +978,11 @@ class _PremiumReceiptHomeScreenState
   void _openReceipt(CategorisedItemView item) {
     Navigator.of(context).pushNamed(
       AppRoutes.receiptDetail,
-      arguments: _receiptDetailArguments(item.receiptId),
+      arguments: _receiptDetailArguments(
+        item.receiptId,
+        highlightCategory: item.category ?? 'Other',
+        highlightItem: item.itemName,
+      ),
     );
   }
 
@@ -1120,6 +1213,16 @@ class _PremiumReceiptHomeScreenState
   }
 
   void _updateFilters(ReceiptSearchFilters filters) {
+    final currentFilters = ref.read(receiptSearchFiltersProvider);
+    final didEnableTaxClaimable =
+        currentFilters.taxClaimable == null && filters.taxClaimable != null;
+
+    if (didEnableTaxClaimable && _selectedCategory != 'All') {
+      setState(() {
+        _selectedCategory = 'All';
+      });
+    }
+
     ref.read(receiptSearchFiltersProvider.notifier).state =
         filters.copyWith(query: _searchController.text);
   }
