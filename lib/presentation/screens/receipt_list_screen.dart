@@ -550,7 +550,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       final group = monthGroups[groupIndex];
       children.add(
         Padding(
-          padding: EdgeInsets.fromLTRB(16, groupIndex == 0 ? 0 : 24, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
           child: Text(
             group.label,
             style: const TextStyle(

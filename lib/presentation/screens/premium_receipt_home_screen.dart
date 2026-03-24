@@ -1083,7 +1083,7 @@ class _PremiumReceiptHomeScreenState
       final totalText = _formatCurrencyTotals(totalsByCurrency);
       children.add(
         Padding(
-          padding: EdgeInsets.fromLTRB(16, groupIndex == 0 ? 0 : 24, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [

@@ -92,7 +92,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   final List<String> _currencyOptions =
       List<String>.from(AppConstants.supportedCurrencies);
-  String _currency = AppConstants.supportedCurrencies.first;
+  late String _currency;
   DateTime _date = DateTime.now();
   String? _originalImagePath;
   String? _processedImagePath;
@@ -127,6 +127,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _dateCtrl.text = DateFormat.yMMMd().format(_date);
     if (_isEditMode) {
       _populateFromExistingReceipt(widget.existingReceipt!);
+    } else {
+      final sortedCurrencyOptions = [..._currencyOptions]
+        ..sort((a, b) => a.compareTo(b));
+      _currency = sortedCurrencyOptions.first;
     }
     // 🔥 Warm critical providers early
     Future.microtask(() {
@@ -1465,6 +1469,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           );
         }
 
+        final sortedCurrencyOptions = [..._currencyOptions]
+          ..sort((a, b) => a.compareTo(b));
+
         return Scaffold(
           appBar: AppBar(
             title: Text(
@@ -1487,17 +1494,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (_originalImagePath != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Text(
-                              'Selected image: $_originalImagePath',
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.grey),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
                         TextFormField(
                           controller: _storeCtrl,
                           decoration:
@@ -1577,7 +1573,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                 _currencyEdited = true;
                                 _currency = v ?? _currency;
                               }),
-                              items: _currencyOptions
+                              items: sortedCurrencyOptions
                                   .map((String c) => DropdownMenuItem<String>(
                                       value: c, child: Text(c)))
                                   .toList(),
