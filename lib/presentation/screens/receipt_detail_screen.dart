@@ -13,11 +13,13 @@ import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 class ReceiptDetailScreen extends ConsumerWidget {
   final String receiptId;
   final String? highlightCategory;
+  final String? highlightItem;
 
   const ReceiptDetailScreen({
     super.key,
     required this.receiptId,
     this.highlightCategory,
+    this.highlightItem,
   });
 
   @override
@@ -157,8 +159,9 @@ class ReceiptDetailScreen extends ConsumerWidget {
                     ),
                     itemBuilder: (context, index) {
                       final item = receipt.items[index];
-                      final isHighlighted =
-                          highlightCategory != null &&
+                      final isHighlighted = highlightItem != null
+                          ? item.name == highlightItem
+                          : highlightCategory != null &&
                               item.category == highlightCategory;
                       if (!isHighlighted) {
                         return ListTile(

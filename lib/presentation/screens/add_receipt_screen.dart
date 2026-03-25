@@ -92,7 +92,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   final List<String> _currencyOptions =
       List<String>.from(AppConstants.supportedCurrencies);
-  String _currency = AppConstants.supportedCurrencies.first;
+  late String _currency;
   DateTime _date = DateTime.now();
   String? _originalImagePath;
   String? _processedImagePath;
@@ -115,6 +115,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   late final bool _isEditMode;
 
   final ScrollController _scrollController = ScrollController();
+  ReceiptItem? _lastDeletedItem;
+  int? _lastDeletedIndex;
+  TextEditingController? _lastDeletedNameCtrl;
+  TextEditingController? _lastDeletedPriceCtrl;
 
   @override
   void initState() {
@@ -123,6 +127,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _dateCtrl.text = DateFormat.yMMMd().format(_date);
     if (_isEditMode) {
       _populateFromExistingReceipt(widget.existingReceipt!);
+    } else {
+      final sortedCurrencyOptions = [..._currencyOptions]
+        ..sort((a, b) => a.compareTo(b));
+      _currency = sortedCurrencyOptions.first;
     }
     // 🔥 Warm critical providers early
     Future.microtask(() {
@@ -182,6 +190,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       controller.dispose();
     }
     _scrollController.dispose();
+    _lastDeletedNameCtrl?.dispose();
+    _lastDeletedPriceCtrl?.dispose();
     super.dispose();
   }
 
@@ -317,6 +327,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () => _removeItem(index),
+                    tooltip: 'Remove item',
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
               CheckboxListTile(
@@ -393,6 +409,86 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     for (int i = 0; i < count; i++) {
       _commitItemEdit(i);
     }
+  }
+
+  void _removeItem(int index) {
+    if (index < 0 ||
+        index >= _items.length ||
+        index >= _itemNameCtrls.length ||
+        index >= _itemPriceCtrls.length) {
+      return;
+    }
+
+    final deletedItem = _items[index];
+    final deletedNameCtrl = _itemNameCtrls[index];
+    final deletedPriceCtrl = _itemPriceCtrls[index];
+
+    setState(() {
+      _lastDeletedNameCtrl?.dispose();
+      _lastDeletedPriceCtrl?.dispose();
+      _lastDeletedItem = deletedItem;
+      _lastDeletedIndex = index;
+      _lastDeletedNameCtrl = deletedNameCtrl;
+      _lastDeletedPriceCtrl = deletedPriceCtrl;
+      _items.removeAt(index);
+      _itemNameCtrls.removeAt(index);
+      _itemPriceCtrls.removeAt(index);
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: const Text('Item removed'),
+          action: SnackBarAction(
+            label: 'UNDO',
+            onPressed: _undoRemoveItem,
+          ),
+        ),
+      );
+  }
+
+  void _undoRemoveItem() {
+    final item = _lastDeletedItem;
+    final index = _lastDeletedIndex;
+    final nameCtrl = _lastDeletedNameCtrl;
+    final priceCtrl = _lastDeletedPriceCtrl;
+    if (item == null || index == null || nameCtrl == null || priceCtrl == null) {
+      return;
+    }
+
+    final insertIndex = math.min(index, _items.length);
+    setState(() {
+      _items.insert(insertIndex, item);
+      _itemNameCtrls.insert(insertIndex, nameCtrl);
+      _itemPriceCtrls.insert(insertIndex, priceCtrl);
+      _lastDeletedItem = null;
+      _lastDeletedIndex = null;
+      _lastDeletedNameCtrl = null;
+      _lastDeletedPriceCtrl = null;
+    });
+  }
+
+  bool get _allItemsTaxClaimable =>
+      _items.isNotEmpty && _items.every((item) => item.taxClaimable);
+
+  bool get _noItemsTaxClaimable =>
+      _items.isEmpty || _items.every((item) => !item.taxClaimable);
+
+  bool? get _allTaxClaimableValue {
+    if (_allItemsTaxClaimable) return true;
+    if (_noItemsTaxClaimable) return false;
+    return null;
+  }
+
+  void _setAllItemsTaxClaimable(bool value) {
+    setState(() {
+      _items = _items
+          .map((item) => item.copyWith(taxClaimable: value))
+          .toList(growable: false);
+    });
   }
 
   Map<String, Object?>? _buildMetadata() {
@@ -1373,6 +1469,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           );
         }
 
+        final sortedCurrencyOptions = [..._currencyOptions]
+          ..sort((a, b) => a.compareTo(b));
+
         return Scaffold(
           appBar: AppBar(
             title: Text(
@@ -1395,17 +1494,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (_originalImagePath != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Text(
-                              'Selected image: $_originalImagePath',
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.grey),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
                         TextFormField(
                           controller: _storeCtrl,
                           decoration:
@@ -1485,7 +1573,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                 _currencyEdited = true;
                                 _currency = v ?? _currency;
                               }),
-                              items: _currencyOptions
+                              items: sortedCurrencyOptions
                                   .map((String c) => DropdownMenuItem<String>(
                                       value: c, child: Text(c)))
                                   .toList(),
@@ -1526,6 +1614,19 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        CheckboxListTile(
+                          value: _allTaxClaimableValue,
+                          tristate: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: const Text('Mark all as tax claimable'),
+                          onChanged: _items.isEmpty
+                              ? null
+                              : (value) {
+                                  _setAllItemsTaxClaimable(value == true);
+                                },
+                        ),
+                        const SizedBox(height: 8),
 
                         // Build item cards
                         ..._items.asMap().entries.map((entry) {

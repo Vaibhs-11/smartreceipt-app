@@ -140,11 +140,15 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
         final highlightCategory = args is Map
             ? args['highlightCategory'] as String?
             : null;
+        final highlightItem = args is Map
+            ? args['highlightItem'] as String?
+            : null;
         if (receiptId is String) {
           return MaterialPageRoute(
             builder: (_) => ReceiptDetailScreen(
               receiptId: receiptId,
               highlightCategory: highlightCategory,
+              highlightItem: highlightItem,
             ),
           );
         }

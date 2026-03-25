@@ -83,11 +83,17 @@ class _PremiumReceiptHomeScreenState
     });
   }
 
-  Map<String, String?> _receiptDetailArguments(String receiptId) {
+  Map<String, String?> _receiptDetailArguments(
+    String receiptId, {
+    String? highlightCategory,
+    String? highlightItem,
+  }) {
     return {
       'receiptId': receiptId,
       'highlightCategory':
-          _selectedCategory == 'All' ? null : _selectedCategory,
+          highlightCategory ??
+          (_selectedCategory == 'All' ? null : _selectedCategory),
+      'highlightItem': highlightItem,
     };
   }
 
@@ -255,6 +261,8 @@ class _PremiumReceiptHomeScreenState
           final filtered = _applyFilters(receipts, filters);
           final bool canClear =
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
+          final bool showItemLevelResults =
+              _searchQuery.isNotEmpty || filters.taxClaimable == true;
 
           final isAllCategory = _selectedCategory == 'All';
 
@@ -265,8 +273,8 @@ class _PremiumReceiptHomeScreenState
               _buildCategoryChipBar(),
               _buildActiveFilters(filters),
               Expanded(
-                child: _searchQuery.isNotEmpty
-                    ? _buildSearchResults(receipts)
+                child: showItemLevelResults
+                    ? _buildSearchResults(receipts, filtered, filters)
                     : isAllCategory
                         ? (filtered.isEmpty
                             ? _EmptyState(
@@ -634,17 +642,110 @@ class _PremiumReceiptHomeScreenState
     return rows;
   }
 
-  Widget _buildSearchResults(List<Receipt> receipts) {
-    final itemResults = _searchResults();
+  Widget _buildSearchResults(
+    List<Receipt> receipts,
+    List<Receipt> filteredReceipts,
+    ReceiptSearchFilters filters,
+  ) {
+    final itemResults = _searchResults(
+      allowedReceiptIds: filteredReceipts.map((receipt) => receipt.id).toSet(),
+      taxClaimable: filters.taxClaimable,
+    );
 
     if (itemResults.isNotEmpty) {
+      final receiptCurrencyById = {
+        for (final receipt in receipts) receipt.id: receipt.currency,
+      };
+      final title = _searchQuery.isNotEmpty
+          ? 'Search results for "${_searchQuery}" (${itemResults.length} items)'
+          : 'Tax claimable items (${itemResults.length} items)';
+      if (filters.taxClaimable != null) {
+        final groupedItems = _groupItemRowsByMonth(itemResults);
+        final totalsByCurrency =
+            _monthlyTotalsByCurrency(itemResults, receiptCurrencyById);
+        final totalText = _formatCurrencyTotals(totalsByCurrency);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (totalText.isNotEmpty)
+                    Text(
+                      totalText,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 80),
+                children: groupedItems.expand((group) {
+                  final monthlyTotals = _monthlyTotalsByCurrency(
+                    group.items,
+                    receiptCurrencyById,
+                  );
+                  final monthlyTotalText = _formatCurrencyTotals(monthlyTotals);
+
+                  return [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            group.label,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primaryNavy,
+                            ),
+                          ),
+                          Text(
+                            monthlyTotalText,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primaryNavy,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ..._buildItemGroupRows(group, receiptCurrencyById),
+                    const SizedBox(height: 16),
+                  ];
+                }).toList(),
+              ),
+            ),
+          ],
+        );
+      }
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
             child: Text(
-              'Search results for "${_searchQuery}" (${itemResults.length} items)',
+              title,
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -663,7 +764,7 @@ class _PremiumReceiptHomeScreenState
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
                 final formattedPrice = NumberFormat.simpleCurrency(
-                  name: '\$',
+                  name: _currencyForReceipt(receipts, item.receiptId),
                 ).format(item.price);
 
                 return ListTile(
@@ -679,7 +780,16 @@ class _PremiumReceiptHomeScreenState
       );
     }
 
-    final receiptFallbackResults = _searchReceiptFallbackResults(receipts);
+    if (_searchQuery.isEmpty) {
+      if (filteredReceipts.isEmpty) {
+        return const Center(
+          child: Text('No matching purchases found'),
+        );
+      }
+      return _buildGroupedReceiptsList(filteredReceipts);
+    }
+
+    final receiptFallbackResults = _searchReceiptFallbackResults(filteredReceipts);
     if (receiptFallbackResults.isEmpty) {
       return const Center(
         child: Text('No matching purchases found'),
@@ -741,11 +851,27 @@ class _PremiumReceiptHomeScreenState
     }).toList();
   }
 
-  List<CategorisedItemView> _searchResults() {
-    if (_searchQuery.isEmpty) return const [];
+  List<CategorisedItemView> _searchResults({
+    Set<String>? allowedReceiptIds,
+    bool? taxClaimable,
+  }) {
+    if (_searchQuery.isEmpty && taxClaimable == null) return const [];
 
     final query = _searchQuery;
     final results = _itemIndex.where((item) {
+      if (allowedReceiptIds != null && !allowedReceiptIds.contains(item.receiptId)) {
+        return false;
+      }
+      if (taxClaimable != null && item.taxClaimable != taxClaimable) {
+        return false;
+      }
+      if (_selectedCategory != 'All' &&
+          (item.category ?? 'Other') != _selectedCategory) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
       final canonicalName = _safeCanonicalName(item).toLowerCase();
       final brand = _safeBrand(item).toLowerCase();
       final searchTokens = _safeSearchTokens(item)
@@ -771,6 +897,15 @@ class _PremiumReceiptHomeScreenState
     });
 
     return results;
+  }
+
+  String _currencyForReceipt(List<Receipt> receipts, String receiptId) {
+    for (final receipt in receipts) {
+      if (receipt.id == receiptId) {
+        return _normalizeCurrencyCode(receipt.currency);
+      }
+    }
+    return 'AUD';
   }
 
   int _searchMatchRank(CategorisedItemView item, String query) {
@@ -843,7 +978,11 @@ class _PremiumReceiptHomeScreenState
   void _openReceipt(CategorisedItemView item) {
     Navigator.of(context).pushNamed(
       AppRoutes.receiptDetail,
-      arguments: _receiptDetailArguments(item.receiptId),
+      arguments: _receiptDetailArguments(
+        item.receiptId,
+        highlightCategory: item.category ?? 'Other',
+        highlightItem: item.itemName,
+      ),
     );
   }
 
@@ -944,7 +1083,7 @@ class _PremiumReceiptHomeScreenState
       final totalText = _formatCurrencyTotals(totalsByCurrency);
       children.add(
         Padding(
-          padding: EdgeInsets.fromLTRB(16, groupIndex == 0 ? 0 : 24, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1074,6 +1213,16 @@ class _PremiumReceiptHomeScreenState
   }
 
   void _updateFilters(ReceiptSearchFilters filters) {
+    final currentFilters = ref.read(receiptSearchFiltersProvider);
+    final didEnableTaxClaimable =
+        currentFilters.taxClaimable == null && filters.taxClaimable != null;
+
+    if (didEnableTaxClaimable && _selectedCategory != 'All') {
+      setState(() {
+        _selectedCategory = 'All';
+      });
+    }
+
     ref.read(receiptSearchFiltersProvider.notifier).state =
         filters.copyWith(query: _searchController.text);
   }

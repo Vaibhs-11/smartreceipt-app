@@ -16,6 +16,7 @@ List<CategorisedItemView> buildItemIndex(List<Receipt> receipts) {
           merchant: receipt.storeName,
           date: receipt.date,
           category: item.category,
+          taxClaimable: item.taxClaimable,
         ),
       );
     }

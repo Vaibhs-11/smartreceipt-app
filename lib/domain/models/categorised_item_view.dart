@@ -6,6 +6,7 @@ class CategorisedItemView {
   final String merchant;
   final DateTime date;
   final String? category;
+  final bool taxClaimable;
 
   const CategorisedItemView({
     required this.receiptId,
@@ -15,5 +16,6 @@ class CategorisedItemView {
     required this.merchant,
     required this.date,
     required this.category,
+    required this.taxClaimable,
   });
 }

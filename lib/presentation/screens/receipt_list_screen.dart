@@ -203,6 +203,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           _itemIndex = buildItemIndex(filtered);
           final bool canClear =
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
+          final bool showItemLevelResults =
+              searchQuery.isNotEmpty || filters.taxClaimable == true;
 
           return Column(
             children: [
@@ -210,8 +212,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
               _buildSearchControls(filters),
               _buildActiveFilters(filters),
               Expanded(
-                child: searchQuery.isNotEmpty
-                    ? _buildSearchResults(filtered, searchQuery)
+                child: showItemLevelResults
+                    ? _buildSearchResults(filtered, searchQuery, filters)
                     : filtered.isEmpty
                         ? _EmptyState(
                             showClear: canClear,
@@ -307,17 +309,27 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     );
   }
 
-  Widget _buildSearchResults(List<Receipt> receipts, String query) {
-    final itemResults = _searchResults(query);
+  Widget _buildSearchResults(
+    List<Receipt> receipts,
+    String query,
+    ReceiptSearchFilters filters,
+  ) {
+    final itemResults = _searchResults(
+      query,
+      taxClaimable: filters.taxClaimable,
+    );
 
     if (itemResults.isNotEmpty) {
+      final title = query.isNotEmpty
+          ? 'Search results for "$query" (${itemResults.length} items)'
+          : 'Tax claimable items (${itemResults.length} items)';
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
             child: Text(
-              'Search results for "$query" (${itemResults.length} items)',
+              title,
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -333,7 +345,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
                 final formattedPrice = NumberFormat.simpleCurrency(
-                  name: '\$',
+                  name: _currencyForReceipt(receipts, item.receiptId),
                 ).format(item.price);
 
                 return ListTile(
@@ -350,6 +362,12 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           ),
         ],
       );
+    }
+
+    if (query.isEmpty) {
+      return receipts.isEmpty
+          ? const Center(child: Text('No matching purchases found'))
+          : _buildGroupedReceiptsList(receipts);
     }
 
     final receiptFallbackResults = _searchReceiptFallbackResults(receipts, query);
@@ -397,10 +415,19 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     );
   }
 
-  List<CategorisedItemView> _searchResults(String query) {
-    if (query.isEmpty) return const [];
+  List<CategorisedItemView> _searchResults(
+    String query, {
+    bool? taxClaimable,
+  }) {
+    if (query.isEmpty && taxClaimable == null) return const [];
 
     final results = _itemIndex.where((item) {
+      if (taxClaimable != null && item.taxClaimable != taxClaimable) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
       final itemName = item.itemName.toLowerCase();
       final merchant = item.merchant.toLowerCase();
 
@@ -408,6 +435,16 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     }).toList();
     results.sort((a, b) => b.date.compareTo(a.date));
     return results;
+  }
+
+  String _currencyForReceipt(List<Receipt> receipts, String receiptId) {
+    for (final receipt in receipts) {
+      if (receipt.id == receiptId) {
+        final normalizedCurrency = receipt.currency.trim();
+        return normalizedCurrency.isEmpty ? 'AUD' : normalizedCurrency;
+      }
+    }
+    return 'AUD';
   }
 
   List<Receipt> _searchReceiptFallbackResults(List<Receipt> receipts, String query) {
@@ -513,7 +550,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       final group = monthGroups[groupIndex];
       children.add(
         Padding(
-          padding: EdgeInsets.fromLTRB(16, groupIndex == 0 ? 0 : 24, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
           child: Text(
             group.label,
             style: const TextStyle(
