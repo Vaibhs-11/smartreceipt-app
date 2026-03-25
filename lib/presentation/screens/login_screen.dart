@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:receiptnest/core/services/analytics_service.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/signup_screen.dart';
 import 'package:receiptnest/presentation/utils/auth_error_messages.dart';
@@ -42,6 +43,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
+      unawaited(AnalyticsService.logLogin());
     } catch (e) {
       if (!mounted) return;
 

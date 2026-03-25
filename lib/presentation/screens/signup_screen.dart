@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Make sure this file (next step) exposes `authControllerProvider`
+import 'package:receiptnest/core/services/analytics_service.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
@@ -61,6 +62,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       final connectivity = ref.read(connectivityServiceProvider);
       if (!await ensureInternetConnection(context, connectivity)) return;
       await controller.signUpWithEmailPassword(email, password);
+      unawaited(AnalyticsService.logSignUp());
       // AuthGate should navigate automatically when auth state changes.
       showRootSnackBar(
         const SnackBar(content: Text('Account created!')),

@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import {
   enqueueEnrichmentForExistingReceipts,
 } from "../enrichment/backfillExistingReceiptEnrichment";
+import {logEvent} from "../analytics/log_event";
 
 type SubscriptionTier = "free" | "monthly" | "yearly";
 type SubscriptionStatus = "active" | "expired" | "none";
@@ -82,6 +83,11 @@ export const syncSubscriptionEntitlement = onCall(async (request) => {
 
   const nowActivePaid = status === "active" && tier !== "free";
   if (nowActivePaid && !wasActivePaid) {
+    void logEvent({
+      userId: uid,
+      eventName: "premium_activated",
+      params: source ? {source} : {},
+    });
     await enqueueEnrichmentForExistingReceipts(uid);
   }
 

@@ -1,6 +1,7 @@
 import {onTaskDispatched} from "firebase-functions/v2/tasks";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
+import {logEvent} from "../analytics/log_event";
 
 
 const CURRENT_ENRICHMENT_VERSION = 2;
@@ -445,12 +446,29 @@ export const processReceiptEnrichment = onTaskDispatched(
         "enrichment.version": CURRENT_ENRICHMENT_VERSION,
         "enrichment.enrichedAt": admin.firestore.FieldValue.serverTimestamp(),
       });
+      void logEvent({
+        userId,
+        eventName: "enrichment_completed",
+        params: {
+          itemCount: enrichedItems.length,
+          version: CURRENT_ENRICHMENT_VERSION,
+        },
+      });
     } catch (error) {
+      const safeErrorMessage =
+        error instanceof Error ? error.message : String(error);
       logger.error("Receipt enrichment failed", {
         userId,
         receiptId,
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage: safeErrorMessage,
         errorStack: error instanceof Error ? error.stack : null,
+      });
+      void logEvent({
+        userId,
+        eventName: "enrichment_failed",
+        params: safeErrorMessage ?
+          {error: safeErrorMessage.slice(0, 200)} :
+          {},
       });
       await setEnrichmentStatus(receiptRef, "failed");
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:receiptnest/core/services/analytics_service.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
@@ -329,6 +330,13 @@ class _PremiumReceiptHomeScreenState
             child: TextField(
               controller: _searchController,
               onChanged: _onSearchChanged,
+              onSubmitted: (query) {
+                if (query.trim().isEmpty) return;
+                AnalyticsService.logSearchUsed(
+                  searchArea: 'items',
+                  queryLength: query.length,
+                );
+              },
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: "Search receipts",

@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import {
   enqueueEnrichmentForExistingReceipts,
 } from "../enrichment/backfillExistingReceiptEnrichment";
+import {logEvent} from "../analytics/log_event";
 
 const TRIAL_DAYS = 7;
 const MILLIS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -82,6 +83,10 @@ export const startTrial = onCall(async (request) => {
   });
 
   if (result.status === "started") {
+    void logEvent({
+      userId: uid,
+      eventName: "trial_started",
+    });
     await enqueueEnrichmentForExistingReceipts(uid);
   }
 
