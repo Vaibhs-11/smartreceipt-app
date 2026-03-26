@@ -119,6 +119,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   int? _lastDeletedIndex;
   TextEditingController? _lastDeletedNameCtrl;
   TextEditingController? _lastDeletedPriceCtrl;
+  Timer? _undoTimer;
 
   @override
   void initState() {
@@ -192,6 +193,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     _scrollController.dispose();
     _lastDeletedNameCtrl?.dispose();
     _lastDeletedPriceCtrl?.dispose();
+    _undoTimer?.cancel();
     super.dispose();
   }
 
@@ -214,6 +216,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final navigator = Navigator.of(context);
 
     try {
+      ScaffoldMessenger.of(context).clearSnackBars();
       final popped = await navigator.maybePop();
       if (!popped && mounted) {
         navigator.pushAndRemoveUntil(
@@ -434,23 +437,20 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       _itemNameCtrls.removeAt(index);
       _itemPriceCtrls.removeAt(index);
     });
-
-    final messenger = ScaffoldMessenger.of(context);
-
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 4),
-          content: const Text('Item removed'),
-          action: SnackBarAction(
-            label: 'UNDO',
-            onPressed: _undoRemoveItem,
-          ),
-        ),
-      );
+    _undoTimer?.cancel();
+    _undoTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      setState(() {
+        _lastDeletedItem = null;
+        _lastDeletedIndex = null;
+        _lastDeletedNameCtrl = null;
+        _lastDeletedPriceCtrl = null;
+      });
+    });
   }
 
   void _undoRemoveItem() {
+    _undoTimer?.cancel();
     final item = _lastDeletedItem;
     final index = _lastDeletedIndex;
     final nameCtrl = _lastDeletedNameCtrl;
@@ -584,6 +584,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         final refreshed = await userRepo.getCurrentUserProfile();
         if (refreshed == null) {
           if (mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
             Navigator.of(context).maybePop();
           }
           return false;
@@ -606,6 +607,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       );
 
       if (needsGate && mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => TrialEndedGateScreen(
@@ -682,7 +684,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              ScaffoldMessenger.of(context).clearSnackBars(); // ✅
+              Navigator.of(context).pop();
+            },
             child: const Text('Cancel'),
           ),
           if (!showExpiredMessage &&
@@ -690,6 +695,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
               profile.trialUsed != true)
             TextButton(
               onPressed: () async {
+                ScaffoldMessenger.of(context).clearSnackBars(); 
                 Navigator.of(context).pop();
                 await _startTrial();
               },
@@ -697,6 +703,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
             ),
           FilledButton(
             onPressed: () {
+              ScaffoldMessenger.of(context).clearSnackBars();
               Navigator.of(context).pop();
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PurchaseScreen()),
@@ -817,6 +824,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       }
 
       if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
         navigator.pop();
       }
     } finally {
@@ -942,11 +950,17 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         content: const Text('Unable to load receipt limits. Please try again.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () {
+              ScaffoldMessenger.of(context).clearSnackBars(); // ✅
+              Navigator.of(context).pop(false);
+            },
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () {
+              ScaffoldMessenger.of(context).clearSnackBars(); // ✅
+              Navigator.of(context).pop(true);
+            },
             child: const Text('Retry'),
           ),
         ],
@@ -1028,23 +1042,31 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(_NonReceiptAction.none),
+              onPressed: () {
+                ScaffoldMessenger.of(context).clearSnackBars();
+                Navigator.of(dialogContext).pop(_NonReceiptAction.none);
+              },
               child: const Text('Cancel'),
             ),
             TextButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(_NonReceiptAction.files),
+              onPressed: () {
+                ScaffoldMessenger.of(context).clearSnackBars();
+                Navigator.of(dialogContext).pop(_NonReceiptAction.files);
+              },
               child: const Text('Pick from Files'),
             ),
             TextButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(_NonReceiptAction.gallery),
+              onPressed: () {
+                ScaffoldMessenger.of(context).clearSnackBars();
+                Navigator.of(dialogContext).pop(_NonReceiptAction.gallery);
+              },
               child: const Text('Pick from Gallery'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(_NonReceiptAction.camera),
+              onPressed: () {
+                ScaffoldMessenger.of(context).clearSnackBars();
+                Navigator.of(dialogContext).pop(_NonReceiptAction.camera);
+              },
               child: const Text('Retry with Camera'),
             ),
           ],
@@ -1387,12 +1409,18 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
               ListTile(
                 leading: const Icon(Icons.photo_library),
                 title: const Text('Pick from Gallery'),
-                onTap: () => Navigator.of(context).pop('gallery'),
+                onTap: () {
+                  ScaffoldMessenger.of(context).clearSnackBars(); // ✅
+                  Navigator.of(context).pop('gallery');
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.insert_drive_file),
                 title: const Text('Pick from Files'),
-                onTap: () => Navigator.of(context).pop('files'),
+                onTap: () {
+                  ScaffoldMessenger.of(context).clearSnackBars(); // ✅
+                  Navigator.of(context).pop('files');
+                },
               ),
             ],
           ),
@@ -1462,6 +1490,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         if (profile == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            ScaffoldMessenger.of(context).clearSnackBars();
             Navigator.of(context).maybePop();
           });
           return const Scaffold(
@@ -1629,6 +1658,40 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                         const SizedBox(height: 8),
 
                         // Build item cards
+                        if (_lastDeletedItem != null) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardBackground.withOpacity(0.95),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: AppColors.textSecondary.withOpacity(0.2),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                const Expanded(
+                                  child: Text('Item removed'),
+                                ),
+                                TextButton(
+                                  onPressed: _undoRemoveItem,
+                                  child: const Text('UNDO'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         ..._items.asMap().entries.map((entry) {
                           final index = entry.key;
                           return _buildItemCard(index);

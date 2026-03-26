@@ -45,9 +45,27 @@ Extract these exact values:
 
 - isReceipt:
   boolean.
-  Set true ONLY when the text represents a purchase receipt or tax invoice.
-  If the text is unrelated (bank statement, invoice without purchase items,
-  tickets, ads, random text, emails), set false.
+  Set true when the text represents ANY valid proof of a financial transaction,
+  including but not limited to:
+    - retail purchase receipts
+    - tax invoices
+    - service receipts (e.g. ride, taxi, delivery)
+    - utility or telecom invoices
+    - subscription or billing statements that show a charge
+
+  IMPORTANT:
+  A receipt may contain:
+    - a single line item OR multiple items
+    - no explicit item list (e.g. Uber ride, broadband invoice)
+    - service-based charges instead of physical goods
+
+  Set false ONLY when the content is clearly unrelated to a transaction, such as:
+    - bank account statements listing multiple transactions
+    - advertisements or promotional material
+    - random text or chat screenshots
+    - emails without any billing or payment information
+
+  If unsure, prefer true over false.
 
 - receiptRejectionReason:
   short explanation ONLY when isReceipt is false
@@ -69,6 +87,11 @@ Extract these exact values:
     - name: exact item name as shown on the receipt
     - price: exact numeric price (preserve decimals exactly as written) OR null when truly unavailable
     - priceConfidence: "high" or "low"
+  If no clear item list exists:
+  - Create a single item using the best available description:
+    - e.g. "Uber Ride", "Taxi Fare", "Internet Bill"
+  - Assign the total amount as the item price ONLY if no better breakdown exists
+  - Set priceConfidence to "low" in this case
 
   Confidence rules:
     * Default to "high" when a clear positive price appears on the same line as the item name.
