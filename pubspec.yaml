@@ -45,6 +45,7 @@ dependencies:
   # Image picking & camera
   image_picker: ^1.1.2
   file_picker: ^10.3.3
+  receive_sharing_intent: ^1.8.0
   camera: ^0.11.2
   connectivity_plus: ^6.1.1
 

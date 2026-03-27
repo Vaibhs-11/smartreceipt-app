@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -5,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import 'core/firebase/app_check_initializer.dart';
 import 'core/theme/app_theme.dart';
@@ -29,6 +32,8 @@ import 'core/constants/app_constants.dart';
 
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     root_scaffold_messenger.rootScaffoldMessengerKey;
+final GlobalKey<NavigatorState> rootNavigatorKey =
+    GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,9 +83,84 @@ class SmartReceiptApp extends ConsumerStatefulWidget {
 }
 
 class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
+  StreamSubscription<List<SharedMediaFile>>? _intentSub;
+
   @override
   void initState() {
     super.initState();
+    _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen((value) {
+      if (value.isEmpty) return;
+
+      final sharedFiles = value;
+      if (sharedFiles.length > 1) {
+        _showError("Only one file can be imported at a time");
+        return;
+      }
+
+      final file = File(sharedFiles.first.path);
+      _handleSharedFile(file);
+    });
+
+    ReceiveSharingIntent.instance.getInitialMedia().then((value) {
+      if (value.isEmpty) return;
+
+      final sharedFiles = value;
+      if (sharedFiles.length > 1) {
+        _showError("Only one file can be imported at a time");
+        return;
+      }
+
+      final file = File(sharedFiles.first.path);
+      _handleSharedFile(file);
+    });
+  }
+
+  bool _isValidFile(File file) {
+    final path = file.path.toLowerCase();
+
+    if (!(path.endsWith('.jpg') ||
+        path.endsWith('.jpeg') ||
+        path.endsWith('.png') ||
+        path.endsWith('.pdf'))) {
+      return false;
+    }
+
+    final sizeInBytes = file.lengthSync();
+    final sizeInMB = sizeInBytes / (1024 * 1024);
+
+    return sizeInMB <= 10;
+  }
+
+  void _handleSharedFile(File file) {
+    if (!_isValidFile(file)) {
+      _showError("Only images or PDFs under 10MB are supported");
+      return;
+    }
+
+    if (!mounted) return;
+
+    rootNavigatorKey.currentState?.push(
+      MaterialPageRoute<void>(
+        builder: (_) => AddReceiptScreen(
+          initialFile: file,
+          isFromShare: true,
+        ),
+      ),
+    );
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+
+    rootScaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  @override
+  void dispose() {
+    _intentSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -100,6 +180,7 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
     return MaterialApp(
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
+      navigatorKey: rootNavigatorKey,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       theme: AppTheme.lightTheme,
       home: authState.when(
@@ -130,6 +211,8 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
           builder: (_) => AddReceiptScreen(
             initialImagePath: args?.initialImagePath,
             initialAction: args?.initialAction,
+            initialFile: null,
+            isFromShare: false,
           ),
         );
       case AppRoutes.scanReceipt:

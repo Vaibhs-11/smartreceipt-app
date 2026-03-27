@@ -60,12 +60,16 @@ class AddReceiptScreen extends ConsumerStatefulWidget {
   final String? initialImagePath;
   final AddReceiptInitialAction? initialAction;
   final Receipt? existingReceipt;
+  final File? initialFile;
+  final bool isFromShare;
 
   const AddReceiptScreen(
       {super.key,
       this.initialImagePath,
       this.initialAction,
-      this.existingReceipt});
+      this.existingReceipt,
+      this.initialFile,
+      this.isFromShare = false});
 
   @override
   ConsumerState<AddReceiptScreen> createState() => _AddReceiptScreenState();
@@ -99,6 +103,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   String? _imageProcessingStatus;
   String? _extractedText;
   bool _isLoading = false;
+  bool _isProcessing = false;
   bool _receiptRejected = false;
   // Tracks "not a receipt" reason; currently unused in UI but kept for future UX.
   // ignore: unused_field
@@ -137,6 +142,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     Future.microtask(() {
       ref.read(appConfigProvider.future);
     });
+    if (widget.initialFile != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _processSharedFile(widget.initialFile!);
+      });
+    }
     if (!_isEditMode) {
       _handleInitialArgs();
     }
@@ -228,6 +239,28 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       // Reset only after navigation frame completes
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _isExitingAfterNoInternet = false;
+      });
+    }
+  }
+
+  Future<void> _processSharedFile(File file) async {
+    if (!mounted) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      await _startReceiptProcessing(file);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to import receipt')),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
       });
     }
   }
@@ -1735,10 +1768,24 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                   ),
                 ),
               ),
-              if (_isLoading)
+              if (_isLoading || _isProcessing)
                 Container(
                   color: Colors.black.withOpacity(0.45),
-                  child: const Center(child: CircularProgressIndicator()),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        if (_isProcessing) ...[
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Importing receipt...',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
             ],
           ),
