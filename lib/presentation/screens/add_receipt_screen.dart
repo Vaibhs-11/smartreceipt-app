@@ -559,7 +559,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         _initialArgsHandled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
-          await _startReceiptProcessing(file);
+          await _processSharedFile(file);
         });
         return;
       }
