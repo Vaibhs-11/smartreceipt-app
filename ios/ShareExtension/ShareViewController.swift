@@ -2,11 +2,13 @@ import UIKit
 import Social
 import UniformTypeIdentifiers
 
-class ShareViewController: SLComposeServiceViewController {
+class ShareViewController: UIViewController {
 
-    override func didSelectPost() {
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
         handleSharedFile()
     }
+
 
     private func handleSharedFile() {
 
@@ -100,7 +102,5 @@ class ShareViewController: SLComposeServiceViewController {
         extensionContext?.completeRequest(returningItems: nil)
     }
 
-    override func isContentValid() -> Bool {
-        return true
-    }
+    
 }
