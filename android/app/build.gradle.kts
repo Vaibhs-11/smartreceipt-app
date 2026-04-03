@@ -4,9 +4,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // Flutter Gradle Plugin
     id("dev.flutter.flutter-gradle-plugin")
-    // Firebase / Google Services
     id("com.google.gms.google-services")
 }
 
@@ -21,13 +19,14 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    // ✅ FIXED — align with global JVM target (17)
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = "17"
     }
 
     defaultConfig {
@@ -59,10 +58,8 @@ android {
 }
 
 dependencies {
-    // 🔐 Firebase BoM (keeps versions aligned)
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
 
-    // 🔐 Firebase App Check
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
     debugImplementation("com.google.firebase:firebase-appcheck-debug")
 }

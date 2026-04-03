@@ -8,6 +8,8 @@ import sharp from "sharp";
 import * as path from "path";
 import * as fs from "fs/promises";
 import {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
+import {logEvent} from "./analytics/log_event";
+export {aggregateDailyMetrics} from "./analytics/aggregateDailyMetrics";
 export {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
 export {processReceiptEnrichment} from "./enrichment/processReceiptEnrichment";
 export {startTrial} from "./subscriptions/startTrial";
@@ -540,6 +542,16 @@ export const createReceipt = onCall(async (request) => {
       );
     }
     tx.set(receiptRef, payload);
+  });
+
+  const receiptType =
+    typeof receipt["receiptType"] === "string" ? receipt["receiptType"] : null;
+  void logEvent({
+    userId: uid,
+    eventName: "receipt_created",
+    params: {
+      ...(typeof receiptType === "string" ? {receiptType} : {}),
+    },
   });
 
   const updatedUserDoc = await userRef.get();

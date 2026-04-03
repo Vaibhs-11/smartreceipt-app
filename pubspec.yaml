@@ -1,7 +1,7 @@
 name: receiptnest
 description: A mobile-first receipt scanning & organisation app
 publish_to: "none"
-version: 1.4.0+26
+version: 1.5.0+28
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -28,6 +28,7 @@ dependencies:
   # Firebase (stable + launch-safe)
   firebase_core: ^4.1.0
   firebase_auth: ^6.0.2
+  firebase_analytics: ^12.0.2
   cloud_firestore: ^6.0.1
   firebase_storage: ^13.0.1
   firebase_messaging: ^16.0.1
@@ -44,6 +45,7 @@ dependencies:
   # Image picking & camera
   image_picker: ^1.1.2
   file_picker: ^10.3.3
+  receive_sharing_intent: ^1.8.0
   camera: ^0.11.2
   connectivity_plus: ^6.1.1
 

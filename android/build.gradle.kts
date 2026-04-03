@@ -1,5 +1,7 @@
 import org.gradle.api.tasks.Delete
 import org.gradle.api.file.Directory
+import org.gradle.api.tasks.compile.JavaCompile
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 buildscript {
     repositories {
@@ -33,4 +35,20 @@ subprojects {
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
+}
+
+subprojects {
+    tasks.withType<KotlinCompile>().configureEach {
+        val relatedJavaTaskName = name.replace("Kotlin", "JavaWithJavac")
+        val javaTarget = project.tasks.withType<JavaCompile>()
+            .matching { it.name == relatedJavaTaskName }
+            .firstOrNull()
+            ?.targetCompatibility
+            ?: project.tasks.withType<JavaCompile>().firstOrNull()?.targetCompatibility
+            ?: "17"
+
+        kotlinOptions {
+            jvmTarget = javaTarget
+        }
+    }
 }
