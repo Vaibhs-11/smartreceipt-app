@@ -35,6 +35,10 @@ service cloud.firestore {
         allow create: if false; // receipt creation is enforced via Cloud Functions
         allow update, delete: if isOwner(userId);
       }
+
+      match /trips/{tripId} {
+        allow read, write: if isOwner(userId);
+      }
     }
   }
 }

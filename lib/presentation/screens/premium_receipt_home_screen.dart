@@ -4,11 +4,16 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/services/analytics_service.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/entities/trip.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
+import 'package:receiptnest/presentation/screens/create_trip_screen.dart';
+import 'package:receiptnest/presentation/screens/trip_detail_screen.dart';
+import 'package:receiptnest/presentation/screens/trips_preview_screen.dart';
+import 'package:receiptnest/presentation/screens/trips_list_screen.dart';
 import 'package:receiptnest/domain/models/categorised_item_view.dart';
 import 'package:receiptnest/domain/utils/item_index_builder.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
@@ -230,6 +235,8 @@ class _PremiumReceiptHomeScreenState
   Widget build(BuildContext context) {
     final receiptsAsync = ref.watch(receiptsProvider);
     final filters = ref.watch(receiptSearchFiltersProvider);
+    final hasTripAccess = ref.watch(premiumTripAccessProvider);
+    final tripsAsync = hasTripAccess ? ref.watch(tripsStreamProvider) : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -242,6 +249,19 @@ class _PremiumReceiptHomeScreenState
           ),
         ),
         actions: [
+          if (hasTripAccess)
+            IconButton(
+              icon: const Icon(Icons.luggage_outlined),
+              tooltip: 'Trips',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TripsListScreen(),
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.photo_camera_outlined),
             tooltip: 'Capture receipt',
@@ -273,6 +293,7 @@ class _PremiumReceiptHomeScreenState
               _buildSearchControls(filters),
               _buildCategoryChipBar(),
               _buildActiveFilters(filters),
+              if (tripsAsync != null) _buildTripsSection(tripsAsync),
               Expanded(
                 child: showItemLevelResults
                     ? _buildSearchResults(receipts, filtered, filters)
@@ -316,8 +337,89 @@ class _PremiumReceiptHomeScreenState
         },
       ),
       floatingActionButton: _AddReceiptFab(
-        onPressed: () => Navigator.pushNamed(context, '/addReceipt'),
+        hasTripAccess: hasTripAccess,
+        onAddReceiptPressed: () => Navigator.pushNamed(context, AppRoutes.addReceipt),
+        onCreateTripPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const CreateTripScreen(),
+            ),
+          );
+        },
+        onTripsPreviewPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const TripsPreviewScreen(),
+            ),
+          );
+        },
       ),
+    );
+  }
+
+  Widget _buildTripsSection(AsyncValue<List<Trip>> tripsAsync) {
+    return tripsAsync.when(
+      data: (trips) {
+        if (trips.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    'Trips',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.primaryNavy,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const TripsListScreen(),
+                        ),
+                      );
+                    },
+                    child: const Text('See all'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (trips.length == 1)
+                _TripSummaryCard(
+                  trip: trips.single,
+                  fullWidth: true,
+                )
+              else
+                SizedBox(
+                  height: 146,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: trips.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (context, index) {
+                      final trip = trips[index];
+                      return _TripSummaryCard(trip: trip);
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 
@@ -1419,18 +1521,248 @@ class _ItemMonthGroup {
 }
 
 class _AddReceiptFab extends StatelessWidget {
-  final VoidCallback onPressed;
-  const _AddReceiptFab({required this.onPressed});
+  const _AddReceiptFab({
+    required this.hasTripAccess,
+    required this.onAddReceiptPressed,
+    required this.onCreateTripPressed,
+    required this.onTripsPreviewPressed,
+  });
+
+  final bool hasTripAccess;
+  final VoidCallback onAddReceiptPressed;
+  final VoidCallback onCreateTripPressed;
+  final VoidCallback onTripsPreviewPressed;
 
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton(
       heroTag: "addReceiptFab",
-      onPressed: onPressed,
+      onPressed: () => _showActions(context),
       backgroundColor: Theme.of(context).colorScheme.primary,
       child: const Icon(Icons.add, color: Colors.white),
     );
   }
+
+  Future<void> _showActions(BuildContext context) async {
+    final action = await showModalBottomSheet<_HomeFabAction>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Add Receipt'),
+                onTap: () => Navigator.of(context).pop(_HomeFabAction.addReceipt),
+              ),
+              ListTile(
+                leading: const Icon(Icons.luggage_outlined),
+                title: const Text('Create Trip'),
+                onTap: () => Navigator.of(context).pop(_HomeFabAction.createTrip),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (action == _HomeFabAction.addReceipt) {
+      onAddReceiptPressed();
+      return;
+    }
+
+    if (action == _HomeFabAction.createTrip) {
+      if (hasTripAccess) {
+        onCreateTripPressed();
+      } else {
+        onTripsPreviewPressed();
+      }
+    }
+  }
+}
+
+class _TripSummaryCard extends StatelessWidget {
+  const _TripSummaryCard({
+    required this.trip,
+    this.fullWidth = false,
+  });
+
+  final Trip trip;
+  final bool fullWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final receiptCount = trip.receiptCount ?? 0;
+    final hasReceipts = receiptCount > 0;
+    final dateLabel = _buildDateLabel(trip);
+
+    return SizedBox(
+      width: fullWidth ? double.infinity : 240,
+      child: Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: Colors.grey.shade200,
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => TripDetailScreen(tripId: trip.id),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(
+                        Icons.luggage_outlined,
+                        size: 18,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        trip.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Text(
+                      trip.type == TripType.work ? 'Work' : 'Personal',
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: AppColors.accentTeal,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Active',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                if (dateLabel != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    dateLabel,
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                if (hasReceipts)
+                  Text(
+                    '$receiptCount receipt${receiptCount == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.primaryNavy,
+                    ),
+                  )
+                else
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'No receipts yet',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryNavy.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          'Add your first receipt',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primaryNavy,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+        ),
+      ),
+    );
+  }
+}
+
+String? _buildDateLabel(Trip trip) {
+  if (trip.startDate == null && trip.endDate == null) {
+    return null;
+  }
+
+  final formatter = DateFormat.yMMMd();
+  if (trip.startDate != null && trip.endDate == null) {
+    return 'Starts ${formatter.format(trip.startDate!)}';
+  }
+
+  final startText =
+      trip.startDate == null ? 'Any start' : formatter.format(trip.startDate!);
+  final endText =
+      trip.endDate == null ? 'Any end' : formatter.format(trip.endDate!);
+  return '$startText - $endText';
+}
+
+enum _HomeFabAction {
+  addReceipt,
+  createTrip,
 }
 
 class _EmptyState extends StatelessWidget {

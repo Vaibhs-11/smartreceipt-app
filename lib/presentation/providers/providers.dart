@@ -3,26 +3,41 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receiptnest/data/repositories/firebase/firebase_receipt_repository.dart';
+import 'package:receiptnest/data/repositories/firebase/firebase_trip_repository.dart';
 import 'package:receiptnest/data/repositories/firebase/firebase_account_repository.dart';
 import 'package:receiptnest/data/services/auth/auth_service.dart';
 import 'package:receiptnest/data/services/auth/firebase_auth_service.dart'
     as fb_impl;
 import 'package:receiptnest/data/services/cloud_ocr_service.dart';
+import 'package:receiptnest/data/services/stub_export_service.dart';
+import 'package:receiptnest/data/services/stub_insights_service.dart';
 import 'package:receiptnest/data/services/ocr/chatgpt_ocr_service.dart';
 import 'package:receiptnest/data/services/image_processing/receipt_image_processing_service.dart';
 import 'package:receiptnest/data/repositories/firebase/firebase_user_repository.dart';
 import 'package:receiptnest/domain/entities/ocr_result.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/services/ocr_service.dart';
+import 'package:receiptnest/domain/services/export_service.dart';
+import 'package:receiptnest/domain/services/insights_service.dart';
 import 'package:receiptnest/domain/services/subscription_service.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/entities/trip.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 import 'package:receiptnest/domain/repositories/account_repository.dart';
+import 'package:receiptnest/domain/repositories/trip_repository.dart';
 import 'package:receiptnest/domain/repositories/user_repository.dart';
 import 'package:receiptnest/domain/usecases/add_receipt.dart';
+import 'package:receiptnest/domain/usecases/create_trip.dart';
 import 'package:receiptnest/domain/usecases/delete_account.dart';
+import 'package:receiptnest/domain/usecases/delete_trip.dart';
 import 'package:receiptnest/domain/usecases/get_receipt_by_id.dart';
 import 'package:receiptnest/domain/usecases/get_receipts.dart';
+import 'package:receiptnest/domain/usecases/get_trip.dart';
+import 'package:receiptnest/domain/usecases/get_trips.dart';
+import 'package:receiptnest/domain/usecases/update_trip.dart';
+import 'package:receiptnest/domain/usecases/watch_trip.dart';
+import 'package:receiptnest/domain/usecases/watch_trips.dart';
 import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/auth_controller.dart';
 import 'package:receiptnest/services/connectivity_service.dart';
@@ -86,6 +101,10 @@ final currentUidProvider = Provider<String?>((ref) {
   return auth?.uid;
 });
 
+final userIdProvider = Provider<String?>((ref) {
+  return ref.watch(currentUidProvider);
+});
+
 final cloudOcrServiceProvider = Provider<CloudOcrService>((ref) {
   return CloudOcrService();
 });
@@ -138,6 +157,22 @@ final Provider<ReceiptRepository> receiptRepositoryProviderOverride =
   return FirebaseReceiptRepository();
 });
 
+final Provider<TripRepository> tripRepositoryProvider =
+    Provider<TripRepository>((ref) {
+  return FirebaseTripRepository();
+});
+
+final Provider<ExportService> exportServiceProvider = Provider<ExportService>((
+  ref,
+) {
+  return const StubExportService();
+});
+
+final Provider<InsightsService> insightsServiceProvider =
+    Provider<InsightsService>((ref) {
+  return const StubInsightsService();
+});
+
 final receiptCountProvider = FutureProvider<int>((ref) async {
   final uid = ref.watch(currentUidProvider);
   if (uid == null) {
@@ -173,6 +208,45 @@ final getReceiptByIdUseCaseProvider =
   final ReceiptRepository repository =
       ref.read(receiptRepositoryProviderOverride);
   return GetReceiptByIdUseCase(repository);
+});
+
+final createTripUseCaseProvider =
+    Provider.autoDispose<CreateTripUseCase>((ref) {
+  final repository = ref.read(tripRepositoryProvider);
+  return CreateTripUseCase(repository);
+});
+
+final updateTripUseCaseProvider =
+    Provider.autoDispose<UpdateTripUseCase>((ref) {
+  final repository = ref.read(tripRepositoryProvider);
+  return UpdateTripUseCase(repository);
+});
+
+final deleteTripUseCaseProvider =
+    Provider.autoDispose<DeleteTripUseCase>((ref) {
+  final repository = ref.read(tripRepositoryProvider);
+  return DeleteTripUseCase(repository);
+});
+
+final getTripUseCaseProvider = Provider.autoDispose<GetTripUseCase>((ref) {
+  final repository = ref.read(tripRepositoryProvider);
+  return GetTripUseCase(repository);
+});
+
+final getTripsUseCaseProvider = Provider.autoDispose<GetTripsUseCase>((ref) {
+  final repository = ref.read(tripRepositoryProvider);
+  return GetTripsUseCase(repository);
+});
+
+final watchTripUseCaseProvider = Provider.autoDispose<WatchTripUseCase>((ref) {
+  final repository = ref.read(tripRepositoryProvider);
+  return WatchTripUseCase(repository);
+});
+
+final watchTripsUseCaseProvider =
+    Provider.autoDispose<WatchTripsUseCase>((ref) {
+  final repository = ref.read(tripRepositoryProvider);
+  return WatchTripsUseCase(repository);
 });
 
 final deleteAccountUseCaseProvider =
@@ -214,4 +288,74 @@ final receiptDetailProvider =
   }
   final getReceipt = ref.read(getReceiptByIdUseCaseProvider);
   return getReceipt(receiptId);
+});
+
+final accountEligibilityProvider = Provider<AccountEligibility?>((ref) {
+  final profile = ref.watch(userProfileProvider).value;
+  if (profile == null) {
+    return null;
+  }
+
+  return AccountPolicies.evaluate(profile, DateTime.now().toUtc());
+});
+
+final premiumTripAccessProvider = Provider<bool>((ref) {
+  return ref.watch(accountEligibilityProvider)?.isPremiumEligible ?? false;
+});
+
+final tripsStreamProvider = StreamProvider<List<Trip>>((ref) {
+  final uid = ref.watch(userIdProvider);
+  if (uid == null) {
+    return const Stream<List<Trip>>.empty();
+  }
+
+  final watchTrips = ref.read(watchTripsUseCaseProvider);
+  return watchTrips(uid);
+});
+
+final tripsProvider = tripsStreamProvider;
+
+final tripsListProvider = FutureProvider.autoDispose<List<Trip>>((ref) async {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) {
+    return const <Trip>[];
+  }
+
+  final getTrips = ref.read(getTripsUseCaseProvider);
+  return getTrips(uid);
+});
+
+final tripProvider = FutureProvider.autoDispose.family<Trip?, String>((
+  ref,
+  tripId,
+) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) {
+    return Future<Trip?>.value(null);
+  }
+
+  final getTrip = ref.read(getTripUseCaseProvider);
+  return getTrip(uid, tripId);
+});
+
+final tripStreamProvider =
+    StreamProvider.autoDispose.family<Trip?, String>((ref, tripId) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) {
+    return const Stream<Trip?>.empty();
+  }
+
+  final watchTrip = ref.read(watchTripUseCaseProvider);
+  return watchTrip(uid, tripId);
+});
+
+final tripReceiptsStreamProvider =
+    StreamProvider.autoDispose.family<List<Receipt>, String>((ref, tripId) {
+  final uid = ref.watch(userIdProvider);
+  if (uid == null) {
+    return const Stream<List<Receipt>>.empty();
+  }
+
+  final repository = ref.read(tripRepositoryProvider);
+  return repository.watchReceiptsForTrip(uid, tripId);
 });

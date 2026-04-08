@@ -9,6 +9,9 @@ import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
+import 'package:receiptnest/presentation/screens/create_trip_screen.dart';
+import 'package:receiptnest/presentation/screens/trips_preview_screen.dart';
+import 'package:receiptnest/presentation/screens/trips_list_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
@@ -172,6 +175,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     final receiptsAsync = ref.watch(receiptsProvider);
     final filters = ref.watch(receiptSearchFiltersProvider);
     final searchQuery = filters.query.trim().toLowerCase();
+    final hasTripAccess = ref.watch(premiumTripAccessProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -184,6 +188,19 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           ),
         ),
         actions: [
+          if (hasTripAccess)
+            IconButton(
+              icon: const Icon(Icons.luggage_outlined),
+              tooltip: 'Trips',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TripsListScreen(),
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.photo_camera_outlined),
             tooltip: 'Capture receipt',
@@ -251,7 +268,24 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         },
       ),
       floatingActionButton: _AddReceiptFab(
-        onPressed: () => Navigator.pushNamed(context, '/addReceipt'),
+        hasTripAccess: hasTripAccess,
+        onAddReceiptPressed: () => Navigator.pushNamed(context, AppRoutes.addReceipt),
+        onCreateTripPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const CreateTripScreen(),
+            ),
+          );
+        },
+        onTripsPreviewPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const TripsPreviewScreen(),
+            ),
+          );
+        },
       ),
     );
   }
@@ -841,18 +875,70 @@ class _MonthGroup {
 }
 
 class _AddReceiptFab extends StatelessWidget {
-  final VoidCallback onPressed;
-  const _AddReceiptFab({required this.onPressed});
+  const _AddReceiptFab({
+    required this.hasTripAccess,
+    required this.onAddReceiptPressed,
+    required this.onCreateTripPressed,
+    required this.onTripsPreviewPressed,
+  });
+
+  final bool hasTripAccess;
+  final VoidCallback onAddReceiptPressed;
+  final VoidCallback onCreateTripPressed;
+  final VoidCallback onTripsPreviewPressed;
 
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton(
       heroTag: "addReceiptFab",
-      onPressed: onPressed,
+      onPressed: () => _showActions(context),
       backgroundColor: Theme.of(context).colorScheme.primary,
       child: const Icon(Icons.add, color: Colors.white),
     );
   }
+
+  Future<void> _showActions(BuildContext context) async {
+    final action = await showModalBottomSheet<_HomeFabAction>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Add Receipt'),
+                onTap: () => Navigator.of(context).pop(_HomeFabAction.addReceipt),
+              ),
+              ListTile(
+                leading: const Icon(Icons.luggage_outlined),
+                title: const Text('Create Trip'),
+                onTap: () => Navigator.of(context).pop(_HomeFabAction.createTrip),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (action == _HomeFabAction.addReceipt) {
+      onAddReceiptPressed();
+      return;
+    }
+
+    if (action == _HomeFabAction.createTrip) {
+      if (hasTripAccess) {
+        onCreateTripPressed();
+      } else {
+        onTripsPreviewPressed();
+      }
+    }
+  }
+}
+
+enum _HomeFabAction {
+  addReceipt,
+  createTrip,
 }
 
 class _EmptyState extends StatelessWidget {
