@@ -2,23 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
-import 'package:receiptnest/domain/entities/trip.dart';
+import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
-import 'package:receiptnest/presentation/screens/create_trip_screen.dart';
-import 'package:receiptnest/presentation/screens/trip_detail_screen.dart';
+import 'package:receiptnest/presentation/screens/collection_detail_screen.dart';
+import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 
-class TripsListScreen extends ConsumerWidget {
-  const TripsListScreen({super.key});
+class CollectionsListScreen extends ConsumerWidget {
+  const CollectionsListScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tripsAsync = ref.watch(tripsStreamProvider);
-    final hasAccess = ref.watch(premiumTripAccessProvider);
+    final collectionsAsync = ref.watch(collectionsStreamProvider);
+    final hasAccess = ref.watch(premiumCollectionAccessProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Trips',
+          'Trips & Events',
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w700,
@@ -28,34 +28,35 @@ class TripsListScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: !hasAccess
-            ? const _TripsLockedView()
-            : tripsAsync.when(
-                data: (trips) {
-                  if (trips.isEmpty) {
-                    return _TripsEmptyState(
-                      onCreate: () => _openCreateTrip(context),
+            ? const _CollectionsLockedView()
+            : collectionsAsync.when(
+                data: (collections) {
+                  if (collections.isEmpty) {
+                    return _CollectionsEmptyState(
+                      onCreate: () => _openCreateCollection(context),
                     );
                   }
 
                   return RefreshIndicator(
                     onRefresh: () async {
-                      ref.refresh(tripsStreamProvider);
-                      await ref.read(tripsStreamProvider.future);
+                      ref.refresh(collectionsStreamProvider);
+                      await ref.read(collectionsStreamProvider.future);
                     },
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                      itemCount: trips.length,
+                      itemCount: collections.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        final trip = trips[index];
-                        return _TripCard(
-                          trip: trip,
+                        final collection = collections[index];
+                        return _CollectionCard(
+                          collection: collection,
                           onTap: () {
                             Navigator.push(
                               context,
                               MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    TripDetailScreen(tripId: trip.id),
+                                builder: (_) => CollectionDetailScreen(
+                                  collectionId: collection.id,
+                                ),
                               ),
                             );
                           },
@@ -66,41 +67,40 @@ class TripsListScreen extends ConsumerWidget {
                 },
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) =>
-                    Center(child: Text('Failed to load trips: $error')),
+                    Center(child: Text('Failed to load collections: $error')),
               ),
       ),
       floatingActionButton: hasAccess
           ? FloatingActionButton.extended(
-              onPressed: () => _openCreateTrip(context),
+              onPressed: () => _openCreateCollection(context),
               icon: const Icon(Icons.add),
-              label: const Text('Create Trip'),
+              label: const Text('Create Trip or Event'),
             )
           : null,
     );
   }
 
-  void _openCreateTrip(BuildContext context) {
-    Navigator.push(
-      context,
+  void _openCreateCollection(BuildContext context) {
+    Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute<void>(
-        builder: (_) => const CreateTripScreen(),
+        builder: (_) => const CreateCollectionScreen(),
       ),
     );
   }
 }
 
-class _TripCard extends StatelessWidget {
-  const _TripCard({
-    required this.trip,
+class _CollectionCard extends StatelessWidget {
+  const _CollectionCard({
+    required this.collection,
     required this.onTap,
   });
 
-  final Trip trip;
+  final Collection collection;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final dateRange = _formatTripDateRange(trip);
+    final dateRange = _formatCollectionDateRange(collection);
 
     return Card(
       child: ListTile(
@@ -109,8 +109,12 @@ class _TripCard extends StatelessWidget {
           vertical: 12,
         ),
         onTap: onTap,
+        leading: const Icon(
+          Icons.folder_copy_outlined,
+          color: AppColors.primaryNavy,
+        ),
         title: Text(
-          trip.name,
+          collection.name,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -121,7 +125,7 @@ class _TripCard extends StatelessWidget {
           children: [
             const SizedBox(height: 4),
             Text(
-              trip.type == TripType.work ? 'Work' : 'Personal',
+              collection.type == CollectionType.work ? 'Work' : 'Personal',
               style: const TextStyle(color: AppColors.textSecondary),
             ),
             if (dateRange != null) ...[
@@ -139,8 +143,8 @@ class _TripCard extends StatelessWidget {
   }
 }
 
-class _TripsEmptyState extends StatelessWidget {
-  const _TripsEmptyState({required this.onCreate});
+class _CollectionsEmptyState extends StatelessWidget {
+  const _CollectionsEmptyState({required this.onCreate});
 
   final VoidCallback onCreate;
 
@@ -153,7 +157,7 @@ class _TripsEmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'No trips yet',
+              'No trips or events yet',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w700,
@@ -162,7 +166,7 @@ class _TripsEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Create your first trip to organise related receipts in one place.',
+              'Create your first trip or event to organise related receipts in one place.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,
@@ -173,7 +177,7 @@ class _TripsEmptyState extends StatelessWidget {
             FilledButton.icon(
               onPressed: onCreate,
               icon: const Icon(Icons.add),
-              label: const Text('Create Trip'),
+              label: const Text('Create Trip or Event'),
             ),
           ],
         ),
@@ -182,8 +186,8 @@ class _TripsEmptyState extends StatelessWidget {
   }
 }
 
-class _TripsLockedView extends StatelessWidget {
-  const _TripsLockedView();
+class _CollectionsLockedView extends StatelessWidget {
+  const _CollectionsLockedView();
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +207,7 @@ class _TripsLockedView extends StatelessWidget {
                 ),
                 SizedBox(height: 12),
                 Text(
-                  'Trips are available on an active trial or subscription.',
+                  'Trips & Events are available on an active trial or subscription.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 16,
@@ -220,15 +224,17 @@ class _TripsLockedView extends StatelessWidget {
   }
 }
 
-String? _formatTripDateRange(Trip trip) {
-  if (trip.startDate == null && trip.endDate == null) {
+String? _formatCollectionDateRange(Collection collection) {
+  if (collection.startDate == null && collection.endDate == null) {
     return null;
   }
 
   final formatter = DateFormat.yMMMd();
-  final startText =
-      trip.startDate == null ? 'Any start' : formatter.format(trip.startDate!);
-  final endText =
-      trip.endDate == null ? 'Any end' : formatter.format(trip.endDate!);
+  final startText = collection.startDate == null
+      ? 'Any start'
+      : formatter.format(collection.startDate!);
+  final endText = collection.endDate == null
+      ? 'Any end'
+      : formatter.format(collection.endDate!);
   return '$startText - $endText';
 }

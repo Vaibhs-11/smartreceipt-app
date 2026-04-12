@@ -2,14 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:receiptnest/domain/entities/app_config.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 import 'package:receiptnest/domain/repositories/user_repository.dart';
 import 'package:receiptnest/domain/services/subscription_service.dart';
-import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/trial_ended_gate_screen.dart';
 import 'package:receiptnest/presentation/widgets/account_gate.dart';
@@ -101,6 +99,24 @@ class _FakeReceiptRepository implements ReceiptRepository {
 
   @override
   Future<int> getReceiptCount() async => 0;
+
+  @override
+  Future<void> assignReceiptsToCollection(
+    List<String> receiptIds,
+    String collectionId,
+  ) async {}
+
+  @override
+  Future<void> removeReceiptFromCollection(String receiptId) async {}
+
+  @override
+  Future<void> removeReceiptsFromCollection(List<String> receiptIds) async {}
+
+  @override
+  Future<void> moveReceiptToCollection(
+    String receiptId,
+    String newCollectionId,
+  ) async {}
 
   @override
   Future<void> updateReceipt(Receipt receipt) async {}

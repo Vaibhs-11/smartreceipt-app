@@ -5,21 +5,21 @@ class ReceiptFilter {
   const ReceiptFilter({
     this.startDate,
     this.endDate,
-    this.tripId,
+    this.collectionId,
     this.taxClaimableOnly,
     this.categories,
   });
 
   final DateTime? startDate;
   final DateTime? endDate;
-  final String? tripId;
+  final String? collectionId;
   final bool? taxClaimableOnly;
   final List<String>? categories;
 
   bool get isEmpty =>
       startDate == null &&
       endDate == null &&
-      tripId == null &&
+      collectionId == null &&
       taxClaimableOnly == null &&
       (categories == null || categories!.isEmpty);
 
@@ -28,7 +28,7 @@ class ReceiptFilter {
     return 'ReceiptFilter('
         'startDate=$startDate, '
         'endDate=$endDate, '
-        'tripId=$tripId, '
+        'collectionId=$collectionId, '
         'taxClaimableOnly=$taxClaimableOnly, '
         'categories=$categories'
         ')';

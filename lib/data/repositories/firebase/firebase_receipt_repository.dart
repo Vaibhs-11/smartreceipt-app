@@ -9,6 +9,8 @@ import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 class FirebaseReceiptRepository implements ReceiptRepository {
   FirebaseReceiptRepository();
 
+  static const String _updatedAtField = 'updatedAt';
+
   CollectionReference<Map<String, dynamic>> _receiptsCollection(String uid) {
     return FirebaseFirestore.instance
         .collection('users')
@@ -106,9 +108,7 @@ class FirebaseReceiptRepository implements ReceiptRepository {
       items: sanitizeReceiptItems(receipt.items),
     );
 
-    await _receiptsCollection(uid)
-        .doc(sanitized.id)
-        .update(sanitized.toMap());
+    await _receiptsCollection(uid).doc(sanitized.id).update(sanitized.toMap());
   }
 
   // ---------------------------------------------------------------------------
@@ -122,5 +122,57 @@ class FirebaseReceiptRepository implements ReceiptRepository {
       return;
     }
     await _receiptsCollection(uid).doc(id).delete();
+  }
+
+  @override
+  Future<void> assignReceiptsToCollection(
+    List<String> receiptIds,
+    String collectionId,
+  ) async {
+    final uid = _uid();
+    if (uid == null || receiptIds.isEmpty) {
+      debugPrint('Skipping assignReceiptsToCollection: missing user or ids.');
+      return;
+    }
+
+    final batch = FirebaseFirestore.instance.batch();
+    for (final receiptId in receiptIds) {
+      batch.update(_receiptsCollection(uid).doc(receiptId), <String, Object?>{
+        'collectionId': collectionId,
+        _updatedAtField: FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+
+  @override
+  Future<void> removeReceiptFromCollection(String receiptId) async {
+    await removeReceiptsFromCollection(<String>[receiptId]);
+  }
+
+  @override
+  Future<void> removeReceiptsFromCollection(List<String> receiptIds) async {
+    final uid = _uid();
+    if (uid == null || receiptIds.isEmpty) {
+      debugPrint('Skipping removeReceiptsFromCollection: missing user or ids.');
+      return;
+    }
+
+    final batch = FirebaseFirestore.instance.batch();
+    for (final receiptId in receiptIds) {
+      batch.update(_receiptsCollection(uid).doc(receiptId), <String, Object?>{
+        'collectionId': null,
+        _updatedAtField: FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+
+  @override
+  Future<void> moveReceiptToCollection(
+    String receiptId,
+    String newCollectionId,
+  ) {
+    return assignReceiptsToCollection(<String>[receiptId], newCollectionId);
   }
 }

@@ -3,21 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/services/analytics_service.dart';
+import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
-import 'package:receiptnest/domain/entities/trip.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
-import 'package:receiptnest/presentation/screens/create_trip_screen.dart';
-import 'package:receiptnest/presentation/screens/trip_detail_screen.dart';
-import 'package:receiptnest/presentation/screens/trips_preview_screen.dart';
-import 'package:receiptnest/presentation/screens/trips_list_screen.dart';
+import 'package:receiptnest/presentation/screens/collection_detail_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_list_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_preview_screen.dart';
+import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/domain/models/categorised_item_view.dart';
 import 'package:receiptnest/domain/utils/item_index_builder.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/presentation/widgets/collection_receipt_assignment_sheet.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 
 class PremiumReceiptHomeScreen extends ConsumerStatefulWidget {
@@ -50,6 +51,9 @@ class _PremiumReceiptHomeScreenState
   String _selectedCategory = 'All';
   String _searchQuery = '';
   List<CategorisedItemView> _itemIndex = const [];
+  final Set<String> _selectedReceiptIds = <String>{};
+
+  bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
 
   @override
   void initState() {
@@ -96,8 +100,7 @@ class _PremiumReceiptHomeScreenState
   }) {
     return {
       'receiptId': receiptId,
-      'highlightCategory':
-          highlightCategory ??
+      'highlightCategory': highlightCategory ??
           (_selectedCategory == 'All' ? null : _selectedCategory),
       'highlightItem': highlightItem,
     };
@@ -125,11 +128,218 @@ class _PremiumReceiptHomeScreenState
     );
   }
 
-  Widget _buildReceiptTile(Receipt receipt) {
+  void _toggleReceiptSelection(String receiptId) {
+    setState(() {
+      if (_selectedReceiptIds.contains(receiptId)) {
+        _selectedReceiptIds.remove(receiptId);
+      } else {
+        _selectedReceiptIds.add(receiptId);
+      }
+    });
+  }
+
+  void _clearReceiptSelection() {
+    if (_selectedReceiptIds.isEmpty) {
+      return;
+    }
+    setState(_selectedReceiptIds.clear);
+  }
+
+  void _handleReceiptTap(Receipt receipt) {
+    if (_isSelectingReceipts) {
+      _toggleReceiptSelection(receipt.id);
+      return;
+    }
+
+    Navigator.of(context).pushNamed(
+      AppRoutes.receiptDetail,
+      arguments: _receiptDetailArguments(receipt.id),
+    );
+  }
+
+  void _handleReceiptLongPress(Receipt receipt) {
+    _toggleReceiptSelection(receipt.id);
+  }
+
+  Future<String?> _pickCollectionId({
+    String? excludeCollectionId,
+    String title = 'Add to Trip / Event',
+  }) async {
+    while (true) {
+      final action = await showCollectionPickerBottomSheet(
+        context,
+        excludeCollectionId: excludeCollectionId,
+        title: title,
+      );
+
+      if (!mounted || action == null) {
+        return null;
+      }
+
+      if (action.type == CollectionPickerActionType.createNew) {
+        await Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const CreateCollectionScreen(),
+          ),
+        );
+        ref.refresh(collectionsProvider);
+        ref.refresh(collectionsStreamProvider);
+
+        final collections = await ref.read(collectionsProvider.future);
+        if (!mounted) {
+          return null;
+        }
+
+        final hasSelectableCollection = collections.any(
+          (collection) => collection.id != excludeCollectionId,
+        );
+        if (!hasSelectableCollection) {
+          return null;
+        }
+        continue;
+      }
+
+      return action.collectionId;
+    }
+  }
+
+  Future<void> _assignSelectedReceiptsToCollection() async {
+    if (_selectedReceiptIds.isEmpty) {
+      return;
+    }
+
+    if (!ref.read(premiumCollectionAccessProvider)) {
+      await _showUpgradePrompt();
+      return;
+    }
+
+    final collectionId = await _pickCollectionId();
+    if (!mounted || collectionId == null) {
+      return;
+    }
+
+    await ref
+        .read(receiptRepositoryProviderOverride)
+        .assignReceiptsToCollection(_selectedReceiptIds.toList(), collectionId);
+    ref.read(receiptCollectionOverridesProvider.notifier).state = {
+      ...ref.read(receiptCollectionOverridesProvider),
+      for (final receiptId in _selectedReceiptIds) receiptId: collectionId,
+    };
+    _clearReceiptSelection();
+    showRootSnackBar(
+      const SnackBar(content: Text('Receipts added to Trip / Event')),
+    );
+  }
+
+  Future<void> _showUpgradePrompt() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const CollectionsPreviewScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openAddToCollectionFlow(Collection collection) async {
+    if (!ref.read(premiumCollectionAccessProvider)) {
+      await _showUpgradePrompt();
+      return;
+    }
+
+    final action = await showModalBottomSheet<_AddReceiptAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.add_photo_alternate_outlined),
+                title: const Text('Add new receipt'),
+                onTap: () => Navigator.of(context).pop(_AddReceiptAction.addNew),
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_add_outlined),
+                title: const Text('Select existing receipts'),
+                onTap: () =>
+                    Navigator.of(context).pop(_AddReceiptAction.addExisting),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == _AddReceiptAction.addNew) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => AddReceiptScreen(
+            initialCollectionId: collection.id,
+          ),
+        ),
+      );
+      return;
+    }
+
+    final receipts = await ref.read(receiptsProvider.future);
+    if (!mounted) {
+      return;
+    }
+
+    final availableReceipts = receipts
+        .where((receipt) => receipt.id.isNotEmpty)
+        .where((receipt) => receipt.collectionId != collection.id)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    final selectedIds = await showReceiptSelectionBottomSheet(
+      context,
+      receipts: availableReceipts,
+      title: 'Add receipts to Trip / Event',
+      ctaLabel: 'Add to Trip / Event',
+    );
+
+    if (!mounted || selectedIds == null || selectedIds.isEmpty) {
+      return;
+    }
+
+    await ref
+        .read(receiptRepositoryProviderOverride)
+        .assignReceiptsToCollection(selectedIds, collection.id);
+    ref.read(receiptCollectionOverridesProvider.notifier).state = {
+      ...ref.read(receiptCollectionOverridesProvider),
+      for (final receiptId in selectedIds) receiptId: collection.id,
+    };
+
+    showRootSnackBar(
+      const SnackBar(content: Text('Receipts added to Trip / Event')),
+    );
+  }
+
+  Widget _buildReceiptTile(
+    Receipt receipt, {
+    VoidCallback? onTap,
+    VoidCallback? onLongPress,
+    bool isSelected = false,
+  }) {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
+        color: isSelected
+            ? AppColors.primaryNavy.withValues(alpha: 0.06)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSelected
+              ? AppColors.primaryNavy.withValues(alpha: 0.25)
+              : Colors.transparent,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.06),
@@ -149,13 +359,18 @@ class _PremiumReceiptHomeScreenState
             horizontal: 16,
             vertical: 14,
           ),
-          onTap: () {
-            Navigator.pushNamed(
-              context,
-              '/receiptDetail',
-              arguments: _receiptDetailArguments(receipt.id),
-            );
-          },
+          leading: _isSelectingReceipts
+              ? Icon(
+                  isSelected
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: isSelected
+                      ? AppColors.primaryNavy
+                      : AppColors.textSecondary,
+                )
+              : null,
+          onTap: onTap,
+          onLongPress: onLongPress,
           title: Text(
             receipt.storeName,
             style: const TextStyle(
@@ -235,29 +450,41 @@ class _PremiumReceiptHomeScreenState
   Widget build(BuildContext context) {
     final receiptsAsync = ref.watch(receiptsProvider);
     final filters = ref.watch(receiptSearchFiltersProvider);
-    final hasTripAccess = ref.watch(premiumTripAccessProvider);
-    final tripsAsync = hasTripAccess ? ref.watch(tripsStreamProvider) : null;
+    final hasCollectionAccess = ref.watch(premiumCollectionAccessProvider);
+    final collectionsAsync =
+        hasCollectionAccess ? ref.watch(collectionsStreamProvider) : null;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          "My Receipts",
-          style: TextStyle(
+        title: Text(
+          _isSelectingReceipts
+              ? '${_selectedReceiptIds.length} selected'
+              : 'My Receipts',
+          style: const TextStyle(
             fontSize: 27,
             fontWeight: FontWeight.w700,
             color: AppColors.primaryNavy,
           ),
         ),
         actions: [
-          if (hasTripAccess)
+          if (_isSelectingReceipts)
             IconButton(
-              icon: const Icon(Icons.luggage_outlined),
-              tooltip: 'Trips',
+              icon: const Icon(Icons.close),
+              tooltip: 'Clear selection',
+              onPressed: _clearReceiptSelection,
+            )
+          else if (hasCollectionAccess)
+            IconButton(
+              icon: const Icon(
+                Icons.folder_open,
+                color: AppColors.primaryNavy,
+              ),
+              tooltip: 'Trips & Events',
               onPressed: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute<void>(
-                    builder: (_) => const TripsListScreen(),
+                    builder: (_) => const CollectionsListScreen(),
                   ),
                 );
               },
@@ -278,8 +505,11 @@ class _PremiumReceiptHomeScreenState
       ),
       body: receiptsAsync.when(
         data: (receipts) {
-          _itemIndex = buildItemIndex(receipts);
-          final filtered = _applyFilters(receipts, filters);
+          final rootReceipts = receipts
+              .where((receipt) => receipt.collectionId == null)
+              .toList();
+          _itemIndex = buildItemIndex(rootReceipts);
+          final filtered = _applyFilters(rootReceipts, filters);
           final bool canClear =
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
           final bool showItemLevelResults =
@@ -293,10 +523,11 @@ class _PremiumReceiptHomeScreenState
               _buildSearchControls(filters),
               _buildCategoryChipBar(),
               _buildActiveFilters(filters),
-              if (tripsAsync != null) _buildTripsSection(tripsAsync),
+              if (collectionsAsync != null)
+                _buildCollectionsSection(collectionsAsync),
               Expanded(
                 child: showItemLevelResults
-                    ? _buildSearchResults(receipts, filtered, filters)
+                    ? _buildSearchResults(rootReceipts, filtered, filters)
                     : isAllCategory
                         ? (filtered.isEmpty
                             ? _EmptyState(
@@ -304,7 +535,7 @@ class _PremiumReceiptHomeScreenState
                                 onClear: () => _clearAll(clearQuery: true),
                               )
                             : _buildGroupedReceiptsList(filtered))
-                        : _buildCategoryResults(receipts),
+                        : _buildCategoryResults(rootReceipts),
               ),
             ],
           );
@@ -336,35 +567,63 @@ class _PremiumReceiptHomeScreenState
           );
         },
       ),
-      floatingActionButton: _AddReceiptFab(
-        hasTripAccess: hasTripAccess,
-        onAddReceiptPressed: () => Navigator.pushNamed(context, AppRoutes.addReceipt),
-        onCreateTripPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const CreateTripScreen(),
+      floatingActionButton: _isSelectingReceipts
+          ? null
+          : _AddReceiptFab(
+              hasCollectionAccess: hasCollectionAccess,
+              onAddReceiptPressed: () =>
+                  Navigator.pushNamed(context, AppRoutes.addReceipt),
+              onCreateCollectionPressed: () {
+                Navigator.of(context, rootNavigator: true).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CreateCollectionScreen(),
+                  ),
+                );
+              },
+              onCollectionsPreviewPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CollectionsPreviewScreen(),
+                  ),
+                );
+              },
             ),
-          );
-        },
-        onTripsPreviewPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const TripsPreviewScreen(),
-            ),
-          );
-        },
-      ),
+      bottomNavigationBar: _isSelectingReceipts
+          ? SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: FilledButton.icon(
+                onPressed: _assignSelectedReceiptsToCollection,
+                icon: const Icon(Icons.folder_open),
+                label: const Text('Add to Trip / Event'),
+              ),
+            )
+          : null,
     );
   }
 
-  Widget _buildTripsSection(AsyncValue<List<Trip>> tripsAsync) {
-    return tripsAsync.when(
-      data: (trips) {
-        if (trips.isEmpty) {
+  Widget _buildCollectionsSection(
+      AsyncValue<List<Collection>> collectionsAsync) {
+    return collectionsAsync.when(
+      data: (collections) {
+        if (collections.isEmpty) {
           return const SizedBox.shrink();
         }
+
+        final activeCollections = collections
+            .where((collection) => collection.status != CollectionStatus.completed)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        final completedCollections = collections
+            .where((collection) => collection.status == CollectionStatus.completed)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        final displayCollections = activeCollections.length >= 5
+            ? activeCollections.take(5).toList()
+            : <Collection>[
+                ...activeCollections,
+                ...completedCollections.take(5 - activeCollections.length),
+              ];
 
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -374,7 +633,7 @@ class _PremiumReceiptHomeScreenState
               Row(
                 children: [
                   const Text(
-                    'Trips',
+                    'Trips & Events',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
@@ -387,7 +646,7 @@ class _PremiumReceiptHomeScreenState
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const TripsListScreen(),
+                          builder: (_) => const CollectionsListScreen(),
                         ),
                       );
                     },
@@ -396,24 +655,24 @@ class _PremiumReceiptHomeScreenState
                 ],
               ),
               const SizedBox(height: 8),
-              if (trips.length == 1)
-                _TripSummaryCard(
-                  trip: trips.single,
-                  fullWidth: true,
-                )
-              else
-                SizedBox(
-                  height: 146,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: trips.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (context, index) {
-                      final trip = trips[index];
-                      return _TripSummaryCard(trip: trip);
-                    },
-                  ),
+              SizedBox(
+                height: 220,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: displayCollections.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final collection = displayCollections[index];
+                    return _CollectionSummaryCard(
+                      collection: collection,
+                      fullWidth: displayCollections.length == 1,
+                      onAddReceiptsPressed: () =>
+                          _openAddToCollectionFlow(collection),
+                    );
+                  },
                 ),
+              ),
             ],
           ),
         );
@@ -653,7 +912,8 @@ class _PremiumReceiptHomeScreenState
     final totals = <String, double>{};
 
     for (final item in items) {
-      final currencyCode = _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
+      final currencyCode =
+          _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
       totals[currencyCode] = (totals[currencyCode] ?? 0.0) + item.price;
     }
 
@@ -702,8 +962,10 @@ class _PremiumReceiptHomeScreenState
     for (var i = 0; i < itemCount; i++) {
       final item = group.items[i];
       final title = item.itemName;
-      final subtitle = '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-      final currencyCode = _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
+      final subtitle =
+          '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
+      final currencyCode =
+          _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
       final formattedPrice = NumberFormat.simpleCurrency(
         name: currencyCode,
       ).format(item.price);
@@ -899,7 +1161,8 @@ class _PremiumReceiptHomeScreenState
       return _buildGroupedReceiptsList(filteredReceipts);
     }
 
-    final receiptFallbackResults = _searchReceiptFallbackResults(filteredReceipts);
+    final receiptFallbackResults =
+        _searchReceiptFallbackResults(filteredReceipts);
     if (receiptFallbackResults.isEmpty) {
       return const Center(
         child: Text('No matching purchases found'),
@@ -931,10 +1194,8 @@ class _PremiumReceiptHomeScreenState
                 name: receipt.currency,
               ).format(receipt.total);
               return ListTile(
-                onTap: () => Navigator.of(context).pushNamed(
-                  AppRoutes.receiptDetail,
-                  arguments: _receiptDetailArguments(receipt.id),
-                ),
+                onTap: () => _handleReceiptTap(receipt),
+                onLongPress: () => _handleReceiptLongPress(receipt),
                 title: Text(receipt.storeName),
                 subtitle: Text(
                   DateFormat.yMMMd().format(receipt.date),
@@ -969,7 +1230,8 @@ class _PremiumReceiptHomeScreenState
 
     final query = _searchQuery;
     final results = _itemIndex.where((item) {
-      if (allowedReceiptIds != null && !allowedReceiptIds.contains(item.receiptId)) {
+      if (allowedReceiptIds != null &&
+          !allowedReceiptIds.contains(item.receiptId)) {
         return false;
       }
       if (taxClaimable != null && item.taxClaimable != taxClaimable) {
@@ -984,9 +1246,8 @@ class _PremiumReceiptHomeScreenState
       }
       final canonicalName = _safeCanonicalName(item).toLowerCase();
       final brand = _safeBrand(item).toLowerCase();
-      final searchTokens = _safeSearchTokens(item)
-          .map((token) => token.toLowerCase())
-          .toList();
+      final searchTokens =
+          _safeSearchTokens(item).map((token) => token.toLowerCase()).toList();
       final originalName = _safeOriginalName(item).toLowerCase();
       final merchant = item.merchant.toLowerCase();
       final notes = _safeNotes(item).toLowerCase();
@@ -1189,7 +1450,8 @@ class _PremiumReceiptHomeScreenState
 
     for (var groupIndex = 0; groupIndex < monthGroups.length; groupIndex++) {
       final group = monthGroups[groupIndex];
-      final totalsByCurrency = _monthlyTotalsByCurrencyForReceipts(group.receipts);
+      final totalsByCurrency =
+          _monthlyTotalsByCurrencyForReceipts(group.receipts);
       final totalText = _formatCurrencyTotals(totalsByCurrency);
       children.add(
         Padding(
@@ -1220,6 +1482,27 @@ class _PremiumReceiptHomeScreenState
 
       for (final receipt in group.receipts) {
         final currentIndex = overallIndex++;
+        final isSelected = _selectedReceiptIds.contains(receipt.id);
+        final receiptTile = Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Stack(
+            children: [
+              _buildReceiptTile(
+                receipt,
+                onTap: () => _handleReceiptTap(receipt),
+                onLongPress: () => _handleReceiptLongPress(receipt),
+                isSelected: isSelected,
+              ),
+              if (!_isSelectingReceipts) _buildSwipeHintOverlay(currentIndex),
+            ],
+          ),
+        );
+
+        if (_isSelectingReceipts) {
+          children.add(receiptTile);
+          continue;
+        }
+
         children.add(
           Dismissible(
             key: ValueKey(receipt.id),
@@ -1272,15 +1555,7 @@ class _PremiumReceiptHomeScreenState
                 const SnackBar(content: Text("Receipt deleted")),
               );
             },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Stack(
-                children: [
-                  _buildReceiptTile(receipt),
-                  _buildSwipeHintOverlay(currentIndex),
-                ],
-              ),
-            ),
+            child: receiptTile,
           ),
         );
       }
@@ -1430,8 +1705,7 @@ class _PremiumReceiptHomeScreenState
     if (result.file != null) {
       await navigator.pushNamed(
         AppRoutes.addReceipt,
-        arguments:
-            AddReceiptScreenArgs(initialImagePath: result.file!.path),
+        arguments: AddReceiptScreenArgs(initialImagePath: result.file!.path),
       );
       return;
     }
@@ -1522,16 +1796,16 @@ class _ItemMonthGroup {
 
 class _AddReceiptFab extends StatelessWidget {
   const _AddReceiptFab({
-    required this.hasTripAccess,
+    required this.hasCollectionAccess,
     required this.onAddReceiptPressed,
-    required this.onCreateTripPressed,
-    required this.onTripsPreviewPressed,
+    required this.onCreateCollectionPressed,
+    required this.onCollectionsPreviewPressed,
   });
 
-  final bool hasTripAccess;
+  final bool hasCollectionAccess;
   final VoidCallback onAddReceiptPressed;
-  final VoidCallback onCreateTripPressed;
-  final VoidCallback onTripsPreviewPressed;
+  final VoidCallback onCreateCollectionPressed;
+  final VoidCallback onCollectionsPreviewPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1554,12 +1828,14 @@ class _AddReceiptFab extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.receipt_long_outlined),
                 title: const Text('Add Receipt'),
-                onTap: () => Navigator.of(context).pop(_HomeFabAction.addReceipt),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.addReceipt),
               ),
               ListTile(
-                leading: const Icon(Icons.luggage_outlined),
-                title: const Text('Create Trip'),
-                onTap: () => Navigator.of(context).pop(_HomeFabAction.createTrip),
+                leading: const Icon(Icons.folder_copy_outlined),
+                title: const Text('Create Trip or Event'),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.createCollection),
               ),
             ],
           ),
@@ -1572,38 +1848,49 @@ class _AddReceiptFab extends StatelessWidget {
       return;
     }
 
-    if (action == _HomeFabAction.createTrip) {
-      if (hasTripAccess) {
-        onCreateTripPressed();
+    if (action == _HomeFabAction.createCollection) {
+      if (hasCollectionAccess) {
+        onCreateCollectionPressed();
       } else {
-        onTripsPreviewPressed();
+        onCollectionsPreviewPressed();
       }
     }
   }
 }
 
-class _TripSummaryCard extends StatelessWidget {
-  const _TripSummaryCard({
-    required this.trip,
+class _CollectionSummaryCard extends ConsumerWidget {
+  const _CollectionSummaryCard({
+    required this.collection,
+    required this.onAddReceiptsPressed,
     this.fullWidth = false,
   });
 
-  final Trip trip;
+  final Collection collection;
+  final VoidCallback onAddReceiptsPressed;
   final bool fullWidth;
 
   @override
-  Widget build(BuildContext context) {
-    final receiptCount = trip.receiptCount ?? 0;
-    final hasReceipts = receiptCount > 0;
-    final dateLabel = _buildDateLabel(trip);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final receipts = ref.watch(receiptsProvider).maybeWhen(
+          data: (List<Receipt> receipts) => receipts,
+          orElse: () => const <Receipt>[],
+        );
+    final isCompleted = collection.status == CollectionStatus.completed;
+    final collectionReceipts = receipts
+        .where((receipt) => receipt.collectionId == collection.id)
+        .toList();
+    final receiptCount = collectionReceipts.length;
+    final hasReceipts = collectionReceipts.isNotEmpty;
+    final dateLabel = _buildDateLabel(collection);
 
     return SizedBox(
-      width: fullWidth ? double.infinity : 240,
+      width: fullWidth ? double.infinity : 200,
+      height: double.infinity,
       child: Container(
         decoration: BoxDecoration(
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: Colors.black.withValues(alpha: isCompleted ? 0.03 : 0.05),
               blurRadius: 10,
               offset: const Offset(0, 3),
             ),
@@ -1614,118 +1901,47 @@ class _TripSummaryCard extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(
-              color: Colors.grey.shade200,
+              color: isCompleted
+                  ? Colors.grey.shade300
+                  : Colors.grey.shade200,
             ),
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => TripDetailScreen(tripId: trip.id),
-              ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 2),
-                      child: Icon(
-                        Icons.luggage_outlined,
-                        size: 18,
-                        color: AppColors.primaryNavy,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        trip.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primaryNavy,
-                        ),
-                      ),
-                    ),
-                  ],
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      CollectionDetailScreen(collectionId: collection.id),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Text(
-                      trip.type == TripType.work ? 'Work' : 'Personal',
-                      style: const TextStyle(color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: AppColors.accentTeal,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Active',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-                if (dateLabel != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    dateLabel,
-                    style: const TextStyle(color: AppColors.textSecondary),
-                  ),
-                ],
-                const SizedBox(height: 14),
-                if (hasReceipts)
-                  Text(
-                    '$receiptCount receipt${receiptCount == 1 ? '' : 's'}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.primaryNavy,
-                    ),
-                  )
-                else
-                  Column(
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.max,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'No receipts yet',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
+                      const Padding(
+                        padding: EdgeInsets.only(top: 2),
+                        child: Icon(
+                          Icons.folder_copy_outlined,
+                          size: 18,
                           color: AppColors.primaryNavy,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryNavy.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'Add your first receipt',
-                          style: TextStyle(
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          collection.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 19,
                             fontWeight: FontWeight.w600,
                             color: AppColors.primaryNavy,
                           ),
@@ -1733,37 +1949,139 @@ class _TripSummaryCard extends StatelessWidget {
                       ),
                     ],
                   ),
-              ],
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text(
+                        collection.type == CollectionType.work
+                            ? 'Work'
+                            : 'Personal',
+                        style: const TextStyle(color: AppColors.textSecondary),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: AppColors.accentTeal,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isCompleted ? 'Completed' : 'Active',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isCompleted
+                              ? Colors.grey.shade600
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (dateLabel != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      dateLabel,
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                  ],
+                  const Spacer(),
+                  if (hasReceipts)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$receiptCount receipt${receiptCount == 1 ? '' : 's'}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.primaryNavy,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: onAddReceiptsPressed,
+                          child: const Text('+ Add'),
+                        ),
+                      ],
+                    )
+                  else
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'No receipts yet',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.primaryNavy,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                AppColors.primaryNavy.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: TextButton(
+                            onPressed: onAddReceiptsPressed,
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'Add receipts',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryNavy,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
         ),
       ),
     );
   }
 }
 
-String? _buildDateLabel(Trip trip) {
-  if (trip.startDate == null && trip.endDate == null) {
+String? _buildDateLabel(Collection collection) {
+  if (collection.startDate == null && collection.endDate == null) {
     return null;
   }
 
   final formatter = DateFormat.yMMMd();
-  if (trip.startDate != null && trip.endDate == null) {
-    return 'Starts ${formatter.format(trip.startDate!)}';
+  if (collection.startDate != null && collection.endDate == null) {
+    return 'Starts ${formatter.format(collection.startDate!)}';
   }
 
-  final startText =
-      trip.startDate == null ? 'Any start' : formatter.format(trip.startDate!);
-  final endText =
-      trip.endDate == null ? 'Any end' : formatter.format(trip.endDate!);
+  final startText = collection.startDate == null
+      ? 'Any start'
+      : formatter.format(collection.startDate!);
+  final endText = collection.endDate == null
+      ? 'Any end'
+      : formatter.format(collection.endDate!);
   return '$startText - $endText';
 }
 
 enum _HomeFabAction {
   addReceipt,
-  createTrip,
+  createCollection,
 }
+
+enum _AddReceiptAction { addNew, addExisting }
 
 class _EmptyState extends StatelessWidget {
   final bool showClear;

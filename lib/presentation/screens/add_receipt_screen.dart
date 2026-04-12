@@ -52,13 +52,19 @@ enum _NonReceiptAction { camera, gallery, files, none }
 class AddReceiptScreenArgs {
   final String? initialImagePath;
   final AddReceiptInitialAction? initialAction;
+  final String? initialCollectionId;
 
-  const AddReceiptScreenArgs({this.initialImagePath, this.initialAction});
+  const AddReceiptScreenArgs({
+    this.initialImagePath,
+    this.initialAction,
+    this.initialCollectionId,
+  });
 }
 
 class AddReceiptScreen extends ConsumerStatefulWidget {
   final String? initialImagePath;
   final AddReceiptInitialAction? initialAction;
+  final String? initialCollectionId;
   final Receipt? existingReceipt;
   final File? initialFile;
   final bool isFromShare;
@@ -67,6 +73,7 @@ class AddReceiptScreen extends ConsumerStatefulWidget {
       {super.key,
       this.initialImagePath,
       this.initialAction,
+      this.initialCollectionId,
       this.existingReceipt,
       this.initialFile,
       this.isFromShare = false});
@@ -817,6 +824,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         items: _items,
         searchKeywords: _searchKeywords,
         normalizedBrand: _normalizedBrand,
+        collectionId:
+            widget.existingReceipt?.collectionId ?? widget.initialCollectionId,
         metadata: _buildMetadata(),
       );
 

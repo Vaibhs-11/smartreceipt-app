@@ -20,7 +20,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
     return openDatabase(
       dbPath,
       password: 'smartreceipt_dev',
-      version: 5, // schema now tracks trip linkage metadata
+      version: 6,
       onCreate: (Database db, int version) async {
         await db.execute('''
         CREATE TABLE receipts (
@@ -37,7 +37,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
           imageProcessingStatus TEXT,
           extractedText TEXT,
           metadata TEXT,
-          tripId TEXT
+          collectionId TEXT
         );
         ''');
       },
@@ -62,12 +62,12 @@ class SqliteReceiptRepository implements ReceiptRepository {
             columnDefinition: 'metadata TEXT',
           );
         }
-        if (oldVersion < 5) {
+        if (oldVersion < 6) {
           await ensureColumnExists(
             db,
             tableName: 'receipts',
-            columnName: 'tripId',
-            columnDefinition: 'tripId TEXT',
+            columnName: 'collectionId',
+            columnDefinition: 'collectionId TEXT',
           );
         }
       },
@@ -164,6 +164,50 @@ class SqliteReceiptRepository implements ReceiptRepository {
     return getAllReceipts();
   }
 
+  @override
+  Future<void> assignReceiptsToCollection(
+    List<String> receiptIds,
+    String collectionId,
+  ) async {
+    if (receiptIds.isEmpty) {
+      return;
+    }
+
+    final Database db = await _dbFuture;
+    final placeholders = List<String>.filled(receiptIds.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE receipts SET collectionId = ? WHERE id IN ($placeholders)',
+      <Object?>[collectionId, ...receiptIds],
+    );
+  }
+
+  @override
+  Future<void> removeReceiptFromCollection(String receiptId) async {
+    await removeReceiptsFromCollection(<String>[receiptId]);
+  }
+
+  @override
+  Future<void> removeReceiptsFromCollection(List<String> receiptIds) async {
+    if (receiptIds.isEmpty) {
+      return;
+    }
+
+    final Database db = await _dbFuture;
+    final placeholders = List<String>.filled(receiptIds.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE receipts SET collectionId = NULL WHERE id IN ($placeholders)',
+      receiptIds.cast<Object?>(),
+    );
+  }
+
+  @override
+  Future<void> moveReceiptToCollection(
+    String receiptId,
+    String newCollectionId,
+  ) {
+    return assignReceiptsToCollection(<String>[receiptId], newCollectionId);
+  }
+
   static bool _hasColumn(
     List<Map<String, Object?>> tableInfo,
     String columnName,
@@ -185,7 +229,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
         'imageProcessingStatus': r.imageProcessingStatus,
         'extractedText': r.extractedText,
         'metadata': r.metadata != null ? jsonEncode(r.metadata) : null,
-        'tripId': r.tripId,
+        'collectionId': r.collectionId,
       };
 
   static Receipt _fromDbMap(Map<String, Object?> map) {
@@ -218,7 +262,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
       imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
       metadata: metadata,
-      tripId: map['tripId'] as String?,
+      collectionId: map['collectionId'] as String?,
     );
   }
 }

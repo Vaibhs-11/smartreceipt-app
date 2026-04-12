@@ -9,9 +9,9 @@ import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
-import 'package:receiptnest/presentation/screens/create_trip_screen.dart';
-import 'package:receiptnest/presentation/screens/trips_preview_screen.dart';
-import 'package:receiptnest/presentation/screens/trips_list_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_list_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_preview_screen.dart';
+import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
@@ -175,7 +175,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     final receiptsAsync = ref.watch(receiptsProvider);
     final filters = ref.watch(receiptSearchFiltersProvider);
     final searchQuery = filters.query.trim().toLowerCase();
-    final hasTripAccess = ref.watch(premiumTripAccessProvider);
+    final hasCollectionAccess = ref.watch(premiumCollectionAccessProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -188,15 +188,18 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           ),
         ),
         actions: [
-          if (hasTripAccess)
+          if (hasCollectionAccess)
             IconButton(
-              icon: const Icon(Icons.luggage_outlined),
-              tooltip: 'Trips',
+              icon: const Icon(
+                Icons.folder_open,
+                color: AppColors.primaryNavy,
+              ),
+              tooltip: 'Trips & Events',
               onPressed: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute<void>(
-                    builder: (_) => const TripsListScreen(),
+                    builder: (_) => const CollectionsListScreen(),
                   ),
                 );
               },
@@ -217,7 +220,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       ),
       body: receiptsAsync.when(
         data: (receipts) {
-          final filtered = _applyFilters(receipts, filters);
+          final rootReceipts = receipts
+              .where((receipt) => receipt.collectionId == null)
+              .toList();
+          final filtered = _applyFilters(rootReceipts, filters);
           _itemIndex = buildItemIndex(filtered);
           final bool canClear =
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
@@ -268,21 +274,21 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         },
       ),
       floatingActionButton: _AddReceiptFab(
-        hasTripAccess: hasTripAccess,
-        onAddReceiptPressed: () => Navigator.pushNamed(context, AppRoutes.addReceipt),
-        onCreateTripPressed: () {
-          Navigator.push(
-            context,
+        hasCollectionAccess: hasCollectionAccess,
+        onAddReceiptPressed: () =>
+            Navigator.pushNamed(context, AppRoutes.addReceipt),
+        onCreateCollectionPressed: () {
+          Navigator.of(context, rootNavigator: true).push(
             MaterialPageRoute<void>(
-              builder: (_) => const CreateTripScreen(),
+              builder: (_) => const CreateCollectionScreen(),
             ),
           );
         },
-        onTripsPreviewPressed: () {
+        onCollectionsPreviewPressed: () {
           Navigator.push(
             context,
             MaterialPageRoute<void>(
-              builder: (_) => const TripsPreviewScreen(),
+              builder: (_) => const CollectionsPreviewScreen(),
             ),
           );
         },
@@ -412,7 +418,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           : _buildGroupedReceiptsList(receipts);
     }
 
-    final receiptFallbackResults = _searchReceiptFallbackResults(receipts, query);
+    final receiptFallbackResults =
+        _searchReceiptFallbackResults(receipts, query);
     if (receiptFallbackResults.isEmpty) {
       return const Center(
         child: Text('No matching purchases found'),
@@ -489,9 +496,11 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     return 'AUD';
   }
 
-  List<Receipt> _searchReceiptFallbackResults(List<Receipt> receipts, String query) {
+  List<Receipt> _searchReceiptFallbackResults(
+      List<Receipt> receipts, String query) {
     if (query.isEmpty) return const <Receipt>[];
-    final tokens = query.split(RegExp(r'\s+')).where((token) => token.isNotEmpty).toList();
+    final tokens =
+        query.split(RegExp(r'\s+')).where((token) => token.isNotEmpty).toList();
     return receipts.where((receipt) {
       return tokens.every((token) => _matchesQuery(receipt, token));
     }).toList();
@@ -796,8 +805,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     if (result.file != null) {
       await navigator.pushNamed(
         AppRoutes.addReceipt,
-        arguments:
-            AddReceiptScreenArgs(initialImagePath: result.file!.path),
+        arguments: AddReceiptScreenArgs(initialImagePath: result.file!.path),
       );
       return;
     }
@@ -876,16 +884,16 @@ class _MonthGroup {
 
 class _AddReceiptFab extends StatelessWidget {
   const _AddReceiptFab({
-    required this.hasTripAccess,
+    required this.hasCollectionAccess,
     required this.onAddReceiptPressed,
-    required this.onCreateTripPressed,
-    required this.onTripsPreviewPressed,
+    required this.onCreateCollectionPressed,
+    required this.onCollectionsPreviewPressed,
   });
 
-  final bool hasTripAccess;
+  final bool hasCollectionAccess;
   final VoidCallback onAddReceiptPressed;
-  final VoidCallback onCreateTripPressed;
-  final VoidCallback onTripsPreviewPressed;
+  final VoidCallback onCreateCollectionPressed;
+  final VoidCallback onCollectionsPreviewPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -908,12 +916,14 @@ class _AddReceiptFab extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.receipt_long_outlined),
                 title: const Text('Add Receipt'),
-                onTap: () => Navigator.of(context).pop(_HomeFabAction.addReceipt),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.addReceipt),
               ),
               ListTile(
-                leading: const Icon(Icons.luggage_outlined),
-                title: const Text('Create Trip'),
-                onTap: () => Navigator.of(context).pop(_HomeFabAction.createTrip),
+                leading: const Icon(Icons.folder_copy_outlined),
+                title: const Text('Create Trip or Event'),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.createCollection),
               ),
             ],
           ),
@@ -926,11 +936,11 @@ class _AddReceiptFab extends StatelessWidget {
       return;
     }
 
-    if (action == _HomeFabAction.createTrip) {
-      if (hasTripAccess) {
-        onCreateTripPressed();
+    if (action == _HomeFabAction.createCollection) {
+      if (hasCollectionAccess) {
+        onCreateCollectionPressed();
       } else {
-        onTripsPreviewPressed();
+        onCollectionsPreviewPressed();
       }
     }
   }
@@ -938,7 +948,7 @@ class _AddReceiptFab extends StatelessWidget {
 
 enum _HomeFabAction {
   addReceipt,
-  createTrip,
+  createCollection,
 }
 
 class _EmptyState extends StatelessWidget {

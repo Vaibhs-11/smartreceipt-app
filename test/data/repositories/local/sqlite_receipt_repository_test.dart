@@ -5,22 +5,22 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 
 void main() {
   group('SqliteReceiptRepository mapping', () {
-    test('tripId persists through db map conversion', () {
+    test('collectionId persists through db map conversion', () {
       final receipt = Receipt(
         id: 'receipt-1',
         storeName: 'Store',
         date: DateTime.utc(2026, 1, 1),
         total: 12.34,
         currency: 'AUD',
-        tripId: 'trip-1',
+        collectionId: 'collection-1',
         tags: const <String>['food'],
       );
 
       final map = SqliteReceiptRepository.receiptToDbMap(receipt);
       final restored = SqliteReceiptRepository.receiptFromDbMap(map);
 
-      expect(map['tripId'], 'trip-1');
-      expect(restored.tripId, 'trip-1');
+      expect(map['collectionId'], 'collection-1');
+      expect(restored.collectionId, 'collection-1');
       expect(restored.storeName, 'Store');
       expect(restored.total, 12.34);
     });
@@ -30,14 +30,17 @@ void main() {
     test('detects existing columns safely', () {
       final tableInfo = <Map<String, Object?>>[
         <String, Object?>{'name': 'id'},
-        <String, Object?>{'name': 'tripId'},
+        <String, Object?>{'name': 'collectionId'},
       ];
 
-      expect(SqliteReceiptRepository.hasColumn(tableInfo, 'tripId'), isTrue);
+      expect(
+        SqliteReceiptRepository.hasColumn(tableInfo, 'collectionId'),
+        isTrue,
+      );
       expect(SqliteReceiptRepository.hasColumn(tableInfo, 'metadata'), isFalse);
     });
 
-    test('only adds tripId when missing', () async {
+    test('only adds collectionId when missing', () async {
       final db = _FakeDatabaseExecutor(
         tableInfo: <Map<String, Object?>>[
           <String, Object?>{'name': 'id'},
@@ -48,32 +51,31 @@ void main() {
       await SqliteReceiptRepository.ensureColumnExists(
         db,
         tableName: 'receipts',
-        columnName: 'tripId',
-        columnDefinition: 'tripId TEXT',
+        columnName: 'collectionId',
+        columnDefinition: 'collectionId TEXT',
       );
 
-      expect(db.executedStatements, <String>[
-        'ALTER TABLE receipts ADD COLUMN tripId TEXT;'
-      ]);
+      expect(db.executedStatements,
+          <String>['ALTER TABLE receipts ADD COLUMN collectionId TEXT;']);
       expect(
-        SqliteReceiptRepository.hasColumn(db.tableInfo, 'tripId'),
+        SqliteReceiptRepository.hasColumn(db.tableInfo, 'collectionId'),
         isTrue,
       );
     });
 
-    test('skips alter table when tripId already exists', () async {
+    test('skips alter table when collectionId already exists', () async {
       final db = _FakeDatabaseExecutor(
         tableInfo: <Map<String, Object?>>[
           <String, Object?>{'name': 'id'},
-          <String, Object?>{'name': 'tripId'},
+          <String, Object?>{'name': 'collectionId'},
         ],
       );
 
       await SqliteReceiptRepository.ensureColumnExists(
         db,
         tableName: 'receipts',
-        columnName: 'tripId',
-        columnDefinition: 'tripId TEXT',
+        columnName: 'collectionId',
+        columnDefinition: 'collectionId TEXT',
       );
 
       expect(db.executedStatements, isEmpty);
@@ -92,8 +94,8 @@ class _FakeDatabaseExecutor extends Fake implements DatabaseExecutor {
   @override
   Future<void> execute(String sql, [List<Object?>? arguments]) async {
     executedStatements.add(sql);
-    if (sql == 'ALTER TABLE receipts ADD COLUMN tripId TEXT;') {
-      tableInfo.add(<String, Object?>{'name': 'tripId'});
+    if (sql == 'ALTER TABLE receipts ADD COLUMN collectionId TEXT;') {
+      tableInfo.add(<String, Object?>{'name': 'collectionId'});
     }
   }
 

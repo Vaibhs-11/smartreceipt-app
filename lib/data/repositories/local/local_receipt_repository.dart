@@ -56,4 +56,45 @@ class LocalReceiptRepository implements ReceiptRepository {
   Future<List<Receipt>> getReceipts() {
     return getAllReceipts();
   }
+
+  @override
+  Future<void> assignReceiptsToCollection(
+    List<String> receiptIds,
+    String collectionId,
+  ) async {
+    for (var i = 0; i < _receipts.length; i++) {
+      final receipt = _receipts[i];
+      if (receiptIds.contains(receipt.id)) {
+        _receipts[i] = receipt.copyWith(collectionId: collectionId);
+      }
+    }
+  }
+
+  @override
+  Future<void> removeReceiptFromCollection(String receiptId) async {
+    await removeReceiptsFromCollection(<String>[receiptId]);
+  }
+
+  @override
+  Future<void> removeReceiptsFromCollection(List<String> receiptIds) async {
+    if (receiptIds.isEmpty) {
+      return;
+    }
+
+    final ids = receiptIds.toSet();
+    for (var i = 0; i < _receipts.length; i++) {
+      final receipt = _receipts[i];
+      if (ids.contains(receipt.id)) {
+        _receipts[i] = receipt.copyWith(collectionId: null);
+      }
+    }
+  }
+
+  @override
+  Future<void> moveReceiptToCollection(
+    String receiptId,
+    String newCollectionId,
+  ) {
+    return assignReceiptsToCollection(<String>[receiptId], newCollectionId);
+  }
 }

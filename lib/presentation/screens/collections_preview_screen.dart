@@ -7,19 +7,21 @@ import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/domain/services/subscription_service.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
-import 'package:receiptnest/presentation/screens/create_trip_screen.dart';
+import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
-class TripsPreviewScreen extends ConsumerStatefulWidget {
-  const TripsPreviewScreen({super.key});
+class CollectionsPreviewScreen extends ConsumerStatefulWidget {
+  const CollectionsPreviewScreen({super.key});
 
   @override
-  ConsumerState<TripsPreviewScreen> createState() => _TripsPreviewScreenState();
+  ConsumerState<CollectionsPreviewScreen> createState() =>
+      _CollectionsPreviewScreenState();
 }
 
-class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
+class _CollectionsPreviewScreenState
+    extends ConsumerState<CollectionsPreviewScreen> {
   bool _startingTrial = false;
   String? _monthlyPrice;
 
@@ -36,7 +38,7 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Trips',
+          'Trips & Events',
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w700,
@@ -47,7 +49,8 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
       body: SafeArea(
         child: profileAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(child: Text('Failed to load Trips: $error')),
+          error: (error, _) =>
+              Center(child: Text('Failed to load Trips & Events: $error')),
           data: (profile) {
             if (profile == null) {
               return const SizedBox.shrink();
@@ -76,13 +79,13 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          Icons.luggage_outlined,
+                          Icons.folder_copy_outlined,
                           size: 36,
                           color: AppColors.primaryNavy,
                         ),
                         SizedBox(height: 16),
                         Text(
-                          'Organise receipts by trip',
+                          'Organise receipts your way',
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
@@ -91,7 +94,7 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
                         ),
                         SizedBox(height: 10),
                         Text(
-                          'Keep travel receipts grouped together, track spend for each trip, and export a cleaner record when you need it.',
+                          'Group receipts for trips, events, or projects and keep related spending in one place.',
                           style: TextStyle(
                             fontSize: 15,
                             color: AppColors.textSecondary,
@@ -101,19 +104,20 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  const _TripsPreviewBullet(
-                    text: 'Create separate personal and work trips',
+                  const _CollectionsPreviewBullet(
+                    text: 'Create separate personal and work collections',
                   ),
-                  const _TripsPreviewBullet(
+                  const _CollectionsPreviewBullet(
                     text: 'See receipts and totals grouped in one place',
                   ),
-                  const _TripsPreviewBullet(
-                    text: 'Keep travel records ready for reporting and export',
+                  const _CollectionsPreviewBullet(
+                    text:
+                        'Keep records organised for travel, events, and projects',
                   ),
                   const SizedBox(height: 24),
                   Text(
                     canStartTrial
-                        ? 'Start your free trial to unlock Trips and other Premium features.'
+                        ? 'Start your free trial to unlock Trips & Events and other Premium features.'
                         : _upgradeMessage(profile),
                     style: const TextStyle(
                       fontSize: 15,
@@ -161,13 +165,14 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
     try {
       final subscriptionService = ref.read(subscriptionServiceProvider);
       final products = await subscriptionService.fetchProducts();
-      final ProductDetails? monthlyProduct = products.cast<ProductDetails?>().firstWhere(
-            (product) =>
-                product != null &&
-                SubscriptionProductIds.tierForProduct(product.id) ==
-                    SubscriptionTier.monthly,
-            orElse: () => null,
-          );
+      final ProductDetails? monthlyProduct =
+          products.cast<ProductDetails?>().firstWhere(
+                (product) =>
+                    product != null &&
+                    SubscriptionProductIds.tierForProduct(product.id) ==
+                        SubscriptionTier.monthly,
+                orElse: () => null,
+              );
       if (!mounted || monthlyProduct == null) {
         return;
       }
@@ -178,11 +183,12 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
   }
 
   String _upgradeMessage(AppUserProfile profile) {
-    final priceText = _monthlyPrice == null ? 'monthly pricing' : '${_monthlyPrice!} / month';
+    final priceText =
+        _monthlyPrice == null ? 'monthly pricing' : '${_monthlyPrice!} / month';
     if (profile.trialUsed == true) {
-      return 'Upgrade to Premium to unlock Trips. Plans start at $priceText.';
+      return 'Upgrade to Premium to unlock Trips & Events. Plans start at $priceText.';
     }
-    return 'Unlock Trips with Premium. Plans start at $priceText, or start your free trial if available.';
+    return 'Unlock Trips & Events with Premium. Plans start at $priceText, or start your free trial if available.';
   }
 
   String _purchaseButtonLabel() {
@@ -204,9 +210,9 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
       showRootSnackBar(
         const SnackBar(content: Text('Trial started')),
       );
-      Navigator.of(context).pushReplacement(
+      await Navigator.of(context, rootNavigator: true).push(
         MaterialPageRoute<void>(
-          builder: (_) => const CreateTripScreen(),
+          builder: (_) => const CreateCollectionScreen(),
         ),
       );
     } catch (e) {
@@ -236,8 +242,8 @@ class _TripsPreviewScreenState extends ConsumerState<TripsPreviewScreen> {
   }
 }
 
-class _TripsPreviewBullet extends StatelessWidget {
-  const _TripsPreviewBullet({required this.text});
+class _CollectionsPreviewBullet extends StatelessWidget {
+  const _CollectionsPreviewBullet({required this.text});
 
   final String text;
 

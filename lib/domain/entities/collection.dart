@@ -2,50 +2,50 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
 
-DateTime _currentTripDateTime() => DateTime.now();
+DateTime _currentCollectionDateTime() => DateTime.now();
 
-enum TripType { personal, work }
+enum CollectionType { personal, work }
 
-extension TripTypeX on TripType {
+extension CollectionTypeX on CollectionType {
   String get asString {
     switch (this) {
-      case TripType.personal:
+      case CollectionType.personal:
         return 'personal';
-      case TripType.work:
+      case CollectionType.work:
         return 'work';
     }
   }
 
-  static TripType fromString(String? raw) {
+  static CollectionType fromString(String? raw) {
     switch ((raw ?? '').toLowerCase()) {
       case 'work':
-        return TripType.work;
+        return CollectionType.work;
       case 'personal':
       default:
-        return TripType.personal;
+        return CollectionType.personal;
     }
   }
 }
 
-enum TripStatus { active, completed }
+enum CollectionStatus { active, completed }
 
-extension TripStatusX on TripStatus {
+extension CollectionStatusX on CollectionStatus {
   String get asString {
     switch (this) {
-      case TripStatus.active:
+      case CollectionStatus.active:
         return 'active';
-      case TripStatus.completed:
+      case CollectionStatus.completed:
         return 'completed';
     }
   }
 
-  static TripStatus fromString(String? raw) {
+  static CollectionStatus fromString(String? raw) {
     switch ((raw ?? '').toLowerCase()) {
       case 'completed':
-        return TripStatus.completed;
+        return CollectionStatus.completed;
       case 'active':
       default:
-        return TripStatus.active;
+        return CollectionStatus.active;
     }
   }
 }
@@ -73,15 +73,15 @@ DateTime? _parseDateTime(Object? raw) {
 }
 
 @immutable
-class Trip extends Equatable {
-  const Trip({
+class Collection extends Equatable {
+  const Collection({
     required this.id,
     required this.name,
-    this.type = TripType.personal,
+    this.type = CollectionType.personal,
     this.startDate,
     this.endDate,
     this.notes,
-    this.status = TripStatus.active,
+    this.status = CollectionStatus.active,
     required this.createdAt,
     required this.updatedAt,
     this.totalAmount,
@@ -91,32 +91,32 @@ class Trip extends Equatable {
 
   final String id;
   final String name;
-  final TripType type;
+  final CollectionType type;
   final DateTime? startDate;
   final DateTime? endDate;
   final String? notes;
-  final TripStatus status;
+  final CollectionStatus status;
   final DateTime createdAt;
   final DateTime updatedAt;
   final double? totalAmount;
   final int? receiptCount;
   final DateTime? lastExportedAt;
 
-  Trip copyWith({
+  Collection copyWith({
     String? id,
     String? name,
-    TripType? type,
+    CollectionType? type,
     DateTime? startDate,
     DateTime? endDate,
     String? notes,
-    TripStatus? status,
+    CollectionStatus? status,
     DateTime? createdAt,
     DateTime? updatedAt,
     double? totalAmount,
     int? receiptCount,
     DateTime? lastExportedAt,
   }) {
-    return Trip(
+    return Collection(
       id: id ?? this.id,
       name: name ?? this.name,
       type: type ?? this.type,
@@ -149,17 +149,17 @@ class Trip extends Equatable {
     };
   }
 
-  factory Trip.fromMap(Map<String, Object?> map, {String? id}) {
-    final fallbackNow = _currentTripDateTime();
+  factory Collection.fromMap(Map<String, Object?> map, {String? id}) {
+    final fallbackNow = _currentCollectionDateTime();
 
-    return Trip(
+    return Collection(
       id: id ?? map['id'] as String? ?? '',
       name: map['name'] as String? ?? '',
-      type: TripTypeX.fromString(map['type'] as String?),
+      type: CollectionTypeX.fromString(map['type'] as String?),
       startDate: _parseDateTime(map['startDate']),
       endDate: _parseDateTime(map['endDate']),
       notes: map['notes'] as String?,
-      status: TripStatusX.fromString(map['status'] as String?),
+      status: CollectionStatusX.fromString(map['status'] as String?),
       createdAt: _parseDateTime(map['createdAt']) ?? fallbackNow,
       updatedAt: _parseDateTime(map['updatedAt']) ?? fallbackNow,
       totalAmount: (map['totalAmount'] as num?)?.toDouble(),
@@ -168,9 +168,9 @@ class Trip extends Equatable {
     );
   }
 
-  factory Trip.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+  factory Collection.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
-    return Trip.fromMap(data, id: doc.id);
+    return Collection.fromMap(data, id: doc.id);
   }
 
   @override

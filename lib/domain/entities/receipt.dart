@@ -173,6 +173,8 @@ class ReceiptItemManualOverrides extends Equatable {
 
 @immutable
 class Receipt extends Equatable {
+  static const Object _noChange = Object();
+
   const Receipt({
     required this.id,
     required this.storeName,
@@ -181,7 +183,7 @@ class Receipt extends Equatable {
     required this.currency,
     this.receiptType = 'personal',
     this.receiptTaxAmount,
-    this.tripId,
+    this.collectionId,
     this.businessSubtotal,
     this.businessTaxAmount,
     this.businessTotal,
@@ -203,13 +205,15 @@ class Receipt extends Equatable {
   final String id; // Firestore doc ID
   final String storeName;
   final DateTime date;
+
   /// Total amount paid for the receipt, including tax.
   final double total;
   final String currency;
   final String receiptType;
+
   /// Tax amount on the receipt, in the same currency as [total].
   final double? receiptTaxAmount;
-  final String? tripId;
+  final String? collectionId;
   final double? businessSubtotal;
   final double? businessTaxAmount;
   final double? businessTotal;
@@ -235,7 +239,7 @@ class Receipt extends Equatable {
     String? currency,
     String? receiptType,
     double? receiptTaxAmount,
-    String? tripId,
+    Object? collectionId = _noChange,
     double? businessSubtotal,
     double? businessTaxAmount,
     double? businessTotal,
@@ -261,7 +265,9 @@ class Receipt extends Equatable {
       currency: currency ?? this.currency,
       receiptType: receiptType ?? this.receiptType,
       receiptTaxAmount: receiptTaxAmount ?? this.receiptTaxAmount,
-      tripId: tripId ?? this.tripId,
+      collectionId: identical(collectionId, _noChange)
+          ? this.collectionId
+          : collectionId as String?,
       businessSubtotal: businessSubtotal ?? this.businessSubtotal,
       businessTaxAmount: businessTaxAmount ?? this.businessTaxAmount,
       businessTotal: businessTotal ?? this.businessTotal,
@@ -304,7 +310,7 @@ class Receipt extends Equatable {
       'metadata': metadata,
       'receiptType': receiptType,
       'receiptTaxAmount': receiptTaxAmount,
-      'tripId': tripId,
+      'collectionId': collectionId,
       'businessSubtotal': businessSubtotal,
       'businessTaxAmount': businessTaxAmount,
       'businessTotal': businessTotal,
@@ -316,7 +322,7 @@ class Receipt extends Equatable {
     final rawEnrichment = map['enrichment'];
     final receiptEnrichment = rawEnrichment is Map
         ? ReceiptEnrichment.fromMap(
-            Map<String, Object?>.from(rawEnrichment as Map<dynamic, dynamic>),
+            Map<String, Object?>.from(rawEnrichment),
           )
         : null;
 
@@ -328,7 +334,7 @@ class Receipt extends Equatable {
       currency: map['currency'] as String? ?? "AUD",
       receiptType: map['receiptType'] as String? ?? 'personal',
       receiptTaxAmount: (map['receiptTaxAmount'] as num?)?.toDouble(),
-      tripId: map['tripId'] as String?,
+      collectionId: map['collectionId'] as String?,
       businessSubtotal: (map['businessSubtotal'] as num?)?.toDouble(),
       businessTaxAmount: (map['businessTaxAmount'] as num?)?.toDouble(),
       businessTotal: (map['businessTotal'] as num?)?.toDouble(),
@@ -347,8 +353,7 @@ class Receipt extends Equatable {
               .toList() ??
           const [],
       searchKeywords:
-          (map['searchKeywords'] as List<dynamic>?)?.cast<String>() ??
-              const [],
+          (map['searchKeywords'] as List<dynamic>?)?.cast<String>() ?? const [],
       normalizedBrand: map['normalizedBrand'] as String?,
       metadata: map['metadata'] is Map
           ? Map<String, Object?>.from(map['metadata'] as Map)
@@ -376,7 +381,7 @@ class Receipt extends Equatable {
             rawEnrichment is Map<String, dynamic>
                 ? Map<String, Object?>.from(rawEnrichment)
                 : Map<String, Object?>.from(
-                    rawEnrichment as Map<dynamic, dynamic>,
+                    rawEnrichment,
                   ),
           )
         : null;
@@ -389,7 +394,7 @@ class Receipt extends Equatable {
       currency: data['currency'] as String? ?? "AUD",
       receiptType: data['receiptType'] as String? ?? 'personal',
       receiptTaxAmount: (data['receiptTaxAmount'] as num?)?.toDouble(),
-      tripId: data['tripId'] as String?,
+      collectionId: data['collectionId'] as String?,
       businessSubtotal: (data['businessSubtotal'] as num?)?.toDouble(),
       businessTaxAmount: (data['businessTaxAmount'] as num?)?.toDouble(),
       businessTotal: (data['businessTotal'] as num?)?.toDouble(),
@@ -424,7 +429,7 @@ class Receipt extends Equatable {
         currency,
         receiptType,
         receiptTaxAmount,
-        tripId,
+        collectionId,
         businessSubtotal,
         businessTaxAmount,
         businessTotal,
