@@ -52,6 +52,7 @@ class _PremiumReceiptHomeScreenState
   String _searchQuery = '';
   List<CategorisedItemView> _itemIndex = const [];
   final Set<String> _selectedReceiptIds = <String>{};
+  bool _isCollectionsExpanded = true;
 
   bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
 
@@ -476,7 +477,7 @@ class _PremiumReceiptHomeScreenState
           else if (hasCollectionAccess)
             IconButton(
               icon: const Icon(
-                Icons.folder_open,
+                Icons.folder_copy_outlined,
                 color: AppColors.primaryNavy,
               ),
               tooltip: 'Trips & Events',
@@ -626,21 +627,34 @@ class _PremiumReceiptHomeScreenState
               ];
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Text(
-                    'Trips & Events',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primaryNavy,
+                  const Expanded(
+                    child: Text(
+                      'Trips & Events',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primaryNavy,
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  IconButton(
+                    icon: Icon(
+                      _isCollectionsExpanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _isCollectionsExpanded = !_isCollectionsExpanded;
+                      });
+                    },
+                  ),
                   TextButton(
                     onPressed: () {
                       Navigator.push(
@@ -654,24 +668,35 @@ class _PremiumReceiptHomeScreenState
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 220,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: displayCollections.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final collection = displayCollections[index];
-                    return _CollectionSummaryCard(
-                      collection: collection,
-                      fullWidth: displayCollections.length == 1,
-                      onAddReceiptsPressed: () =>
-                          _openAddToCollectionFlow(collection),
-                    );
-                  },
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 200),
+                crossFadeState: _isCollectionsExpanded
+                    ? CrossFadeState.showFirst
+                    : CrossFadeState.showSecond,
+                firstChild: Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 220,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: displayCollections.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        itemBuilder: (context, index) {
+                          final collection = displayCollections[index];
+                          return _CollectionSummaryCard(
+                            collection: collection,
+                            fullWidth: displayCollections.length == 1,
+                            onAddReceiptsPressed: () =>
+                                _openAddToCollectionFlow(collection),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
+                secondChild: const SizedBox.shrink(),
               ),
             ],
           ),
@@ -1445,7 +1470,19 @@ class _PremiumReceiptHomeScreenState
 
   Widget _buildGroupedReceiptsList(List<Receipt> receipts) {
     final monthGroups = _groupReceiptsByMonth(receipts);
-    final children = <Widget>[];
+    final children = <Widget>[
+      const Padding(
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Text(
+          'Receipts',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primaryNavy,
+          ),
+        ),
+      ),
+    ];
     var overallIndex = 0;
 
     for (var groupIndex = 0; groupIndex < monthGroups.length; groupIndex++) {
