@@ -1,9 +1,13 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
+import 'package:receiptnest/domain/models/insights_query.dart';
+import 'package:receiptnest/domain/models/insights_result.dart';
+import 'package:receiptnest/domain/services/insights_engine.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
@@ -27,7 +31,9 @@ class CollectionDetailScreen extends ConsumerStatefulWidget {
 
 class _CollectionDetailScreenState
     extends ConsumerState<CollectionDetailScreen> {
+  static const InsightsEngine _insightsEngine = InsightsEngine();
   final Set<String> _selectedReceiptIds = <String>{};
+  String? _selectedInsightsCurrency;
 
   bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
 
@@ -136,25 +142,20 @@ class _CollectionDetailScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _collectionTypeLabel(collection.type),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ],
+              Text(
+                _collectionTypeLabel(collection.type),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 0.2,
+                ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               _buildDateSection(collection),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               const Divider(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               Text(
                 '${receipts.length} receipts',
                 style: const TextStyle(
@@ -162,9 +163,9 @@ class _CollectionDetailScreenState
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               _buildCurrencyTotals(receipts),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               _buildCompletionButton(collection),
             ],
           ),
@@ -367,6 +368,382 @@ class _CollectionDetailScreenState
         ),
       ],
     );
+  }
+
+  Widget _buildInsightsSection(List<Receipt> receipts) {
+    final insights = _insightsEngine.build(
+      receipts: receipts,
+      query: InsightsQuery(collectionId: widget.collectionId),
+    );
+    final primaryCurrency = _getPrimaryInsightsCurrency(insights);
+    final selectedCurrency = _resolveSelectedInsightsCurrency(
+      insights,
+      primaryCurrency,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Spending Breakdown',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                  ),
+                  if (insights.currencies.length > 1 &&
+                      selectedCurrency != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: _buildInsightsCurrencyTabs(
+                        insights: insights,
+                        selectedCurrency: selectedCurrency,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (insights.isEmpty)
+                const _InsightsEmptyState()
+              else
+                _buildSelectedCurrencyInsights(
+                  insights: insights,
+                  selectedCurrency: selectedCurrency,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInsightsCurrencyTabs({
+    required InsightsResult insights,
+    required String selectedCurrency,
+  }) {
+    final effectiveSelectedCurrency = insights.currencies.any(
+      (currency) => currency.currency == selectedCurrency,
+    )
+        ? selectedCurrency
+        : insights.currencies.first.currency;
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.end,
+        spacing: 4,
+        runSpacing: 4,
+        children: [
+          for (final currencyInsights in insights.currencies)
+            _buildInsightsCurrencyTab(
+              currency: currencyInsights.currency,
+              isSelected:
+                  currencyInsights.currency == effectiveSelectedCurrency,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInsightsCurrencyTab({
+    required String currency,
+    required bool isSelected,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () {
+          setState(() {
+            _selectedInsightsCurrency = currency;
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.primaryNavy.withValues(alpha: 0.14)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primaryNavy.withValues(alpha: 0.28)
+                  : Colors.transparent,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isSelected) ...[
+                const Icon(
+                  Icons.check,
+                  size: 14,
+                  color: AppColors.primaryNavy,
+                ),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                currency,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                  color: isSelected
+                      ? AppColors.primaryNavy
+                      : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedCurrencyInsights({
+    required InsightsResult insights,
+    required String? selectedCurrency,
+  }) {
+    if (selectedCurrency == null) {
+      return const _InsightsEmptyState();
+    }
+
+    final currencyInsights = insights.currencies
+        .cast<CurrencyInsights?>()
+        .firstWhere(
+          (currency) => currency?.currency == selectedCurrency,
+          orElse: () =>
+              insights.currencies.isNotEmpty ? insights.currencies.first : null,
+        );
+
+    if (currencyInsights == null) {
+      return const _InsightsEmptyState();
+    }
+
+    final topCategories = _buildDisplayCategories(currencyInsights.categories);
+    if (topCategories.isEmpty) {
+      return const _InsightsEmptyState();
+    }
+
+    return _buildCurrencyInsightChartSection(
+      currency: currencyInsights.currency,
+      categories: topCategories,
+    );
+  }
+
+  String? _getPrimaryInsightsCurrency(InsightsResult insights) {
+    if (insights.currencies.isEmpty) {
+      return null;
+    }
+
+    final sortedCurrencies = insights.currencies.toList()
+      ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
+    return sortedCurrencies.first.currency;
+  }
+
+  String? _resolveSelectedInsightsCurrency(
+    InsightsResult insights,
+    String? primaryCurrency,
+  ) {
+    final selectedCurrency = _selectedInsightsCurrency;
+    if (selectedCurrency != null &&
+        insights.currencies
+            .any((currency) => currency.currency == selectedCurrency)) {
+      return selectedCurrency;
+    }
+    return primaryCurrency;
+  }
+
+  Widget _buildCurrencyInsightChartSection({
+    required String currency,
+    required List<CategoryInsight> categories,
+  }) {
+    final legendItems = <_InsightLegendItem>[
+      for (var index = 0; index < categories.length; index++)
+        _InsightLegendItem(
+          category: categories[index],
+          color: _insightPalette[index % _insightPalette.length],
+        ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 4),
+        Center(
+          child: SizedBox(
+            height: 164,
+            width: 164,
+            child: _buildPieChartOrFallback(
+              currency: currency,
+              legendItems: legendItems,
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        for (var index = 0; index < legendItems.length; index++) ...[
+          _buildCategoryInsightRow(
+            currency: currency,
+            item: legendItems[index],
+          ),
+          if (index < legendItems.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPieChartOrFallback({
+    required String currency,
+    required List<_InsightLegendItem> legendItems,
+  }) {
+    try {
+      return PieChart(
+        PieChartData(
+          centerSpaceRadius: 40,
+          sectionsSpace: 2,
+          startDegreeOffset: -90,
+          pieTouchData: PieTouchData(enabled: false),
+          sections: [
+            for (final item in legendItems)
+              PieChartSectionData(
+                color: item.color,
+                value: item.category.totalAmount,
+                title: '',
+                radius: 24,
+              ),
+          ],
+        ),
+        duration: const Duration(milliseconds: 250),
+      );
+    } catch (_) {
+      final amountFormatter = NumberFormat('#,##0.00');
+      return Center(
+        child: Text(
+          '$currency ${amountFormatter.format(legendItems.fold<double>(
+            0,
+            (sum, item) => sum + item.category.totalAmount,
+          ))}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AppColors.accentTeal,
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget _buildCategoryInsightRow({
+    required String currency,
+    required _InsightLegendItem item,
+  }) {
+    final amountFormatter = NumberFormat('#,##0.00');
+    final percentageFormatter = NumberFormat.decimalPercentPattern(
+      decimalDigits: 0,
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: item.color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            item.category.category,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '$currency ${amountFormatter.format(item.category.totalAmount)}',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.accentTeal,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '${percentageFormatter.format(item.category.percentage)} of spend',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  List<CategoryInsight> _buildDisplayCategories(
+    List<CategoryInsight> categories,
+  ) {
+    if (categories.length <= 5) {
+      return categories.take(5).toList();
+    }
+
+    final topCategories = categories.take(4).toList();
+    final remaining = categories.skip(4).toList();
+    final remainingTotal = remaining.fold<double>(
+      0,
+      (sum, category) => sum + category.totalAmount,
+    );
+    final remainingPercentage = remaining.fold<double>(
+      0,
+      (sum, category) => sum + category.percentage,
+    );
+    final remainingReceiptIds = <String>{};
+
+    for (final category in remaining) {
+      for (final contribution in category.receiptContributions) {
+        remainingReceiptIds.add(contribution.receiptId);
+      }
+    }
+
+    topCategories.add(
+      CategoryInsight(
+        category: 'Others',
+        totalAmount: remainingTotal,
+        percentage: remainingPercentage,
+        receiptCount: remainingReceiptIds.length,
+        receiptContributions: const <ReceiptContribution>[],
+      ),
+    );
+
+    return topCategories;
   }
 
   Future<String?> _pickCollectionId({
@@ -711,10 +1088,11 @@ class _CollectionDetailScreenState
 
                   return receiptsAsync.when(
                     data: (receipts) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      return ListView(
+                        padding: const EdgeInsets.only(bottom: 96),
                         children: [
                           _buildSummaryCard(collection, receipts),
+                          _buildInsightsSection(receipts),
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                             child: Row(
@@ -738,88 +1116,90 @@ class _CollectionDetailScreenState
                               ],
                             ),
                           ),
-                          Expanded(
-                            child: receipts.isEmpty
-                                ? const Center(
-                                    child: Text(
-                                      'No receipts in this collection yet',
-                                    ),
-                                  )
-                                : ListView.builder(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      0,
-                                      16,
-                                      96,
-                                    ),
-                                    itemCount: receipts.length,
-                                    itemBuilder: (context, index) {
-                                      final receipt = receipts[index];
-                                      final isSelected = _selectedReceiptIds
-                                          .contains(receipt.id);
+                          if (receipts.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.fromLTRB(16, 24, 16, 0),
+                              child: Center(
+                                child: Text(
+                                  'No receipts in this collection yet',
+                                ),
+                              ),
+                            )
+                          else
+                            ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                0,
+                                16,
+                                0,
+                              ),
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: receipts.length,
+                              itemBuilder: (context, index) {
+                                final receipt = receipts[index];
+                                final isSelected = _selectedReceiptIds.contains(
+                                  receipt.id,
+                                );
 
-                                      return Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 6,
-                                        ),
-                                        child: Card(
-                                          elevation: 0,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            side: BorderSide(
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Card(
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: BorderSide(
+                                        color: isSelected
+                                            ? AppColors.primaryNavy
+                                                .withValues(alpha: 0.25)
+                                            : Colors.grey.shade200,
+                                      ),
+                                    ),
+                                    color: isSelected
+                                        ? AppColors.primaryNavy
+                                            .withValues(alpha: 0.06)
+                                        : Colors.white,
+                                    child: ListTile(
+                                      onTap: () => _handleReceiptTap(receipt),
+                                      onLongPress: () =>
+                                          _toggleReceiptSelection(
+                                        receipt.id,
+                                      ),
+                                      leading: _isSelectingReceipts
+                                          ? Icon(
+                                              isSelected
+                                                  ? Icons.check_circle
+                                                  : Icons
+                                                      .radio_button_unchecked,
                                               color: isSelected
                                                   ? AppColors.primaryNavy
-                                                      .withValues(alpha: 0.25)
-                                                  : Colors.grey.shade200,
-                                            ),
-                                          ),
-                                          color: isSelected
-                                              ? AppColors.primaryNavy
-                                                  .withValues(alpha: 0.06)
-                                              : Colors.white,
-                                          child: ListTile(
-                                            onTap: () =>
-                                                _handleReceiptTap(receipt),
-                                            onLongPress: () =>
-                                                _toggleReceiptSelection(
-                                              receipt.id,
-                                            ),
-                                            leading: _isSelectingReceipts
-                                                ? Icon(
-                                                    isSelected
-                                                        ? Icons.check_circle
-                                                        : Icons
-                                                            .radio_button_unchecked,
-                                                    color: isSelected
-                                                        ? AppColors.primaryNavy
-                                                        : AppColors
-                                                            .textSecondary,
-                                                  )
-                                                : null,
-                                            title: Text(
-                                              receipt.storeName,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            subtitle: Text(
-                                              DateFormat.yMMMd()
-                                                  .format(receipt.date),
-                                            ),
-                                            trailing: Text(
-                                              '${receipt.currency} ${receipt.total.toStringAsFixed(2)}',
-                                              style: const TextStyle(
-                                                color: AppColors.accentTeal,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ),
+                                                  : AppColors.textSecondary,
+                                            )
+                                          : null,
+                                      title: Text(
+                                        receipt.storeName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
                                         ),
-                                      );
-                                    },
+                                      ),
+                                      subtitle: Text(
+                                        DateFormat.yMMMd().format(receipt.date),
+                                      ),
+                                      trailing: Text(
+                                        '${receipt.currency} ${receipt.total.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          color: AppColors.accentTeal,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                          ),
+                                );
+                              },
+                            ),
+                          const SizedBox(height: 88),
                         ],
                       );
                     },
@@ -853,6 +1233,65 @@ class _CollectionDetailScreenState
               ),
             )
           : null,
+    );
+  }
+}
+
+const List<Color> _insightPalette = <Color>[
+  AppColors.primaryNavy,
+  AppColors.accentTeal,
+  AppColors.lightTeal,
+  Color(0xFFF59E0B),
+  Color(0xFFEF4444),
+];
+
+class _InsightLegendItem {
+  const _InsightLegendItem({
+    required this.category,
+    required this.color,
+  });
+
+  final CategoryInsight category;
+  final Color color;
+}
+
+class _InsightsEmptyState extends StatelessWidget {
+  const _InsightsEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.pie_chart_outline_rounded,
+              size: 28,
+              color: AppColors.textSecondary,
+            ),
+            SizedBox(height: 8),
+            Text(
+              'No insights yet',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Add receipts to see spending breakdown',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

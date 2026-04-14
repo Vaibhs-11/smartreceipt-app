@@ -51,6 +51,7 @@ dependencies:
 
   # UI & theming
   flutter_material_color_picker: ^1.2.0
+  fl_chart: ^0.69.2
 
   # PDF & image processing
   pdfx: ^2.6.0

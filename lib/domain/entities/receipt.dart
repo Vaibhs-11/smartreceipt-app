@@ -19,6 +19,8 @@ class ReceiptItem extends Equatable {
   final String? category;
   final String? brand;
   final String? canonicalName;
+  final String? collectionCategory;
+  final int? collectionEnrichmentVersion;
   final List<String> searchTokens;
   final int? enrichmentVersion;
   final ReceiptItemManualOverrides? manualOverrides;
@@ -32,6 +34,8 @@ class ReceiptItem extends Equatable {
     this.category,
     this.brand,
     this.canonicalName,
+    this.collectionCategory,
+    this.collectionEnrichmentVersion,
     this.searchTokens = const <String>[],
     this.enrichmentVersion,
     this.manualOverrides,
@@ -46,6 +50,8 @@ class ReceiptItem extends Equatable {
     String? category,
     String? brand,
     String? canonicalName,
+    Object? collectionCategory = _noChange,
+    Object? collectionEnrichmentVersion = _noChange,
     List<String>? searchTokens,
     int? enrichmentVersion,
     ReceiptItemManualOverrides? manualOverrides,
@@ -59,6 +65,13 @@ class ReceiptItem extends Equatable {
       category: category ?? this.category,
       brand: brand ?? this.brand,
       canonicalName: canonicalName ?? this.canonicalName,
+      collectionCategory: identical(collectionCategory, _noChange)
+          ? this.collectionCategory
+          : collectionCategory as String?,
+      collectionEnrichmentVersion:
+          identical(collectionEnrichmentVersion, _noChange)
+              ? this.collectionEnrichmentVersion
+              : collectionEnrichmentVersion as int?,
       searchTokens: searchTokens ?? this.searchTokens,
       enrichmentVersion: enrichmentVersion ?? this.enrichmentVersion,
       manualOverrides: manualOverrides ?? this.manualOverrides,
@@ -87,6 +100,12 @@ class ReceiptItem extends Equatable {
     if (canonicalName != null) {
       map['canonical_name'] = canonicalName;
     }
+    if (collectionCategory != null) {
+      map['collection_category'] = collectionCategory;
+    }
+    if (collectionEnrichmentVersion != null) {
+      map['collection_enrichment_version'] = collectionEnrichmentVersion;
+    }
     if (enrichmentVersion != null) {
       map['enrichment_version'] = enrichmentVersion;
     }
@@ -111,6 +130,9 @@ class ReceiptItem extends Equatable {
       category: map['category'] as String?,
       brand: map['brand'] as String?,
       canonicalName: map['canonical_name'] as String?,
+      collectionCategory: map['collection_category'] as String?,
+      collectionEnrichmentVersion:
+          (map['collection_enrichment_version'] as num?)?.toInt(),
       searchTokens: safeSearchTokens,
       enrichmentVersion: (map['enrichment_version'] as num?)?.toInt(),
       manualOverrides: map['manual_overrides'] is Map
@@ -133,6 +155,8 @@ class ReceiptItem extends Equatable {
         category,
         brand,
         canonicalName,
+        collectionCategory,
+        collectionEnrichmentVersion,
         searchTokens,
         enrichmentVersion,
         manualOverrides,
@@ -196,6 +220,7 @@ class Receipt extends Equatable {
     this.extractedText,
     this.fileUrl,
     this.enrichment,
+    this.collectionEnrichment,
     this.items = const <ReceiptItem>[],
     this.searchKeywords = const <String>[],
     this.normalizedBrand,
@@ -226,6 +251,7 @@ class Receipt extends Equatable {
   final String? extractedText;
   final String? fileUrl;
   final ReceiptEnrichment? enrichment;
+  final ReceiptCollectionEnrichment? collectionEnrichment;
   final List<ReceiptItem> items;
   final List<String> searchKeywords;
   final String? normalizedBrand;
@@ -252,6 +278,7 @@ class Receipt extends Equatable {
     String? extractedText,
     String? fileUrl,
     ReceiptEnrichment? enrichment,
+    Object? collectionEnrichment = _noChange,
     List<ReceiptItem>? items,
     List<String>? searchKeywords,
     String? normalizedBrand,
@@ -281,6 +308,9 @@ class Receipt extends Equatable {
       extractedText: extractedText ?? this.extractedText,
       fileUrl: fileUrl ?? this.fileUrl,
       enrichment: enrichment ?? this.enrichment,
+      collectionEnrichment: identical(collectionEnrichment, _noChange)
+          ? this.collectionEnrichment
+          : collectionEnrichment as ReceiptCollectionEnrichment?,
       items: items ?? this.items,
       searchKeywords: searchKeywords ?? this.searchKeywords,
       normalizedBrand: normalizedBrand ?? this.normalizedBrand,
@@ -304,6 +334,7 @@ class Receipt extends Equatable {
       'extractedText': extractedText,
       'fileUrl': fileUrl,
       'enrichment': enrichment?.toMap(),
+      'collectionEnrichment': collectionEnrichment?.toMap(),
       'items': cleanedItems.map((i) => i.toMap()).toList(),
       'searchKeywords': searchKeywords,
       'normalizedBrand': normalizedBrand,
@@ -325,6 +356,13 @@ class Receipt extends Equatable {
             Map<String, Object?>.from(rawEnrichment),
           )
         : null;
+    final rawCollectionEnrichment = map['collectionEnrichment'];
+    final ReceiptCollectionEnrichment? collectionEnrichment =
+        rawCollectionEnrichment is Map
+            ? ReceiptCollectionEnrichment.fromMap(
+                Map<String, Object?>.from(rawCollectionEnrichment),
+              )
+            : null;
 
     return Receipt(
       id: id ?? (map['id'] as String? ?? ''),
@@ -347,6 +385,7 @@ class Receipt extends Equatable {
       extractedText: map['extractedText'] as String?,
       fileUrl: map['fileUrl'] as String?,
       enrichment: receiptEnrichment,
+      collectionEnrichment: collectionEnrichment,
       items: (map['items'] as List<dynamic>?)
               ?.map((i) => ReceiptItem.fromMap(
                   Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
@@ -385,6 +424,13 @@ class Receipt extends Equatable {
                   ),
           )
         : null;
+    final rawCollectionEnrichment = data['collectionEnrichment'];
+    final ReceiptCollectionEnrichment? collectionEnrichment =
+        rawCollectionEnrichment is Map
+            ? ReceiptCollectionEnrichment.fromMap(
+                Map<String, Object?>.from(rawCollectionEnrichment),
+              )
+            : null;
 
     return Receipt(
       id: doc.id,
@@ -407,6 +453,7 @@ class Receipt extends Equatable {
       extractedText: data['extractedText'] as String?,
       fileUrl: data['fileUrl'] as String?,
       enrichment: enrichment,
+      collectionEnrichment: collectionEnrichment,
       items: (data['items'] as List<dynamic>?)
               ?.map((i) => ReceiptItem.fromMap(
                   Map<String, Object?>.from(i as Map<dynamic, dynamic>)))
@@ -442,6 +489,7 @@ class Receipt extends Equatable {
         extractedText,
         fileUrl,
         enrichment,
+        collectionEnrichment,
         items,
         searchKeywords,
         normalizedBrand,
@@ -492,4 +540,56 @@ class ReceiptEnrichment extends Equatable {
 
   @override
   List<Object?> get props => [status, retryCount, version, enrichedAt];
+}
+
+@immutable
+class ReceiptCollectionEnrichment extends Equatable {
+  final String? status;
+  final int? version;
+  final DateTime? enrichedAt;
+  final String? collectionId;
+
+  const ReceiptCollectionEnrichment({
+    this.status,
+    this.version,
+    this.enrichedAt,
+    this.collectionId,
+  });
+
+  factory ReceiptCollectionEnrichment.fromMap(Map<String, Object?> map) {
+    final Object? enrichedAt = map['enrichedAt'];
+    final DateTime? parsedEnrichedAt = enrichedAt is Timestamp
+        ? enrichedAt.toDate()
+        : enrichedAt is String
+            ? DateTime.tryParse(enrichedAt)
+            : enrichedAt is DateTime
+                ? enrichedAt
+                : null;
+
+    return ReceiptCollectionEnrichment(
+      status: map['status'] as String?,
+      version: (map['version'] as num?)?.toInt(),
+      enrichedAt: parsedEnrichedAt,
+      collectionId: map['collectionId'] as String?,
+    );
+  }
+
+  Map<String, Object?> toMap() {
+    return <String, Object?>{
+      'status': status,
+      'version': version,
+      'enrichedAt': enrichedAt == null
+          ? null
+          : Timestamp.fromDate(enrichedAt!),
+      'collectionId': collectionId,
+    };
+  }
+
+  @override
+  List<Object?> get props => [
+        status,
+        version,
+        enrichedAt,
+        collectionId,
+      ];
 }
