@@ -420,6 +420,7 @@ class _CollectionDetailScreenState
                 _buildSelectedCurrencyInsights(
                   insights: insights,
                   selectedCurrency: selectedCurrency,
+                  receipts: receipts,
                 ),
             ],
           ),
@@ -520,6 +521,7 @@ class _CollectionDetailScreenState
   Widget _buildSelectedCurrencyInsights({
     required InsightsResult insights,
     required String? selectedCurrency,
+    required List<Receipt> receipts,
   }) {
     if (selectedCurrency == null) {
       return const _InsightsEmptyState();
@@ -545,6 +547,7 @@ class _CollectionDetailScreenState
     return _buildCurrencyInsightChartSection(
       currency: currencyInsights.currency,
       categories: topCategories,
+      receipts: receipts,
     );
   }
 
@@ -573,7 +576,8 @@ class _CollectionDetailScreenState
 
   Widget _buildCurrencyInsightChartSection({
     required String currency,
-    required List<CategoryInsight> categories,
+    required List<_DisplayedCategoryInsight> categories,
+    required List<Receipt> receipts,
   }) {
     final legendItems = <_InsightLegendItem>[
       for (var index = 0; index < categories.length; index++)
@@ -594,6 +598,7 @@ class _CollectionDetailScreenState
             child: _buildPieChartOrFallback(
               currency: currency,
               legendItems: legendItems,
+              receipts: receipts,
             ),
           ),
         ),
@@ -602,6 +607,7 @@ class _CollectionDetailScreenState
           _buildCategoryInsightRow(
             currency: currency,
             item: legendItems[index],
+            receipts: receipts,
           ),
           if (index < legendItems.length - 1) const SizedBox(height: 12),
         ],
@@ -612,6 +618,7 @@ class _CollectionDetailScreenState
   Widget _buildPieChartOrFallback({
     required String currency,
     required List<_InsightLegendItem> legendItems,
+    required List<Receipt> receipts,
   }) {
     try {
       return PieChart(
@@ -619,12 +626,32 @@ class _CollectionDetailScreenState
           centerSpaceRadius: 40,
           sectionsSpace: 2,
           startDegreeOffset: -90,
-          pieTouchData: PieTouchData(enabled: false),
+          pieTouchData: PieTouchData(
+            enabled: true,
+            touchCallback: (event, response) {
+              if (event is! FlTapUpEvent) {
+                return;
+              }
+              final touchedSection = response?.touchedSection;
+              if (touchedSection == null) {
+                return;
+              }
+              final index = touchedSection.touchedSectionIndex;
+              if (index < 0 || index >= legendItems.length) {
+                return;
+              }
+              _showCategoryDrilldownSheet(
+                item: legendItems[index],
+                currency: currency,
+                receipts: receipts,
+              );
+            },
+          ),
           sections: [
             for (final item in legendItems)
               PieChartSectionData(
                 color: item.color,
-                value: item.category.totalAmount,
+                value: item.category.insight.totalAmount,
                 title: '',
                 radius: 24,
               ),
@@ -638,7 +665,7 @@ class _CollectionDetailScreenState
         child: Text(
           '$currency ${amountFormatter.format(legendItems.fold<double>(
             0,
-            (sum, item) => sum + item.category.totalAmount,
+            (sum, item) => sum + item.category.insight.totalAmount,
           ))}',
           textAlign: TextAlign.center,
           style: const TextStyle(
@@ -654,65 +681,456 @@ class _CollectionDetailScreenState
   Widget _buildCategoryInsightRow({
     required String currency,
     required _InsightLegendItem item,
+    required List<Receipt> receipts,
   }) {
     final amountFormatter = NumberFormat('#,##0.00');
     final percentageFormatter = NumberFormat.decimalPercentPattern(
       decimalDigits: 0,
     );
 
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showCategoryDrilldownSheet(
+          item: item,
+          currency: currency,
+          receipts: receipts,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: item.color,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item.category.insight.category,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '$currency '
+                    '${amountFormatter.format(item.category.insight.totalAmount)}',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.accentTeal,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${percentageFormatter.format(item.category.insight.percentage)} of spend',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCategoryDrilldownSheet({
+    required _InsightLegendItem item,
+    required String currency,
+    required List<Receipt> receipts,
+  }) async {
+    final drilldown = _buildCategoryDrilldownData(
+      receipts: receipts,
+      currency: currency,
+      displayedCategory: item.category,
+      color: item.color,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: FractionallySizedBox(
+            heightFactor: 0.88,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDrilldownHeader(drilldown),
+                  const SizedBox(height: 16),
+                  _buildDrilldownSummary(drilldown),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: drilldown.receipts.isEmpty
+                        ? const _CategoryDrilldownEmptyState()
+                        : ListView.separated(
+                            padding: const EdgeInsets.only(bottom: 24),
+                            itemCount: drilldown.receipts.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 12),
+                            itemBuilder: (context, index) {
+                              final receipt = drilldown.receipts[index];
+                              return _buildDrilldownReceiptCard(
+                                currency: currency,
+                                receipt: receipt,
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDrilldownHeader(_CategoryDrilldownData drilldown) {
+    final amountFormatter = NumberFormat('#,##0.00');
+    final percentageFormatter = NumberFormat.decimalPercentPattern(
+      decimalDigits: 0,
+    );
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 10,
-          height: 10,
+          width: 12,
+          height: 12,
+          margin: const EdgeInsets.only(top: 5),
           decoration: BoxDecoration(
-            color: item.color,
+            color: drilldown.color,
             shape: BoxShape.circle,
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(
-            item.category.category,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                drilldown.category,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primaryNavy,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${drilldown.currency} '
+                '${amountFormatter.format(drilldown.totalAmount)} '
+                '(${percentageFormatter.format(drilldown.percentage)})',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              '$currency ${amountFormatter.format(item.category.totalAmount)}',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: AppColors.accentTeal,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              '${percentageFormatter.format(item.category.percentage)} of spend',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
         ),
       ],
     );
   }
 
-  List<CategoryInsight> _buildDisplayCategories(
+  Widget _buildDrilldownSummary(_CategoryDrilldownData drilldown) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildDrilldownStat(
+            value: '${drilldown.receiptCount}',
+            label: 'Receipts',
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildDrilldownStat(
+            value: '${drilldown.itemCount}',
+            label: 'Items',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDrilldownStat({
+    required String value,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primaryNavy,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrilldownReceiptCard({
+    required String currency,
+    required _ReceiptCategoryContribution receipt,
+  }) {
+    final amountFormatter = NumberFormat('#,##0.00');
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        receipt.merchant,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        DateFormat.yMMMd().format(receipt.receiptDate),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  '$currency ${amountFormatter.format(receipt.totalAmount)}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.accentTeal,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            for (var index = 0; index < receipt.items.length; index++) ...[
+              _buildDrilldownItemRow(
+                currency: currency,
+                item: receipt.items[index],
+              ),
+              if (index < receipt.items.length - 1) const SizedBox(height: 10),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrilldownItemRow({
+    required String currency,
+    required _CategoryItemDetail item,
+  }) {
+    final amountFormatter = NumberFormat('#,##0.00');
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            item.name,
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          '$currency ${amountFormatter.format(item.amount)}',
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  _CategoryDrilldownData _buildCategoryDrilldownData({
+    required List<Receipt> receipts,
+    required String currency,
+    required _DisplayedCategoryInsight displayedCategory,
+    required Color color,
+  }) {
+    final contributions = <_ReceiptCategoryContribution>[];
+    var itemCount = 0;
+
+    for (final receipt in receipts) {
+      final receiptCurrency = _normalizeCurrency(receipt.currency);
+      if (receiptCurrency != currency) {
+        continue;
+      }
+
+      final matchingItems = <_CategoryItemDetail>[];
+      for (final item in receipt.items) {
+        final amount = item.price;
+        if (amount == null || amount <= 0) {
+          continue;
+        }
+
+        final itemCategory = _resolveCollectionInsightCategory(item);
+        if (!displayedCategory.categories.contains(itemCategory)) {
+          continue;
+        }
+
+        matchingItems.add(
+          _CategoryItemDetail(
+            name: _resolveItemName(item),
+            amount: amount,
+          ),
+        );
+      }
+
+      if (matchingItems.isEmpty) {
+        continue;
+      }
+
+      matchingItems.sort((a, b) => b.amount.compareTo(a.amount));
+      final totalAmount = matchingItems.fold<double>(
+        0,
+        (sum, item) => sum + item.amount,
+      );
+      itemCount += matchingItems.length;
+
+      contributions.add(
+        _ReceiptCategoryContribution(
+          receiptId: receipt.id,
+          merchant: _resolveMerchant(receipt),
+          receiptDate: receipt.date,
+          totalAmount: totalAmount,
+          items: matchingItems,
+        ),
+      );
+    }
+
+    contributions.sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
+
+    return _CategoryDrilldownData(
+      category: displayedCategory.insight.category,
+      currency: currency,
+      totalAmount: displayedCategory.insight.totalAmount,
+      percentage: displayedCategory.insight.percentage,
+      color: color,
+      receiptCount: contributions.length,
+      itemCount: itemCount,
+      receipts: contributions,
+    );
+  }
+
+  String _resolveCollectionInsightCategory(ReceiptItem item) {
+    final category = (item.collectionCategory ?? item.category)?.trim();
+    if (category == null || category.isEmpty) {
+      return InsightsEngine.fallbackCategory;
+    }
+    return category;
+  }
+
+  String _resolveItemName(ReceiptItem item) {
+    final name = item.name.trim();
+    if (name.isEmpty) {
+      return 'Unnamed item';
+    }
+    return name;
+  }
+
+  String _resolveMerchant(Receipt receipt) {
+    final merchant = receipt.storeName.trim();
+    if (merchant.isEmpty) {
+      return InsightsEngine.fallbackMerchant;
+    }
+    return merchant;
+  }
+
+  String _normalizeCurrency(String currency) {
+    final normalized = currency.trim();
+    if (normalized.isEmpty) {
+      return InsightsEngine.fallbackCurrency;
+    }
+    return normalized;
+  }
+
+  List<_DisplayedCategoryInsight> _buildDisplayCategories(
     List<CategoryInsight> categories,
   ) {
     if (categories.length <= 5) {
-      return categories.take(5).toList();
+      return categories
+          .take(5)
+          .map(
+            (category) => _DisplayedCategoryInsight(
+              insight: category,
+              categories: <String>{category.category},
+            ),
+          )
+          .toList();
     }
 
     final topCategories = categories.take(4).toList();
@@ -743,7 +1161,17 @@ class _CollectionDetailScreenState
       ),
     );
 
-    return topCategories;
+    return [
+      for (final category in topCategories.take(4))
+        _DisplayedCategoryInsight(
+          insight: category,
+          categories: <String>{category.category},
+        ),
+      _DisplayedCategoryInsight(
+        insight: topCategories.last,
+        categories: remaining.map((category) => category.category).toSet(),
+      ),
+    ];
   }
 
   Future<String?> _pickCollectionId({
@@ -1251,8 +1679,66 @@ class _InsightLegendItem {
     required this.color,
   });
 
-  final CategoryInsight category;
+  final _DisplayedCategoryInsight category;
   final Color color;
+}
+
+class _DisplayedCategoryInsight {
+  const _DisplayedCategoryInsight({
+    required this.insight,
+    required this.categories,
+  });
+
+  final CategoryInsight insight;
+  final Set<String> categories;
+}
+
+class _CategoryDrilldownData {
+  const _CategoryDrilldownData({
+    required this.category,
+    required this.currency,
+    required this.totalAmount,
+    required this.percentage,
+    required this.color,
+    required this.receiptCount,
+    required this.itemCount,
+    required this.receipts,
+  });
+
+  final String category;
+  final String currency;
+  final double totalAmount;
+  final double percentage;
+  final Color color;
+  final int receiptCount;
+  final int itemCount;
+  final List<_ReceiptCategoryContribution> receipts;
+}
+
+class _ReceiptCategoryContribution {
+  const _ReceiptCategoryContribution({
+    required this.receiptId,
+    required this.merchant,
+    required this.receiptDate,
+    required this.totalAmount,
+    required this.items,
+  });
+
+  final String receiptId;
+  final String merchant;
+  final DateTime receiptDate;
+  final double totalAmount;
+  final List<_CategoryItemDetail> items;
+}
+
+class _CategoryItemDetail {
+  const _CategoryItemDetail({
+    required this.name,
+    required this.amount,
+  });
+
+  final String name;
+  final double amount;
 }
 
 class _InsightsEmptyState extends StatelessWidget {
@@ -1290,6 +1776,27 @@ class _InsightsEmptyState extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryDrilldownEmptyState extends StatelessWidget {
+  const _CategoryDrilldownEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Text(
+          'No matching items found for this category.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 14,
+            color: AppColors.textSecondary,
+          ),
         ),
       ),
     );
