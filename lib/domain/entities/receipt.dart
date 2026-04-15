@@ -20,6 +20,7 @@ class ReceiptItem extends Equatable {
   final String? brand;
   final String? canonicalName;
   final String? collectionCategory;
+  final String? manualCollectionCategory;
   final int? collectionEnrichmentVersion;
   final List<String> searchTokens;
   final int? enrichmentVersion;
@@ -35,6 +36,7 @@ class ReceiptItem extends Equatable {
     this.brand,
     this.canonicalName,
     this.collectionCategory,
+    this.manualCollectionCategory,
     this.collectionEnrichmentVersion,
     this.searchTokens = const <String>[],
     this.enrichmentVersion,
@@ -51,6 +53,7 @@ class ReceiptItem extends Equatable {
     String? brand,
     String? canonicalName,
     Object? collectionCategory = _noChange,
+    Object? manualCollectionCategory = _noChange,
     Object? collectionEnrichmentVersion = _noChange,
     List<String>? searchTokens,
     int? enrichmentVersion,
@@ -68,6 +71,9 @@ class ReceiptItem extends Equatable {
       collectionCategory: identical(collectionCategory, _noChange)
           ? this.collectionCategory
           : collectionCategory as String?,
+      manualCollectionCategory: identical(manualCollectionCategory, _noChange)
+          ? this.manualCollectionCategory
+          : manualCollectionCategory as String?,
       collectionEnrichmentVersion:
           identical(collectionEnrichmentVersion, _noChange)
               ? this.collectionEnrichmentVersion
@@ -103,6 +109,9 @@ class ReceiptItem extends Equatable {
     if (collectionCategory != null) {
       map['collection_category'] = collectionCategory;
     }
+    if (manualCollectionCategory != null) {
+      map['manual_collection_category'] = manualCollectionCategory;
+    }
     if (collectionEnrichmentVersion != null) {
       map['collection_enrichment_version'] = collectionEnrichmentVersion;
     }
@@ -131,6 +140,7 @@ class ReceiptItem extends Equatable {
       brand: map['brand'] as String?,
       canonicalName: map['canonical_name'] as String?,
       collectionCategory: map['collection_category'] as String?,
+      manualCollectionCategory: map['manual_collection_category'] as String?,
       collectionEnrichmentVersion:
           (map['collection_enrichment_version'] as num?)?.toInt(),
       searchTokens: safeSearchTokens,
@@ -156,6 +166,7 @@ class ReceiptItem extends Equatable {
         brand,
         canonicalName,
         collectionCategory,
+        manualCollectionCategory,
         collectionEnrichmentVersion,
         searchTokens,
         enrichmentVersion,
@@ -578,9 +589,7 @@ class ReceiptCollectionEnrichment extends Equatable {
     return <String, Object?>{
       'status': status,
       'version': version,
-      'enrichedAt': enrichedAt == null
-          ? null
-          : Timestamp.fromDate(enrichedAt!),
+      'enrichedAt': enrichedAt == null ? null : Timestamp.fromDate(enrichedAt!),
       'collectionId': collectionId,
     };
   }

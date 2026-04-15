@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,7 +35,20 @@ class CollectionDetailScreen extends ConsumerStatefulWidget {
 class _CollectionDetailScreenState
     extends ConsumerState<CollectionDetailScreen> {
   static const InsightsEngine _insightsEngine = InsightsEngine();
+  static const List<String> _fallbackCollectionCategories = <String>[
+    'Travel',
+    'Local Transport',
+    'Accommodation',
+    'Food & Drinks',
+    'Activities',
+    'Shopping',
+    'Misc',
+  ];
+
   final Set<String> _selectedReceiptIds = <String>{};
+  final Map<String, Receipt> _optimisticReceipts = <String, Receipt>{};
+  late final Future<List<String>> _collectionCategoryOptionsFuture =
+      _loadCollectionCategoryOptions();
   String? _selectedInsightsCurrency;
 
   bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
@@ -52,14 +68,6 @@ class _CollectionDetailScreenState
       return;
     }
     setState(_selectedReceiptIds.clear);
-  }
-
-  void _openEditCollection(Collection collection) {
-    Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute<void>(
-        builder: (_) => CreateCollectionScreen(collection: collection),
-      ),
-    );
   }
 
   Future<void> _updateCollection(Collection collection) async {
@@ -643,7 +651,7 @@ class _CollectionDetailScreenState
               _showCategoryDrilldownSheet(
                 item: legendItems[index],
                 currency: currency,
-                receipts: receipts,
+                streamedReceipts: receipts,
               );
             },
           ),
@@ -695,7 +703,7 @@ class _CollectionDetailScreenState
         onTap: () => _showCategoryDrilldownSheet(
           item: item,
           currency: currency,
-          receipts: receipts,
+          streamedReceipts: receipts,
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
@@ -754,15 +762,8 @@ class _CollectionDetailScreenState
   Future<void> _showCategoryDrilldownSheet({
     required _InsightLegendItem item,
     required String currency,
-    required List<Receipt> receipts,
+    required List<Receipt> streamedReceipts,
   }) async {
-    final drilldown = _buildCategoryDrilldownData(
-      receipts: receipts,
-      currency: currency,
-      displayedCategory: item.category,
-      color: item.color,
-    );
-
     if (!mounted) {
       return;
     }
@@ -775,39 +776,67 @@ class _CollectionDetailScreenState
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        return SafeArea(
-          child: FractionallySizedBox(
-            heightFactor: 0.88,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildDrilldownHeader(drilldown),
-                  const SizedBox(height: 16),
-                  _buildDrilldownSummary(drilldown),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: drilldown.receipts.isEmpty
-                        ? const _CategoryDrilldownEmptyState()
-                        : ListView.separated(
-                            padding: const EdgeInsets.only(bottom: 24),
-                            itemCount: drilldown.receipts.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              final receipt = drilldown.receipts[index];
-                              return _buildDrilldownReceiptCard(
-                                currency: currency,
-                                receipt: receipt,
-                              );
-                            },
-                          ),
+        return StatefulBuilder(
+          builder: (context, modalSetState) {
+            final effectiveReceipts =
+                _applyOptimisticReceipts(streamedReceipts);
+            final drilldown = _buildCategoryDrilldownData(
+              receipts: effectiveReceipts,
+              currency: currency,
+              displayedCategory: item.category,
+              color: item.color,
+            );
+
+            return SafeArea(
+              child: FractionallySizedBox(
+                heightFactor: 0.88,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildDrilldownHeader(drilldown),
+                      const SizedBox(height: 16),
+                      _buildDrilldownSummary(drilldown),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: drilldown.receipts.isEmpty
+                            ? const _CategoryDrilldownEmptyState()
+                            : ListView.separated(
+                                padding: const EdgeInsets.only(bottom: 24),
+                                itemCount: drilldown.receipts.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (context, index) {
+                                  final receipt = drilldown.receipts[index];
+                                  return _buildDrilldownReceiptCard(
+                                    currency: currency,
+                                    receipt: receipt,
+                                    onEditItem: (itemDetail) async {
+                                      final selectedCategory =
+                                          await _showItemCategoryPicker(
+                                        item: itemDetail,
+                                      );
+                                      if (selectedCategory == null) {
+                                        return;
+                                      }
+                                      _applyManualCategoryOverride(
+                                        receiptId: receipt.receiptId,
+                                        itemIndex: itemDetail.itemIndex,
+                                        category: selectedCategory,
+                                      );
+                                      modalSetState(() {});
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -919,6 +948,7 @@ class _CollectionDetailScreenState
   Widget _buildDrilldownReceiptCard({
     required String currency,
     required _ReceiptCategoryContribution receipt,
+    required Future<void> Function(_CategoryItemDetail item) onEditItem,
   }) {
     final amountFormatter = NumberFormat('#,##0.00');
 
@@ -976,6 +1006,7 @@ class _CollectionDetailScreenState
               _buildDrilldownItemRow(
                 currency: currency,
                 item: receipt.items[index],
+                onTap: () => onEditItem(receipt.items[index]),
               ),
               if (index < receipt.items.length - 1) const SizedBox(height: 10),
             ],
@@ -988,31 +1019,311 @@ class _CollectionDetailScreenState
   Widget _buildDrilldownItemRow({
     required String currency,
     required _CategoryItemDetail item,
+    required VoidCallback onTap,
   }) {
     final amountFormatter = NumberFormat('#,##0.00');
+    final editedColor = Colors.blueGrey.shade400;
 
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            item.name,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppColors.textPrimary,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        splashColor: AppColors.primaryNavy.withValues(alpha: 0.06),
+        highlightColor: AppColors.primaryNavy.withValues(alpha: 0.03),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (item.isEdited) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: editedColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Edited',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.2,
+                          color: editedColor,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '$currency ${amountFormatter.format(item.amount)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Receipt> _applyOptimisticReceipts(List<Receipt> receipts) {
+    return receipts
+        .map((receipt) => _optimisticReceipts[receipt.id] ?? receipt)
+        .toList();
+  }
+
+  Future<List<String>> _loadCollectionCategoryOptions() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('config')
+          .doc('collection_categories')
+          .get();
+      final data = snapshot.data();
+      final categories = data?['categories'];
+      if (categories is List) {
+        final normalized = categories
+            .whereType<String>()
+            .map((category) => category.trim())
+            .where((category) => category.isNotEmpty)
+            .toList();
+        if (normalized.isNotEmpty) {
+          return normalized;
+        }
+      }
+    } catch (_) {
+      // Fall back to the same canonical list used by collection enrichment.
+    }
+
+    return _fallbackCollectionCategories;
+  }
+
+  Future<String?> _showItemCategoryPicker({
+    required _CategoryItemDetail item,
+  }) async {
+    final availableCategories = await _collectionCategoryOptionsFuture;
+    if (!mounted) {
+      return null;
+    }
+    final currentCategory = item.currentCategory?.trim();
+
+    return showModalBottomSheet<String?>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Change category',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                for (final category in availableCategories)
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 2,
+                    ),
+                    leading: Icon(
+                      category == currentCategory
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      size: 20,
+                      color: category == currentCategory
+                          ? AppColors.primaryNavy
+                          : AppColors.textSecondary.withValues(alpha: 0.65),
+                    ),
+                    title: Text(
+                      category,
+                      style: TextStyle(
+                        fontWeight: category == currentCategory
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    trailing: category == currentCategory
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  AppColors.primaryNavy.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'Current',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryNavy,
+                              ),
+                            ),
+                          )
+                        : null,
+                    onTap: () => Navigator.of(context).pop(category),
+                  ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Divider(color: Colors.grey.shade200),
+                ),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 2,
+                  ),
+                  leading: Icon(
+                    Icons.undo_outlined,
+                    size: 20,
+                    color: AppColors.textSecondary.withValues(alpha: 0.7),
+                  ),
+                  title: Text(
+                    'Use suggested category',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary.withValues(alpha: 0.88),
+                    ),
+                  ),
+                  onTap: () => Navigator.of(context).pop(''),
+                ),
+                const SizedBox(height: 20),
+              ],
             ),
           ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          '$currency ${amountFormatter.format(item.amount)}',
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ],
+        );
+      },
     );
+  }
+
+  void _applyManualCategoryOverride({
+    required String receiptId,
+    required int itemIndex,
+    required String category,
+  }) {
+    final receiptsAsync =
+        ref.read(collectionReceiptsStreamProvider(widget.collectionId));
+    final streamedReceipts = receiptsAsync.maybeWhen(
+      data: (receipts) => receipts,
+      orElse: () => null,
+    );
+    if (streamedReceipts == null) {
+      return;
+    }
+
+    final effectiveReceipts = _applyOptimisticReceipts(streamedReceipts);
+    final receiptIndex = effectiveReceipts.indexWhere((r) => r.id == receiptId);
+    if (receiptIndex == -1) {
+      return;
+    }
+
+    final receipt = effectiveReceipts[receiptIndex];
+    if (itemIndex < 0 || itemIndex >= receipt.items.length) {
+      return;
+    }
+
+    final normalizedCategory = category.trim();
+    final updatedItems = receipt.items.toList();
+    updatedItems[itemIndex] = updatedItems[itemIndex].copyWith(
+      manualCollectionCategory:
+          normalizedCategory.isEmpty ? null : normalizedCategory,
+    );
+    final updatedReceipt = receipt.copyWith(items: updatedItems);
+
+    setState(() {
+      _optimisticReceipts[receiptId] = updatedReceipt;
+    });
+
+    unawaited(_persistReceiptCategoryOverride(updatedReceipt));
+  }
+
+  Future<void> _persistReceiptCategoryOverride(Receipt receipt) async {
+    try {
+      await ref.read(receiptRepositoryProviderOverride).updateReceipt(receipt);
+    } catch (_) {
+      // Keep the UI optimistic even if persistence fails.
+    }
+  }
+
+  String _resolveFinalCollectionCategory(ReceiptItem item) {
+    final category = (item.manualCollectionCategory ??
+            item.collectionCategory ??
+            item.category)
+        ?.trim();
+    if (category == null || category.isEmpty) {
+      return InsightsEngine.fallbackCategory;
+    }
+    return category;
+  }
+
+  String? _resolveRawFinalCollectionCategory(ReceiptItem item) {
+    final category = (item.manualCollectionCategory ??
+            item.collectionCategory ??
+            item.category)
+        ?.trim();
+    if (category == null || category.isEmpty) {
+      return null;
+    }
+    return category;
+  }
+
+  bool _hasManualCollectionCategoryOverride(ReceiptItem item) {
+    final manual = item.manualCollectionCategory?.trim();
+    return manual != null && manual.isNotEmpty;
+  }
+
+  bool _isSameCategory(String left, String right) {
+    return left.trim().toLowerCase() == right.trim().toLowerCase();
   }
 
   _CategoryDrilldownData _buildCategoryDrilldownData({
@@ -1023,6 +1334,8 @@ class _CollectionDetailScreenState
   }) {
     final contributions = <_ReceiptCategoryContribution>[];
     var itemCount = 0;
+    var categoryTotalAmount = 0.0;
+    var currencyTotalAmount = 0.0;
 
     for (final receipt in receipts) {
       final receiptCurrency = _normalizeCurrency(receipt.currency);
@@ -1030,22 +1343,39 @@ class _CollectionDetailScreenState
         continue;
       }
 
-      final matchingItems = <_CategoryItemDetail>[];
       for (final item in receipt.items) {
         final amount = item.price;
         if (amount == null || amount <= 0) {
           continue;
         }
+        currencyTotalAmount += amount;
+      }
 
-        final itemCategory = _resolveCollectionInsightCategory(item);
-        if (!displayedCategory.categories.contains(itemCategory)) {
+      final matchingItems = <_CategoryItemDetail>[];
+      for (var itemIndex = 0; itemIndex < receipt.items.length; itemIndex++) {
+        final item = receipt.items[itemIndex];
+        final amount = item.price;
+        if (amount == null || amount <= 0) {
+          continue;
+        }
+
+        final itemCategory = _resolveFinalCollectionCategory(item);
+        final matchesCategory = displayedCategory.categories.any(
+          (category) => _isSameCategory(category, itemCategory),
+        );
+        if (!matchesCategory) {
           continue;
         }
 
         matchingItems.add(
           _CategoryItemDetail(
+            receiptId: receipt.id,
+            itemIndex: itemIndex,
             name: _resolveItemName(item),
             amount: amount,
+            currentCategory: _resolveRawFinalCollectionCategory(item),
+            isEdited: _hasManualCollectionCategoryOverride(item),
+            receiptItem: item,
           ),
         );
       }
@@ -1057,8 +1387,9 @@ class _CollectionDetailScreenState
       matchingItems.sort((a, b) => b.amount.compareTo(a.amount));
       final totalAmount = matchingItems.fold<double>(
         0,
-        (sum, item) => sum + item.amount,
+        (runningTotal, item) => runningTotal + item.amount,
       );
+      categoryTotalAmount += totalAmount;
       itemCount += matchingItems.length;
 
       contributions.add(
@@ -1074,24 +1405,21 @@ class _CollectionDetailScreenState
 
     contributions.sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
 
+    // The sheet rebuilds from optimistic effectiveReceipts after each edit.
+    // Recompute the header total/percentage from that same source so it
+    // doesn't stay pinned to the stale insight snapshot from sheet-open time.
     return _CategoryDrilldownData(
       category: displayedCategory.insight.category,
       currency: currency,
-      totalAmount: displayedCategory.insight.totalAmount,
-      percentage: displayedCategory.insight.percentage,
+      totalAmount: categoryTotalAmount,
+      percentage: currencyTotalAmount > 0
+          ? categoryTotalAmount / currencyTotalAmount
+          : 0,
       color: color,
       receiptCount: contributions.length,
       itemCount: itemCount,
       receipts: contributions,
     );
-  }
-
-  String _resolveCollectionInsightCategory(ReceiptItem item) {
-    final category = (item.collectionCategory ?? item.category)?.trim();
-    if (category == null || category.isEmpty) {
-      return InsightsEngine.fallbackCategory;
-    }
-    return category;
   }
 
   String _resolveItemName(ReceiptItem item) {
@@ -1516,11 +1844,13 @@ class _CollectionDetailScreenState
 
                   return receiptsAsync.when(
                     data: (receipts) {
+                      final effectiveReceipts =
+                          _applyOptimisticReceipts(receipts);
                       return ListView(
                         padding: const EdgeInsets.only(bottom: 96),
                         children: [
-                          _buildSummaryCard(collection, receipts),
-                          _buildInsightsSection(receipts),
+                          _buildSummaryCard(collection, effectiveReceipts),
+                          _buildInsightsSection(effectiveReceipts),
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                             child: Row(
@@ -1537,14 +1867,14 @@ class _CollectionDetailScreenState
                                 ),
                                 if (!_isSelectingReceipts)
                                   TextButton(
-                                    onPressed: () =>
-                                        _startReceiptSelection(receipts),
+                                    onPressed: () => _startReceiptSelection(
+                                        effectiveReceipts),
                                     child: const Text('Select'),
                                   ),
                               ],
                             ),
                           ),
-                          if (receipts.isEmpty)
+                          if (effectiveReceipts.isEmpty)
                             const Padding(
                               padding: EdgeInsets.fromLTRB(16, 24, 16, 0),
                               child: Center(
@@ -1563,9 +1893,9 @@ class _CollectionDetailScreenState
                               ),
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              itemCount: receipts.length,
+                              itemCount: effectiveReceipts.length,
                               itemBuilder: (context, index) {
-                                final receipt = receipts[index];
+                                final receipt = effectiveReceipts[index];
                                 final isSelected = _selectedReceiptIds.contains(
                                   receipt.id,
                                 );
@@ -1733,12 +2063,22 @@ class _ReceiptCategoryContribution {
 
 class _CategoryItemDetail {
   const _CategoryItemDetail({
+    required this.receiptId,
+    required this.itemIndex,
     required this.name,
     required this.amount,
+    required this.currentCategory,
+    required this.isEdited,
+    required this.receiptItem,
   });
 
+  final String receiptId;
+  final int itemIndex;
   final String name;
   final double amount;
+  final String? currentCategory;
+  final bool isEdited;
+  final ReceiptItem receiptItem;
 }
 
 class _InsightsEmptyState extends StatelessWidget {

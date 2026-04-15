@@ -211,7 +211,9 @@ class InsightsEngine {
     required InsightsQuery query,
   }) {
     final rawCategory = query.isCollectionQuery
-        ? item.collectionCategory ?? item.category
+        ? item.manualCollectionCategory ??
+            item.collectionCategory ??
+            item.category
         : item.category;
 
     final normalizedCategory = rawCategory?.trim();

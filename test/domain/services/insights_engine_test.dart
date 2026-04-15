@@ -108,6 +108,29 @@ void main() {
           result.currencies.single.categories.single.category, 'Food & Drinks');
     });
 
+    test('collection query prefers manual collection category override', () {
+      final result = engine.build(
+        receipts: <Receipt>[
+          _receipt(
+            id: 'r1',
+            collectionId: 'trip-1',
+            items: const <ReceiptItem>[
+              ReceiptItem(
+                name: 'Coffee',
+                price: 5,
+                category: 'Office',
+                collectionCategory: 'Food & Drinks',
+                manualCollectionCategory: 'Travel',
+              ),
+            ],
+          ),
+        ],
+        query: const InsightsQuery(collectionId: 'trip-1'),
+      );
+
+      expect(result.currencies.single.categories.single.category, 'Travel');
+    });
+
     test('non-collection query uses normal category', () {
       final result = engine.build(
         receipts: <Receipt>[
