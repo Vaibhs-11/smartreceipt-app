@@ -10,6 +10,8 @@ import 'package:receiptnest/data/services/auth/auth_service.dart';
 import 'package:receiptnest/data/services/auth/firebase_auth_service.dart'
     as fb_impl;
 import 'package:receiptnest/data/services/cloud_ocr_service.dart';
+import 'package:receiptnest/data/services/export/on_device_export_dependencies.dart';
+import 'package:receiptnest/data/services/export/on_device_receipt_export_service.dart';
 import 'package:receiptnest/data/services/image_processing/receipt_image_processing_service.dart';
 import 'package:receiptnest/data/services/ocr/chatgpt_ocr_service.dart';
 import 'package:receiptnest/data/services/stub_export_service.dart';
@@ -23,6 +25,9 @@ import 'package:receiptnest/domain/repositories/account_repository.dart';
 import 'package:receiptnest/domain/repositories/collection_repository.dart';
 import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 import 'package:receiptnest/domain/repositories/user_repository.dart';
+import 'package:receiptnest/domain/services/export/builders/image_export_collector.dart';
+import 'package:receiptnest/domain/services/export/export_engine.dart';
+import 'package:receiptnest/domain/services/export/export_file_namer.dart';
 import 'package:receiptnest/domain/services/export_service.dart';
 import 'package:receiptnest/domain/services/insights_service.dart';
 import 'package:receiptnest/domain/services/ocr_service.dart';
@@ -161,6 +166,38 @@ final Provider<ExportService> exportServiceProvider = Provider<ExportService>((
   ref,
 ) {
   return const StubExportService();
+});
+
+final exportWorkingDirectoryProvider =
+    Provider<ExportWorkingDirectoryProvider>((ref) {
+  return const SystemExportWorkingDirectoryProvider();
+});
+
+final exportReceiptFileResolverProvider =
+    Provider<ExportReceiptFileResolver>((ref) {
+  return const OnDeviceExportReceiptFileResolver();
+});
+
+final exportShareLauncherProvider = Provider<ExportShareLauncher>((ref) {
+  return const SharePlusExportShareLauncher();
+});
+
+final exportEngineProvider = Provider<ExportEngine>((ref) {
+  return OnDeviceExportEngine(
+    workingDirectoryProvider: ref.read(exportWorkingDirectoryProvider),
+    imageExportCollector: ImageExportCollector(
+      fileResolver: ref.read(exportReceiptFileResolverProvider),
+      fileNamer: const ExportFileNamer(),
+    ),
+  );
+});
+
+final receiptExportServiceProvider =
+    Provider<OnDeviceReceiptExportService>((ref) {
+  return OnDeviceReceiptExportService(
+    exportEngine: ref.read(exportEngineProvider),
+    shareLauncher: ref.read(exportShareLauncherProvider),
+  );
 });
 
 final Provider<InsightsService> insightsServiceProvider =

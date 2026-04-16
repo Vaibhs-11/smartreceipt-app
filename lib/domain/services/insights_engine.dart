@@ -32,7 +32,10 @@ class InsightsEngine {
           continue;
         }
 
-        final category = _resolveCategory(item: item, query: query);
+        final category = resolveEffectiveCategory(
+          item: item,
+          isCollectionQuery: query.isCollectionQuery,
+        );
         if (!_matchesCategory(category, query.categories)) {
           continue;
         }
@@ -206,11 +209,11 @@ class InsightsEngine {
     );
   }
 
-  String _resolveCategory({
+  String resolveEffectiveCategory({
     required ReceiptItem item,
-    required InsightsQuery query,
+    required bool isCollectionQuery,
   }) {
-    final rawCategory = query.isCollectionQuery
+    final rawCategory = isCollectionQuery
         ? item.manualCollectionCategory ??
             item.collectionCategory ??
             item.category

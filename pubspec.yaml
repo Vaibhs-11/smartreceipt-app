@@ -57,6 +57,8 @@ dependencies:
   pdfx: ^2.6.0
   image: ^4.1.7
   syncfusion_flutter_pdf: ^31.1.18
+  archive: ^4.0.7
+  share_plus: ^11.1.0
 
 dev_dependencies:
   flutter_test:
@@ -70,3 +72,4 @@ flutter:
     - config/.env
     - config/env.example
     - assets/branding/receipt_nest_logo.png
+    - assets/fonts/NotoSans-Regular.ttf

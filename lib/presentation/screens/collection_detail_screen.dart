@@ -10,6 +10,8 @@ import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/domain/models/insights_query.dart';
 import 'package:receiptnest/domain/models/insights_result.dart';
+import 'package:receiptnest/domain/services/export/export_context.dart';
+import 'package:receiptnest/domain/services/export/export_exception.dart';
 import 'package:receiptnest/domain/services/insights_engine.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
@@ -50,6 +52,7 @@ class _CollectionDetailScreenState
   late final Future<List<String>> _collectionCategoryOptionsFuture =
       _loadCollectionCategoryOptions();
   String? _selectedInsightsCurrency;
+  bool _isExporting = false;
 
   bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
 
@@ -68,6 +71,72 @@ class _CollectionDetailScreenState
       return;
     }
     setState(_selectedReceiptIds.clear);
+  }
+
+  Future<void> _exportCollection(
+    Collection collection,
+    List<Receipt> receipts,
+  ) async {
+    if (_isExporting) {
+      return;
+    }
+
+    setState(() => _isExporting = true);
+
+    try {
+      final exportService = ref.read(receiptExportServiceProvider);
+      final result = await exportService.exportAndShare(
+        receipts: receipts,
+        context: ExportContext.collection(
+          title: collection.name,
+          dateRangeLabel: _buildCollectionDateRangeLabel(collection, receipts),
+        ),
+        shareContext: context,
+      );
+
+      if (result.hasSkippedReceipts) {
+        showRootSnackBar(
+          SnackBar(
+            content: Text(
+              'Export ready. ${result.skippedReceiptIds.length} receipts were skipped.',
+            ),
+          ),
+        );
+      }
+    } on ExportException catch (error) {
+      showRootSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      showRootSnackBar(
+        const SnackBar(content: Text('Unable to prepare export right now.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
+  }
+
+  String? _buildCollectionDateRangeLabel(
+    Collection collection,
+    List<Receipt> receipts,
+  ) {
+    final formatter = DateFormat.yMMMd();
+    if (collection.startDate != null && collection.endDate != null) {
+      return '${formatter.format(collection.startDate!)} - ${formatter.format(collection.endDate!)}';
+    }
+    if (collection.startDate != null) {
+      return '${formatter.format(collection.startDate!)} - Ongoing';
+    }
+    if (collection.endDate != null) {
+      return formatter.format(collection.endDate!);
+    }
+    if (receipts.isEmpty) {
+      return null;
+    }
+
+    final sorted = List<Receipt>.from(receipts)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return '${formatter.format(sorted.first.date)} - ${formatter.format(sorted.last.date)}';
   }
 
   Future<void> _updateCollection(Collection collection) async {
@@ -1777,6 +1846,11 @@ class _CollectionDetailScreenState
         ref.watch(collectionStreamProvider(widget.collectionId));
     final receiptsAsync =
         ref.watch(collectionReceiptsStreamProvider(widget.collectionId));
+    final currentCollection = collectionAsync.asData?.value;
+    final loadedReceipts = receiptsAsync.asData?.value;
+    final effectiveReceipts = loadedReceipts == null
+        ? null
+        : _applyOptimisticReceipts(loadedReceipts);
 
     return Scaffold(
       appBar: AppBar(
@@ -1829,150 +1903,201 @@ class _CollectionDetailScreenState
               },
               orElse: () => const SizedBox.shrink(),
             ),
+          if (!_isSelectingReceipts &&
+              hasAccess &&
+              currentCollection != null &&
+              effectiveReceipts != null &&
+              effectiveReceipts.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.ios_share_outlined),
+              tooltip: 'Export reimbursement ZIP',
+              onPressed: _isExporting
+                  ? null
+                  : () => _exportCollection(
+                        currentCollection,
+                        effectiveReceipts,
+                      ),
+            ),
         ],
       ),
       body: SafeArea(
-        child: !hasAccess
-            ? const _CollectionAccessDenied()
-            : collectionAsync.when(
-                data: (collection) {
-                  if (collection == null) {
-                    return const Center(
-                      child: Text('Collection not found.'),
-                    );
-                  }
+        child: Stack(
+          children: [
+            !hasAccess
+                ? const _CollectionAccessDenied()
+                : collectionAsync.when(
+                    data: (collection) {
+                      if (collection == null) {
+                        return const Center(
+                          child: Text('Collection not found.'),
+                        );
+                      }
 
-                  return receiptsAsync.when(
-                    data: (receipts) {
-                      final effectiveReceipts =
-                          _applyOptimisticReceipts(receipts);
-                      return ListView(
-                        padding: const EdgeInsets.only(bottom: 96),
-                        children: [
-                          _buildSummaryCard(collection, effectiveReceipts),
-                          _buildInsightsSection(effectiveReceipts),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                            child: Row(
-                              children: [
-                                const Expanded(
-                                  child: Text(
-                                    'Receipts',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.primaryNavy,
+                      return receiptsAsync.when(
+                        data: (receipts) {
+                          final effectiveReceipts =
+                              _applyOptimisticReceipts(receipts);
+                          return ListView(
+                            padding: const EdgeInsets.only(bottom: 96),
+                            children: [
+                              _buildSummaryCard(collection, effectiveReceipts),
+                              _buildInsightsSection(effectiveReceipts),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                                child: Row(
+                                  children: [
+                                    const Expanded(
+                                      child: Text(
+                                        'Receipts',
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.primaryNavy,
+                                        ),
+                                      ),
+                                    ),
+                                    if (!_isSelectingReceipts)
+                                      TextButton(
+                                        onPressed: () => _startReceiptSelection(
+                                            effectiveReceipts),
+                                        child: const Text('Select'),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              if (effectiveReceipts.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.fromLTRB(16, 24, 16, 0),
+                                  child: Center(
+                                    child: Text(
+                                      'No receipts in this collection yet',
                                     ),
                                   ),
-                                ),
-                                if (!_isSelectingReceipts)
-                                  TextButton(
-                                    onPressed: () => _startReceiptSelection(
-                                        effectiveReceipts),
-                                    child: const Text('Select'),
+                                )
+                              else
+                                ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    0,
                                   ),
-                              ],
-                            ),
-                          ),
-                          if (effectiveReceipts.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.fromLTRB(16, 24, 16, 0),
-                              child: Center(
-                                child: Text(
-                                  'No receipts in this collection yet',
-                                ),
-                              ),
-                            )
-                          else
-                            ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(
-                                16,
-                                0,
-                                16,
-                                0,
-                              ),
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: effectiveReceipts.length,
-                              itemBuilder: (context, index) {
-                                final receipt = effectiveReceipts[index];
-                                final isSelected = _selectedReceiptIds.contains(
-                                  receipt.id,
-                                );
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: effectiveReceipts.length,
+                                  itemBuilder: (context, index) {
+                                    final receipt = effectiveReceipts[index];
+                                    final isSelected =
+                                        _selectedReceiptIds.contains(
+                                      receipt.id,
+                                    );
 
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 6,
-                                  ),
-                                  child: Card(
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      side: BorderSide(
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 6,
+                                      ),
+                                      child: Card(
+                                        elevation: 0,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          side: BorderSide(
+                                            color: isSelected
+                                                ? AppColors.primaryNavy
+                                                    .withValues(alpha: 0.25)
+                                                : Colors.grey.shade200,
+                                          ),
+                                        ),
                                         color: isSelected
                                             ? AppColors.primaryNavy
-                                                .withValues(alpha: 0.25)
-                                            : Colors.grey.shade200,
-                                      ),
-                                    ),
-                                    color: isSelected
-                                        ? AppColors.primaryNavy
-                                            .withValues(alpha: 0.06)
-                                        : Colors.white,
-                                    child: ListTile(
-                                      onTap: () => _handleReceiptTap(receipt),
-                                      onLongPress: () =>
-                                          _toggleReceiptSelection(
-                                        receipt.id,
-                                      ),
-                                      leading: _isSelectingReceipts
-                                          ? Icon(
-                                              isSelected
-                                                  ? Icons.check_circle
-                                                  : Icons
-                                                      .radio_button_unchecked,
-                                              color: isSelected
-                                                  ? AppColors.primaryNavy
-                                                  : AppColors.textSecondary,
-                                            )
-                                          : null,
-                                      title: Text(
-                                        receipt.storeName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
+                                                .withValues(alpha: 0.06)
+                                            : Colors.white,
+                                        child: ListTile(
+                                          onTap: () =>
+                                              _handleReceiptTap(receipt),
+                                          onLongPress: () =>
+                                              _toggleReceiptSelection(
+                                            receipt.id,
+                                          ),
+                                          leading: _isSelectingReceipts
+                                              ? Icon(
+                                                  isSelected
+                                                      ? Icons.check_circle
+                                                      : Icons
+                                                          .radio_button_unchecked,
+                                                  color: isSelected
+                                                      ? AppColors.primaryNavy
+                                                      : AppColors.textSecondary,
+                                                )
+                                              : null,
+                                          title: Text(
+                                            receipt.storeName,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          subtitle: Text(
+                                            DateFormat.yMMMd()
+                                                .format(receipt.date),
+                                          ),
+                                          trailing: Text(
+                                            '${receipt.currency} ${receipt.total.toStringAsFixed(2)}',
+                                            style: const TextStyle(
+                                              color: AppColors.accentTeal,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                      subtitle: Text(
-                                        DateFormat.yMMMd().format(receipt.date),
-                                      ),
-                                      trailing: Text(
-                                        '${receipt.currency} ${receipt.total.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                          color: AppColors.accentTeal,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          const SizedBox(height: 88),
-                        ],
+                                    );
+                                  },
+                                ),
+                              const SizedBox(height: 88),
+                            ],
+                          );
+                        },
+                        loading: () =>
+                            const Center(child: CircularProgressIndicator()),
+                        error: (error, _) => Center(
+                          child: Text('Failed to load receipts: $error'),
+                        ),
                       );
                     },
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
                     error: (error, _) => Center(
-                      child: Text('Failed to load receipts: $error'),
+                      child: Text('Failed to load collection: $error'),
                     ),
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, _) => Center(
-                  child: Text('Failed to load collection: $error'),
+                  ),
+            if (_isExporting)
+              ColoredBox(
+                color: Colors.black26,
+                child: Center(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 12),
+                          Text('Preparing export...'),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
+          ],
+        ),
       ),
       floatingActionButton: hasAccess && !_isSelectingReceipts
           ? FloatingActionButton.extended(
