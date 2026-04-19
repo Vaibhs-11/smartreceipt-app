@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 
 /// Error codes exposed by [ReceiptImageSourceService].
 enum ReceiptImageSourceError { permissionDenied, unavailable, unknown }
@@ -50,12 +51,10 @@ class ReceiptImageSourceService {
     try {
       return await _pick(ImageSource.camera);
     } on PlatformException catch (e, stackTrace) {
-      debugPrint('Camera capture failed: $e');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Camera capture failed: $e\n$stackTrace');
       return ReceiptImagePickResult.error(_mapPlatformException(e));
     } catch (e, stackTrace) {
-      debugPrint('Unknown camera capture failure: $e');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Unknown camera capture failure: $e\n$stackTrace');
       return _unknownFailureResult;
     }
   }
@@ -64,12 +63,10 @@ class ReceiptImageSourceService {
     try {
       return await _pick(ImageSource.gallery);
     } on PlatformException catch (e, stackTrace) {
-      debugPrint('Gallery pick failed: $e');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Gallery pick failed: $e\n$stackTrace');
       return ReceiptImagePickResult.error(_mapPlatformException(e));
     } catch (e, stackTrace) {
-      debugPrint('Unknown gallery pick failure: $e');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Unknown gallery pick failure: $e\n$stackTrace');
       return _unknownFailureResult;
     }
   }

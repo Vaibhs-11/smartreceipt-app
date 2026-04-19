@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/models/receipt_filter.dart';
 import 'package:receiptnest/domain/services/insights_service.dart';
 
@@ -11,7 +11,7 @@ class StubInsightsService implements InsightsService {
     ReceiptFilter? filter,
     InsightsGroupBy groupBy = InsightsGroupBy.category,
   }) async {
-    debugPrint(
+    AppLogger.log(
       'StubInsightsService.generateInsights called. '
       'receiptCount=${receiptIds?.length ?? 0} '
       'filter=$filter',

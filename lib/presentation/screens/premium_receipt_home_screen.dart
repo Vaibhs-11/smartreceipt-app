@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/services/analytics_service.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
@@ -21,6 +22,8 @@ import 'package:receiptnest/domain/utils/item_index_builder.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/presentation/widgets/collection_receipt_assignment_sheet.dart';
+import 'package:receiptnest/presentation/widgets/export_ready_sheet.dart';
+import 'package:receiptnest/presentation/widgets/smart_prompt_card.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 
 class PremiumReceiptHomeScreen extends ConsumerStatefulWidget {
@@ -56,6 +59,7 @@ class _PremiumReceiptHomeScreenState
   final Set<String> _selectedReceiptIds = <String>{};
   bool _isCollectionsExpanded = true;
   bool _isExporting = false;
+  bool _showTaxExportPrompt = true;
 
   bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
 
@@ -158,25 +162,58 @@ class _PremiumReceiptHomeScreenState
 
     try {
       final exportService = ref.read(receiptExportServiceProvider);
-      final result = await exportService.exportAndShare(
+      final result = await exportService.prepareExport(
         receipts: receipts,
         context: ExportContext.search(
           title: _searchQuery.isNotEmpty
               ? 'tax_evidence_$_searchQuery'
               : 'tax_evidence',
         ),
+      );
+      if (!mounted) return;
+      setState(() => _showTaxExportPrompt = false);
+
+      final action = await showExportReadySheet(
+        context,
+        skippedReceiptCount: result.skippedReceiptIds.length,
+        debugBytesLength: result.fileBytes?.length,
+      );
+      if (!mounted || action == null) {
+        return;
+      }
+
+      if (action == ExportReadyAction.save) {
+        try {
+          final savedPath =
+              await exportService.saveExportToDevice(result: result);
+
+          if (!mounted) return;
+          if (savedPath != null) {
+            final fileName =
+                result.fileName.isNotEmpty ? result.fileName : 'file';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Export "$fileName" saved to your device'),
+              ),
+            );
+          }
+        } catch (e) {
+          AppLogger.error('Export save failed: $e');
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to save export. Please try again.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      await exportService.shareExport(
+        result: result,
         shareContext: context,
       );
-
-      if (result.hasSkippedReceipts) {
-        showRootSnackBar(
-          SnackBar(
-            content: Text(
-              'Export ready. ${result.skippedReceiptIds.length} receipts were skipped.',
-            ),
-          ),
-        );
-      }
     } on ExportException catch (error) {
       showRootSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
@@ -547,6 +584,10 @@ class _PremiumReceiptHomeScreenState
     final visibleSearchExportReceipts = rootReceipts == null
         ? const <Receipt>[]
         : _visibleSearchExportReceipts(rootReceipts, filters);
+    final showExportButton = !_isSelectingReceipts &&
+        showItemLevelResults &&
+        visibleSearchExportReceipts.isNotEmpty;
+    final shouldShowTaxExportPrompt = showExportButton && _showTaxExportPrompt;
 
     return Scaffold(
       appBar: AppBar(
@@ -595,9 +636,7 @@ class _PremiumReceiptHomeScreenState
               Navigator.pushNamed(context, AppRoutes.account);
             },
           ),
-          if (!_isSelectingReceipts &&
-              showItemLevelResults &&
-              visibleSearchExportReceipts.isNotEmpty)
+          if (showExportButton)
             IconButton(
               icon: const Icon(Icons.ios_share_outlined),
               tooltip: 'Export tax evidence ZIP',
@@ -627,6 +666,23 @@ class _PremiumReceiptHomeScreenState
                   _buildSearchControls(filters),
                   _buildCategoryChipBar(),
                   _buildActiveFilters(filters),
+                  if (shouldShowTaxExportPrompt)
+                    SmartPromptCard(
+                      icon: Icons.receipt_long,
+                      title: 'Preparing your tax records?',
+                      description:
+                          'Download all tax claimable receipts for easy filing.',
+                      primaryActionText: 'Export tax receipts',
+                      onPrimaryAction: _isExporting
+                          ? null
+                          : () => _exportSearchResults(
+                                visibleSearchExportReceipts,
+                              ),
+                      secondaryActionText: 'Not now',
+                      onSecondaryAction: () {
+                        setState(() => _showTaxExportPrompt = false);
+                      },
+                    ),
                   if (collectionsAsync != null)
                     _buildCollectionsSection(collectionsAsync),
                   Expanded(
@@ -1196,8 +1252,8 @@ class _PremiumReceiptHomeScreenState
             _monthlyTotalsByCurrency(itemResults, receiptCurrencyById);
         final totalText = _formatCurrencyTotals(totalsByCurrency);
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 80),
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
@@ -1225,47 +1281,42 @@ class _PremiumReceiptHomeScreenState
                 ],
               ),
             ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 80),
-                children: groupedItems.expand((group) {
-                  final monthlyTotals = _monthlyTotalsByCurrency(
-                    group.items,
-                    receiptCurrencyById,
-                  );
-                  final monthlyTotalText = _formatCurrencyTotals(monthlyTotals);
+            ...groupedItems.expand((group) {
+              final monthlyTotals = _monthlyTotalsByCurrency(
+                group.items,
+                receiptCurrencyById,
+              );
+              final monthlyTotalText = _formatCurrencyTotals(monthlyTotals);
 
-                  return [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            group.label,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primaryNavy,
-                            ),
-                          ),
-                          Text(
-                            monthlyTotalText,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primaryNavy,
-                            ),
-                          ),
-                        ],
+              return [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        group.label,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
                       ),
-                    ),
-                    ..._buildItemGroupRows(group, receiptCurrencyById),
-                    const SizedBox(height: 16),
-                  ];
-                }).toList(),
-              ),
-            ),
+                      Text(
+                        monthlyTotalText,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ..._buildItemGroupRows(group, receiptCurrencyById),
+                const SizedBox(height: 16),
+              ];
+            }),
           ],
         );
       }
@@ -2067,8 +2118,7 @@ class _CollectionSummaryCard extends ConsumerWidget {
     final dateLabel = _buildDateLabel(collection);
 
     return SizedBox(
-      width: fullWidth ? double.infinity : 200,
-      height: double.infinity,
+      width: 200,
       child: Container(
         decoration: BoxDecoration(
           boxShadow: [

@@ -13,6 +13,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/entities/receipt.dart'
@@ -293,9 +294,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       margin: const EdgeInsets.symmetric(vertical: 6),
       child: Container(
         decoration: BoxDecoration(
-          color: priceMissing
-              ? const Color(0xFFFFF4F4)
-              : AppColors.cardBackground,
+          color:
+              priceMissing ? const Color(0xFFFFF4F4) : AppColors.cardBackground,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Padding(
@@ -495,7 +495,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     final index = _lastDeletedIndex;
     final nameCtrl = _lastDeletedNameCtrl;
     final priceCtrl = _lastDeletedPriceCtrl;
-    if (item == null || index == null || nameCtrl == null || priceCtrl == null) {
+    if (item == null ||
+        index == null ||
+        nameCtrl == null ||
+        priceCtrl == null) {
       return;
     }
 
@@ -561,7 +564,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (path != null && path.isNotEmpty) {
       final file = File(path);
       if (!file.existsSync()) {
-        debugPrint('Initial image path does not exist: $path');
+        AppLogger.error('Initial image path does not exist.');
       } else {
         _initialArgsHandled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -735,7 +738,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
               profile.trialUsed != true)
             TextButton(
               onPressed: () async {
-                ScaffoldMessenger.of(context).clearSnackBars(); 
+                ScaffoldMessenger.of(context).clearSnackBars();
                 Navigator.of(context).pop();
                 await _startTrial();
               },
@@ -881,7 +884,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   Future<UploadedFile?> _uploadFileToStorage(File file) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      debugPrint("Cannot upload file, user not logged in.");
+      AppLogger.log('Cannot upload file: user not logged in.');
       return null;
     }
     try {
@@ -900,7 +903,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       if (isNetworkException(e)) {
         rethrow;
       }
-      debugPrint("Upload failed: $e");
+      AppLogger.error('Upload failed: $e');
       return null;
     }
   }
@@ -912,7 +915,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      debugPrint("Cannot upload file, user not logged in.");
+      AppLogger.log('Cannot upload file: user not logged in.');
       return null;
     }
     try {
@@ -934,7 +937,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       if (isNetworkException(e)) {
         rethrow;
       }
-      debugPrint("Upload failed: $e");
+      AppLogger.error('Upload failed: $e');
       return null;
     }
   }
@@ -1227,7 +1230,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         extractedText = buffer.toString();
         document.dispose();
       } catch (e) {
-        debugPrint('PDF text extraction failed locally: $e');
+        AppLogger.error('PDF text extraction failed locally: $e');
       }
 
       if (extractedText.trim().isNotEmpty) {
@@ -1271,7 +1274,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         tempImageFile = File(jpgPath);
         await tempImageFile.writeAsBytes(jpgBytes, flush: true);
       } catch (e) {
-        debugPrint('Failed to render PDF to image: $e');
+        AppLogger.error('Failed to render PDF to image: $e');
       }
 
       if (tempImageFile == null || !(await tempImageFile.exists())) {
@@ -1342,7 +1345,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         }
         return;
       }
-      debugPrint('Error processing file: $e\n$s');
+      AppLogger.error('Error processing file: $e\n$s');
       FirebaseCrashlytics.instance.recordError(
         e,
         s,

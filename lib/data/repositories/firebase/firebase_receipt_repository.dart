@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 
@@ -38,7 +38,7 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   @override
   Future<void> addReceipt(Receipt receipt) async {
     if (_uid() == null) {
-      debugPrint('Skipping addReceipt: user not logged in.');
+      AppLogger.log('Skipping addReceipt: user not logged in.');
       return;
     }
     final sanitized = receipt.copyWith(
@@ -100,7 +100,7 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   Future<void> updateReceipt(Receipt receipt) async {
     final uid = _uid();
     if (uid == null) {
-      debugPrint('Skipping updateReceipt: user not logged in.');
+      AppLogger.log('Skipping updateReceipt: user not logged in.');
       return;
     }
 
@@ -118,7 +118,7 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   Future<void> deleteReceipt(String id) async {
     final uid = _uid();
     if (uid == null) {
-      debugPrint('Skipping deleteReceipt: user not logged in.');
+      AppLogger.log('Skipping deleteReceipt: user not logged in.');
       return;
     }
     await _receiptsCollection(uid).doc(id).delete();
@@ -131,7 +131,8 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   ) async {
     final uid = _uid();
     if (uid == null || receiptIds.isEmpty) {
-      debugPrint('Skipping assignReceiptsToCollection: missing user or ids.');
+      AppLogger.log(
+          'Skipping assignReceiptsToCollection: missing user or ids.');
       return;
     }
 
@@ -154,7 +155,9 @@ class FirebaseReceiptRepository implements ReceiptRepository {
   Future<void> removeReceiptsFromCollection(List<String> receiptIds) async {
     final uid = _uid();
     if (uid == null || receiptIds.isEmpty) {
-      debugPrint('Skipping removeReceiptsFromCollection: missing user or ids.');
+      AppLogger.log(
+        'Skipping removeReceiptsFromCollection: missing user or ids.',
+      );
       return;
     }
 

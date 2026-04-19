@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/services/analytics_service.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
+import 'package:receiptnest/domain/services/export/export_context.dart';
+import 'package:receiptnest/domain/services/export/export_exception.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
@@ -14,6 +17,8 @@ import 'package:receiptnest/presentation/screens/collections_preview_screen.dart
 import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/presentation/widgets/export_ready_sheet.dart';
+import 'package:receiptnest/presentation/widgets/smart_prompt_card.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 import 'package:receiptnest/domain/models/categorised_item_view.dart';
 import 'package:receiptnest/domain/utils/item_index_builder.dart';
@@ -29,6 +34,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
   late final TextEditingController _searchController;
   static const String _swipeHintPrefKey = 'receipt_swipe_hint_shown';
   bool _showSwipeHint = false;
+  bool _showTaxExportPrompt = true;
+  bool _isExporting = false;
   List<CategorisedItemView> _itemIndex = const [];
 
   @override
@@ -229,12 +236,30 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
           final bool showItemLevelResults =
               searchQuery.isNotEmpty || filters.taxClaimable == true;
+          final bool shouldShowTaxExportPrompt = filters.taxClaimable != null &&
+              filtered.isNotEmpty &&
+              _showTaxExportPrompt;
 
           return Column(
             children: [
               const SizedBox(height: 8),
               _buildSearchControls(filters),
               _buildActiveFilters(filters),
+              if (shouldShowTaxExportPrompt)
+                SmartPromptCard(
+                  icon: Icons.receipt_long,
+                  title: 'Preparing your tax records?',
+                  description:
+                      'Download all tax claimable receipts for easy filing.',
+                  primaryActionText: 'Export tax receipts',
+                  onPrimaryAction: _isExporting
+                      ? null
+                      : () => _exportFilteredReceipts(filtered),
+                  secondaryActionText: 'Not now',
+                  onSecondaryAction: () {
+                    setState(() => _showTaxExportPrompt = false);
+                  },
+                ),
               Expanded(
                 child: showItemLevelResults
                     ? _buildSearchResults(filtered, searchQuery, filters)
@@ -723,6 +748,80 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     notifier.state = next;
     if (clearQuery) {
       _searchController.clear();
+    }
+  }
+
+  Future<void> _exportFilteredReceipts(List<Receipt> receipts) async {
+    if (_isExporting || receipts.isEmpty) {
+      return;
+    }
+
+    setState(() => _isExporting = true);
+
+    try {
+      final exportService = ref.read(receiptExportServiceProvider);
+      final searchQuery = _searchController.text.trim();
+      final title =
+          searchQuery.isNotEmpty ? 'tax_evidence_$searchQuery' : 'tax_evidence';
+
+      final result = await exportService.prepareExport(
+        receipts: receipts,
+        context: ExportContext.search(title: title),
+      );
+      if (!mounted) return;
+      setState(() => _showTaxExportPrompt = false);
+
+      final action = await showExportReadySheet(
+        context,
+        skippedReceiptCount: result.skippedReceiptIds.length,
+        debugBytesLength: result.fileBytes?.length,
+      );
+      if (!mounted || action == null) {
+        return;
+      }
+
+      if (action == ExportReadyAction.save) {
+        try {
+          final savedPath =
+              await exportService.saveExportToDevice(result: result);
+
+          if (!mounted) return;
+          if (savedPath != null) {
+            final fileName =
+                result.fileName.isNotEmpty ? result.fileName : 'file';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Export "$fileName" saved to your device'),
+              ),
+            );
+          }
+        } catch (e) {
+          AppLogger.error('Export save failed: $e');
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to save export. Please try again.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      await exportService.shareExport(
+        result: result,
+        shareContext: context,
+      );
+    } on ExportException catch (error) {
+      showRootSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      showRootSnackBar(
+        const SnackBar(content: Text('Unable to prepare export right now.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
     }
   }
 

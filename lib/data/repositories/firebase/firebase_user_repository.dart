@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/exceptions/trial_exception.dart';
@@ -64,17 +64,17 @@ class FirebaseUserRepository implements UserRepository {
   Future<void> startTrial() async {
     final uid = _uid();
     if (uid == null) {
-      debugPrint('Skipping startTrial: user not logged in.');
+      AppLogger.log('Skipping startTrial: user not logged in.');
       return;
     }
     try {
       final HttpsCallable callable = _functions.httpsCallable('startTrial');
       await callable.call<Map<String, dynamic>>(const <String, dynamic>{});
     } on FirebaseFunctionsException catch (e, stackTrace) {
-      debugPrint(
+      AppLogger.error(
         'startTrial callable failed (code: ${e.code}, message: ${e.message})',
       );
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error(stackTrace.toString());
       if (e.code == 'failed-precondition') {
         throw const TrialAlreadyUsedException();
       }
@@ -89,7 +89,8 @@ class FirebaseUserRepository implements UserRepository {
   }) async {
     final uid = _uid();
     if (uid == null) {
-      debugPrint('Skipping applySubscriptionEntitlement: user not logged in.');
+      AppLogger.log(
+          'Skipping applySubscriptionEntitlement: user not logged in.');
       return;
     }
 
@@ -106,10 +107,10 @@ class FirebaseUserRepository implements UserRepository {
     await callable.call<Map<String, dynamic>>(<String, Object?>{
       'tier': entitlement.tier.asString,
       'status': entitlement.status.asString,
-      'source': (entitlement.source ?? currentProfile?.subscriptionSource)
-          ?.asString,
-      'updatedAtMillis':
-          (entitlement.updatedAt ?? DateTime.now().toUtc()).millisecondsSinceEpoch,
+      'source':
+          (entitlement.source ?? currentProfile?.subscriptionSource)?.asString,
+      'updatedAtMillis': (entitlement.updatedAt ?? DateTime.now().toUtc())
+          .millisecondsSinceEpoch,
     });
   }
 
@@ -117,7 +118,7 @@ class FirebaseUserRepository implements UserRepository {
   Future<void> markDowngradeRequired() async {
     final uid = _uid();
     if (uid == null) {
-      debugPrint('Skipping markDowngradeRequired: user not logged in.');
+      AppLogger.log('Skipping markDowngradeRequired: user not logged in.');
       return;
     }
     await _userDoc(uid).set(
@@ -132,7 +133,7 @@ class FirebaseUserRepository implements UserRepository {
   Future<void> clearDowngradeRequired() async {
     final uid = _uid();
     if (uid == null) {
-      debugPrint('Skipping clearDowngradeRequired: user not logged in.');
+      AppLogger.log('Skipping clearDowngradeRequired: user not logged in.');
       return;
     }
     await _userDoc(uid).set(

@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 
 class FirestoreService {
@@ -13,8 +13,6 @@ class FirestoreService {
   })  : _db = db ?? FirebaseFirestore.instance,
         _auth = auth ?? FirebaseAuth.instance;
 
-  String? get _uid => _auth.currentUser?.uid;
-
   /// Adds a new receipt under the current user's collection
   Future<void> addReceipt({
     required String storeName,
@@ -25,15 +23,13 @@ class FirestoreService {
     final user = _auth.currentUser;
 
     if (user == null) {
-      debugPrint("⚠️ No user signed in, cannot add receipt.");
+      AppLogger.log('Cannot add receipt: no user signed in.');
       return;
     }
 
     try {
-      final receiptsRef = _db
-          .collection("users")
-          .doc(user.uid)
-          .collection("receipts");
+      final receiptsRef =
+          _db.collection("users").doc(user.uid).collection("receipts");
 
       await receiptsRef.add({
         "storeName": storeName,
@@ -42,24 +38,20 @@ class FirestoreService {
         "fileUrl": fileUrl,
         "createdAt": FieldValue.serverTimestamp(), // server clock
       });
-
-      debugPrint("✅ Receipt added successfully for user: ${user.uid}");
     } catch (e, stackTrace) {
-      debugPrint("❌ Failed to add receipt: $e");
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Failed to add receipt: $e\n$stackTrace');
       rethrow; // let UI decide how to handle
     }
   }
 
   /// Stream of receipts for the current user
   Stream<List<Receipt>> getReceipts() {
-    debugPrint("📡 FirestoreService.getReceipts() CALLED");
     final user = _auth.currentUser;
     if (user == null) {
-      debugPrint("⚠️ No user signed in, returning empty receipt stream.");
+      AppLogger.log('Returning empty receipt stream: no user signed in.');
       return const Stream.empty();
     }
-    debugPrint("📜 Fetching receipts for user: ${user.uid}");
+    AppLogger.log('Fetching receipts for current user');
     return _db
         .collection("users")
         .doc(user.uid)
@@ -67,22 +59,18 @@ class FirestoreService {
         .orderBy("date", descending: true)
         .snapshots()
         .map((snapshot) {
-          debugPrint("📸 Snapshot received: ${snapshot.docs.length} docs");
-          for (var doc in snapshot.docs) {
-            debugPrint("📝 Doc: ${doc.id} => ${doc.data()}");
-         }
-         return snapshot.docs.map((doc) => Receipt.fromFirestore(doc)).toList();
-      });
+      return snapshot.docs.map((doc) => Receipt.fromFirestore(doc)).toList();
+    });
   }
 
   /// Deletes a receipt by document ID
   Future<void> deleteReceipt(String receiptId) async {
     final user = _auth.currentUser;
     if (user == null) {
-      debugPrint("⚠️ No user signed in, cannot delete receipt.");
+      AppLogger.log('Cannot delete receipt: no user signed in.');
       return;
     }
-    
+
     try {
       await _db
           .collection("users")
@@ -90,11 +78,8 @@ class FirestoreService {
           .collection("receipts")
           .doc(receiptId)
           .delete();
-
-      debugPrint("🗑️ Receipt $receiptId deleted successfully.");
     } catch (e, stackTrace) {
-      debugPrint("❌ Failed to delete receipt: $e");
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Failed to delete receipt: $e\n$stackTrace');
       rethrow;
     }
   }
@@ -109,7 +94,7 @@ class FirestoreService {
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
-      debugPrint("⚠️ No user signed in, cannot update receipt.");
+      AppLogger.log('Cannot update receipt: no user signed in.');
       return;
     }
 
@@ -122,7 +107,7 @@ class FirestoreService {
       if (fileUrl != null) updates["fileUrl"] = fileUrl;
 
       if (updates.isEmpty) {
-        debugPrint("⚠️ No updates provided, skipping update.");
+        AppLogger.log('Skipping receipt update: no changes provided.');
         return;
       }
 
@@ -132,18 +117,12 @@ class FirestoreService {
           .collection("receipts")
           .doc(receiptId)
           .update(updates);
-
-      debugPrint("✏️ Receipt $receiptId updated successfully.");
     } catch (e, stackTrace) {
-      debugPrint("❌ Failed to update receipt: $e");
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Failed to update receipt: $e\n$stackTrace');
       rethrow;
     }
   }
 }
-
-
-
 
 //class FirebaseAuthService implements AuthService {
 //  final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -154,11 +133,11 @@ class FirestoreService {
 //    return userCredential.user;
 //  }
 
- // @override
- // Future<void> signOut() async {
- //   await _auth.signOut();
- // }
+// @override
+// Future<void> signOut() async {
+//   await _auth.signOut();
+// }
 
-  //@override
-  //Stream<User?> get onAuthStateChanged => _auth.authStateChanges();
+//@override
+//Stream<User?> get onAuthStateChanged => _auth.authStateChanges();
 //}

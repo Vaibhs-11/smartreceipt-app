@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/models/receipt_filter.dart';
 import 'package:receiptnest/domain/services/export_service.dart';
 
@@ -13,7 +13,7 @@ class StubExportService implements ExportService {
     required ExportFormat format,
     ExportContext? context,
   }) async {
-    debugPrint(
+    AppLogger.log(
       'StubExportService.exportReceipts called. '
       'userId=$userId format=$format '
       'receiptCount=${receiptIds?.length ?? 0} '

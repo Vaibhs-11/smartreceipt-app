@@ -45,52 +45,20 @@ class OcrResult extends Equatable {
 
   /// ✅ Helper: convert OCR items into domain ReceiptItems
   List<ReceiptItem> toReceiptItems() {
-  print("----- OCR RESULT DEBUG START -----");
-  print("Total OCR items received: ${items.length}");
+    return items.map((ocrItem) {
+      final lineTotal = ocrItem.price;
+      final inference = lineTotal != null && lineTotal > 0
+          ? _inferQuantityAndUnitPrice(ocrItem.name, lineTotal)
+          : null;
 
-  final mapped = items.map((ocrItem) {
-    final lineTotal = ocrItem.price;
-
-    print(
-      "OCR ITEM → name: '${ocrItem.name}' | "
-      "price: ${ocrItem.price} | "
-      "confidence: ${ocrItem.priceConfidence}",
-    );
-
-    final inference = lineTotal != null && lineTotal > 0
-        ? _inferQuantityAndUnitPrice(ocrItem.name, lineTotal)
-        : null;
-
-    if (inference != null) {
-      print(
-        "  ↳ Inferred quantity: ${inference.quantity}, "
-        "unitPrice: ${inference.unitPrice}",
+      return ReceiptItem(
+        name: ocrItem.name,
+        price: lineTotal,
+        quantity: inference?.quantity,
+        unitPrice: inference?.unitPrice,
       );
-    }
-
-    final receiptItem = ReceiptItem(
-      name: ocrItem.name,
-      price: lineTotal,
-      quantity: inference?.quantity,
-      unitPrice: inference?.unitPrice,
-    );
-
-    print(
-      "MAPPED ITEM → name: '${receiptItem.name}' | "
-      "price: ${receiptItem.price}",
-    );
-
-    return receiptItem;
-  }).toList();
-
-  for (final item in mapped) {
-    print("FINAL LIST ITEM → '${item.name}' | price: ${item.price}");
+    }).toList();
   }
-
-  print("----- OCR RESULT DEBUG END -----");
-
-  return mapped;
-}
 
   @override
   List<Object?> get props => [

@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/data/services/auth/auth_service.dart';
 import 'package:receiptnest/domain/entities/app_config.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
@@ -182,7 +183,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            profile.isAnonymous ? 'Anonymous user' : (profile.email ?? 'No email'),
+            profile.isAnonymous
+                ? 'Anonymous user'
+                : (profile.email ?? 'No email'),
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -674,7 +677,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 TextField(
                   controller: currentCtrl,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Current password'),
+                  decoration:
+                      const InputDecoration(labelText: 'Current password'),
                 ),
                 TextField(
                   controller: newCtrl,
@@ -781,7 +785,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       ref.refresh(receiptCountProvider);
       ref.refresh(receiptsProvider);
     } on AccountDeletionFunctionException catch (e) {
-      debugPrint(
+      AppLogger.error(
         'Account deletion failed via Cloud Function '
         '(code: ${e.code}, message: ${e.message})',
       );
@@ -792,7 +796,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         }
         return;
       }
-      debugPrint('Account deletion failed: $e');
+      AppLogger.error('Account deletion failed: $e');
     } finally {
       if (mounted) setState(() => _deletingAccount = false);
     }

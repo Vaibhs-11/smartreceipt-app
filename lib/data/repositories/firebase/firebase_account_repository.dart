@@ -1,6 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
-import 'package:flutter/foundation.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/exceptions/account_deletion_exception.dart';
 import 'package:receiptnest/domain/repositories/account_repository.dart';
 
@@ -18,16 +18,16 @@ class FirebaseAccountRepository implements AccountRepository {
   Future<void> deleteAccount() async {
     final user = _auth.currentUser;
     if (user == null) {
-      debugPrint('Skipping deleteAccount: user not logged in.');
+      AppLogger.log('Skipping deleteAccount: user not logged in.');
       return;
     }
 
     try {
       final callable = _functions.httpsCallable('deleteAccount');
-      final result = await callable();
+      final HttpsCallableResult<dynamic> result = await callable();
       final data = result.data;
       if (data is! Map || data['success'] != true) {
-        debugPrint(
+        AppLogger.error(
           'Account deletion callable returned unexpected response: $data',
         );
         throw const AccountDeletionFunctionException(
@@ -36,15 +36,15 @@ class FirebaseAccountRepository implements AccountRepository {
         );
       }
     } on FirebaseFunctionsException catch (e, stackTrace) {
-      debugPrint(
+      AppLogger.error(
         'Account deletion callable failed '
         '(code: ${e.code}, message: ${e.message})',
       );
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error(stackTrace.toString());
       throw AccountDeletionFunctionException(code: e.code, message: e.message);
     } catch (e, stackTrace) {
-      debugPrint('Account deletion callable failed: $e');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLogger.error('Account deletion callable failed: $e');
+      AppLogger.error(stackTrace.toString());
       throw AccountDeletionFunctionException(
         code: 'unknown',
         message: e.toString(),

@@ -99,6 +99,26 @@ final userProfileProvider = FutureProvider<AppUserProfile?>((ref) async {
   return repository.getCurrentUserProfile();
 });
 
+final userProfileStreamProvider = StreamProvider<AppUserProfile?>((ref) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) {
+    return Stream<AppUserProfile?>.value(null);
+  }
+
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .snapshots()
+      .map(
+    (doc) {
+      if (!doc.exists) {
+        return null;
+      }
+      return AppUserProfile.fromFirestore(doc);
+    },
+  );
+});
+
 final currentUidProvider = Provider<String?>((ref) {
   final auth = ref.watch(authStateProvider).value;
   return auth?.uid;
@@ -354,7 +374,7 @@ final receiptDetailProvider =
 });
 
 final accountEligibilityProvider = Provider<AccountEligibility?>((ref) {
-  final profile = ref.watch(userProfileProvider).value;
+  final profile = ref.watch(userProfileStreamProvider).value;
   if (profile == null) {
     return null;
   }

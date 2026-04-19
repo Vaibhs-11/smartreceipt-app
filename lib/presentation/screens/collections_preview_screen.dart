@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/policies/account_policies.dart';
-import 'package:receiptnest/domain/services/subscription_service.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
@@ -23,13 +21,6 @@ class CollectionsPreviewScreen extends ConsumerStatefulWidget {
 class _CollectionsPreviewScreenState
     extends ConsumerState<CollectionsPreviewScreen> {
   bool _startingTrial = false;
-  String? _monthlyPrice;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadMonthlyPrice();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,8 +51,10 @@ class _CollectionsPreviewScreenState
               profile,
               DateTime.now().toUtc(),
             );
-            final canStartTrial =
-                !eligibility.isPremiumEligible && profile.trialUsed != true;
+            final isPaidUser =
+                profile.accountStatus == AccountStatus.paid ||
+                profile.subscriptionStatus == SubscriptionStatus.active;
+            final canStartTrial = !profile.trialUsed && !isPaidUser;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -85,7 +78,7 @@ class _CollectionsPreviewScreenState
                         ),
                         SizedBox(height: 16),
                         Text(
-                          'Organise receipts your way',
+                          'Turn your receipts into ready-to-use reports',
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
@@ -94,7 +87,7 @@ class _CollectionsPreviewScreenState
                         ),
                         SizedBox(height: 10),
                         Text(
-                          'Group receipts for trips, events, or projects and keep related spending in one place.',
+                          'Group, track, and manage receipts for trips, work, and tax — all in one place.',
                           style: TextStyle(
                             fontSize: 15,
                             color: AppColors.textSecondary,
@@ -105,19 +98,21 @@ class _CollectionsPreviewScreenState
                   ),
                   const SizedBox(height: 24),
                   const _CollectionsPreviewBullet(
-                    text: 'Create separate personal and work collections',
+                    text: 'Track spending across trips and projects',
                   ),
                   const _CollectionsPreviewBullet(
-                    text: 'See receipts and totals grouped in one place',
+                    text: 'Keep personal and work expenses organised',
                   ),
                   const _CollectionsPreviewBullet(
-                    text:
-                        'Keep records organised for travel, events, and projects',
+                    text: 'Get insights into where your money goes',
+                  ),
+                  const _CollectionsPreviewBullet(
+                    text: 'Access everything in one place, anytime',
                   ),
                   const SizedBox(height: 24),
                   Text(
                     canStartTrial
-                        ? 'Start your free trial to unlock Trips & Events and other Premium features.'
+                        ? 'Start your free trial to unlock insights, trips, and unlimited organisation.'
                         : _upgradeMessage(profile),
                     style: const TextStyle(
                       fontSize: 15,
@@ -138,16 +133,27 @@ class _CollectionsPreviewScreenState
                           : Text(
                               canStartTrial
                                   ? 'Start Free Trial'
-                                  : 'Upgrade to Premium',
+                                  : 'Upgrade for less than the cost of a cup of coffee each month',
                             ),
                     ),
                   ),
                   if (canStartTrial) ...[
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
+                    Center(
+                      child: TextButton(
                         onPressed: _openPurchase,
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primaryNavy,
+                          textStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
                         child: Text(_purchaseButtonLabel()),
                       ),
                     ),
@@ -161,40 +167,15 @@ class _CollectionsPreviewScreenState
     );
   }
 
-  Future<void> _loadMonthlyPrice() async {
-    try {
-      final subscriptionService = ref.read(subscriptionServiceProvider);
-      final products = await subscriptionService.fetchProducts();
-      final ProductDetails? monthlyProduct =
-          products.cast<ProductDetails?>().firstWhere(
-                (product) =>
-                    product != null &&
-                    SubscriptionProductIds.tierForProduct(product.id) ==
-                        SubscriptionTier.monthly,
-                orElse: () => null,
-              );
-      if (!mounted || monthlyProduct == null) {
-        return;
-      }
-      setState(() => _monthlyPrice = monthlyProduct.price);
-    } catch (_) {
-      // Leave pricing copy generic if billing metadata is unavailable.
-    }
-  }
-
   String _upgradeMessage(AppUserProfile profile) {
-    final priceText =
-        _monthlyPrice == null ? 'monthly pricing' : '${_monthlyPrice!} / month';
     if (profile.trialUsed == true) {
-      return 'Upgrade to Premium to unlock Trips & Events. Plans start at $priceText.';
+      return 'Upgrade to unlock insights, trips, and unlimited organisation.';
     }
-    return 'Unlock Trips & Events with Premium. Plans start at $priceText, or start your free trial if available.';
+    return 'Start your free trial to unlock insights, trips, and unlimited organisation.';
   }
 
   String _purchaseButtonLabel() {
-    return _monthlyPrice == null
-        ? 'Upgrade to Premium'
-        : 'Upgrade to Premium (${_monthlyPrice!} / month)';
+    return 'Upgrade for less than the cost of a cup of coffee each month';
   }
 
   Future<void> _startTrial() async {
@@ -205,7 +186,12 @@ class _CollectionsPreviewScreenState
       if (!await ensureInternetConnection(context, connectivity)) return;
       final userRepo = ref.read(userRepositoryProvider);
       await userRepo.startTrial();
-      await ref.refresh(userProfileProvider.future);
+      await ref.read(userProfileStreamProvider.stream).firstWhere(
+        (profile) =>
+            profile != null &&
+            AccountPolicies.evaluate(profile, DateTime.now().toUtc())
+                .isPremiumEligible,
+      );
       if (!mounted) return;
       showRootSnackBar(
         const SnackBar(content: Text('Trial started')),
@@ -234,11 +220,31 @@ class _CollectionsPreviewScreenState
   }
 
   void _openPurchase() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+    Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (_) => const PurchaseScreen(),
       ),
-    );
+    ).then((result) async {
+      if (result != true || !mounted) {
+        return;
+      }
+
+      await ref.read(userProfileStreamProvider.stream).firstWhere(
+        (profile) =>
+            profile != null &&
+            AccountPolicies.evaluate(profile, DateTime.now().toUtc())
+                .isPremiumEligible,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const CreateCollectionScreen(),
+        ),
+      );
+    });
   }
 }
 

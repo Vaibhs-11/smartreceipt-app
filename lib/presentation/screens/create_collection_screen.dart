@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/domain/exceptions/collection_exception.dart';
+import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/collection_detail_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
@@ -62,13 +64,13 @@ class _CreateCollectionScreenState
 
   @override
   Widget build(BuildContext context) {
-    final hasAccess = ref.watch(premiumCollectionAccessProvider);
+    final accessAsync = ref.watch(userProfileStreamProvider);
     final inputFillColor = Colors.grey.shade50;
 
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
-        debugPrint('CreateCollectionScreen back pressed, didPop: $didPop');
+        AppLogger.log('CreateCollectionScreen back pressed: $didPop');
       },
       child: Scaffold(
         appBar: AppBar(
@@ -82,214 +84,224 @@ class _CreateCollectionScreenState
           ),
         ),
         body: SafeArea(
-          child: !hasAccess
-              ? const _CollectionAccessDenied()
-              : Form(
-                  key: _formKey,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryNavy.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.folder_copy_outlined,
-                              size: 30,
-                              color: AppColors.primaryNavy,
-                            ),
-                            SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Create Trip or Event',
-                                    style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.primaryNavy,
-                                    ),
-                                  ),
-                                  SizedBox(height: 8),
-                                  Text(
-                                    'Organise receipts for trips, events, or projects',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+          child: accessAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (_, __) => const _CollectionAccessDenied(),
+            data: (profile) {
+              final hasAccess = profile != null &&
+                  AccountPolicies.evaluate(profile, DateTime.now().toUtc())
+                      .isPremiumEligible;
+
+              if (!hasAccess) {
+                return const _CollectionAccessDenied();
+              }
+
+              return Form(
+                key: _formKey,
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryNavy.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                      const SizedBox(height: 24),
-                      _FormSection(
-                        title: 'Trip or Event Basics',
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _FieldLabel('Trip or event name'),
-                            const SizedBox(height: 12),
-                            TextFormField(
-                              controller: _nameController,
-                              focusNode: _nameFocusNode,
-                              textCapitalization: TextCapitalization.words,
-                              decoration: _inputDecoration(
-                                hintText: 'Enter trip or event name',
-                                fillColor: inputFillColor,
-                              ),
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Trip or event name is required';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            const _FieldLabel('Type'),
-                            const SizedBox(height: 12),
-                            Row(
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.folder_copy_outlined,
+                            size: 30,
+                            color: AppColors.primaryNavy,
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: _TypeSelectionCard(
-                                    title: 'Personal',
-                                    icon: Icons.person_outline,
-                                    selected: _selectedType ==
-                                        CollectionType.personal,
-                                    onTap: _saving
-                                        ? null
-                                        : () => setState(
-                                              () => _selectedType =
-                                                  CollectionType.personal,
-                                            ),
+                                Text(
+                                  'Create Trip or Event',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primaryNavy,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _TypeSelectionCard(
-                                    title: 'Work',
-                                    icon: Icons.work_outline,
-                                    selected:
-                                        _selectedType == CollectionType.work,
-                                    onTap: _saving
-                                        ? null
-                                        : () => setState(
-                                              () => _selectedType =
-                                                  CollectionType.work,
-                                            ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Organise receipts for trips, events, or projects',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    color: AppColors.textSecondary,
                                   ),
                                 ),
                               ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 28),
-                      _FormSection(
-                        title: 'Dates',
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _FieldLabel('Start date (optional)'),
-                            const SizedBox(height: 12),
-                            _DateField(
-                              controller: _startDateController,
-                              label: 'Optional',
-                              onTap: _saving
-                                  ? null
-                                  : () => _pickDate(
-                                        initialDate: _startDate,
-                                        onSelected: (value) {
-                                          setState(() => _startDate = value);
-                                          _syncDateControllers();
-                                        },
-                                      ),
-                              onClear: _saving || _startDate == null
-                                  ? null
-                                  : () {
-                                      setState(() => _startDate = null);
-                                      _syncDateControllers();
-                                    },
+                    ),
+                    const SizedBox(height: 24),
+                    _FormSection(
+                      title: 'Trip or Event Basics',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Trip or event name'),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _nameController,
+                            focusNode: _nameFocusNode,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: _inputDecoration(
+                              hintText: 'Enter trip or event name',
                               fillColor: inputFillColor,
                             ),
-                            const SizedBox(height: 16),
-                            const _FieldLabel('End date (optional)'),
-                            const SizedBox(height: 12),
-                            _DateField(
-                              controller: _endDateController,
-                              label: 'Optional',
-                              onTap: _saving
-                                  ? null
-                                  : () => _pickDate(
-                                        initialDate: _endDate ?? _startDate,
-                                        firstDate: _startDate,
-                                        onSelected: (value) {
-                                          setState(() => _endDate = value);
-                                          _syncDateControllers();
-                                        },
-                                      ),
-                              onClear: _saving || _endDate == null
-                                  ? null
-                                  : () {
-                                      setState(() => _endDate = null);
-                                      _syncDateControllers();
-                                    },
-                              fillColor: inputFillColor,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      _FormSection(
-                        title: 'Notes',
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _FieldLabel('Notes'),
-                            const SizedBox(height: 12),
-                            TextFormField(
-                              controller: _notesController,
-                              minLines: 4,
-                              maxLines: 6,
-                              textCapitalization: TextCapitalization.sentences,
-                              decoration: _inputDecoration(
-                                hintText: 'Optional',
-                                fillColor: inputFillColor,
-                                alignLabelWithHint: true,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Trip or event name is required';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          const _FieldLabel('Type'),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _TypeSelectionCard(
+                                  title: 'Personal',
+                                  icon: Icons.person_outline,
+                                  selected:
+                                      _selectedType == CollectionType.personal,
+                                  onTap: _saving
+                                      ? null
+                                      : () => setState(
+                                            () => _selectedType =
+                                                CollectionType.personal,
+                                          ),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _TypeSelectionCard(
+                                  title: 'Work',
+                                  icon: Icons.work_outline,
+                                  selected:
+                                      _selectedType == CollectionType.work,
+                                  onTap: _saving
+                                      ? null
+                                      : () => setState(
+                                            () => _selectedType =
+                                                CollectionType.work,
+                                          ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 36),
-                      SizedBox(
-                        height: 56,
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            elevation: 1,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                    ),
+                    const SizedBox(height: 28),
+                    _FormSection(
+                      title: 'Dates',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Start date (optional)'),
+                          const SizedBox(height: 12),
+                          _DateField(
+                            controller: _startDateController,
+                            label: 'Optional',
+                            onTap: _saving
+                                ? null
+                                : () => _pickDate(
+                                      initialDate: _startDate,
+                                      onSelected: (value) {
+                                        setState(() => _startDate = value);
+                                        _syncDateControllers();
+                                      },
+                                    ),
+                            onClear: _saving || _startDate == null
+                                ? null
+                                : () {
+                                    setState(() => _startDate = null);
+                                    _syncDateControllers();
+                                  },
+                            fillColor: inputFillColor,
+                          ),
+                          const SizedBox(height: 16),
+                          const _FieldLabel('End date (optional)'),
+                          const SizedBox(height: 12),
+                          _DateField(
+                            controller: _endDateController,
+                            label: 'Optional',
+                            onTap: _saving
+                                ? null
+                                : () => _pickDate(
+                                      initialDate: _endDate ?? _startDate,
+                                      firstDate: _startDate,
+                                      onSelected: (value) {
+                                        setState(() => _endDate = value);
+                                        _syncDateControllers();
+                                      },
+                                    ),
+                            onClear: _saving || _endDate == null
+                                ? null
+                                : () {
+                                    setState(() => _endDate = null);
+                                    _syncDateControllers();
+                                  },
+                            fillColor: inputFillColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    _FormSection(
+                      title: 'Notes',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Notes'),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _notesController,
+                            minLines: 4,
+                            maxLines: 6,
+                            textCapitalization: TextCapitalization.sentences,
+                            decoration: _inputDecoration(
+                              hintText: 'Optional',
+                              fillColor: inputFillColor,
+                              alignLabelWithHint: true,
                             ),
                           ),
-                          onPressed: _saving ? null : _saveCollection,
-                          child: Text(
-                            _isEditMode
-                                ? 'Save Changes'
-                                : 'Create Trip or Event',
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 36),
+                    SizedBox(
+                      height: 56,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          elevation: 1,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                           ),
                         ),
+                        onPressed: _saving ? null : _saveCollection,
+                        child: Text(
+                          _isEditMode ? 'Save Changes' : 'Create Trip or Event',
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              );
+            },
+          ),
         ),
       ),
     );

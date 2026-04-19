@@ -5,7 +5,9 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/domain/models/insights_query.dart';
@@ -20,6 +22,8 @@ import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/presentation/screens/collections_preview_screen.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/presentation/widgets/collection_receipt_assignment_sheet.dart';
+import 'package:receiptnest/presentation/widgets/export_ready_sheet.dart';
+import 'package:receiptnest/presentation/widgets/work_collection_export_prompt.dart';
 
 class CollectionDetailScreen extends ConsumerStatefulWidget {
   const CollectionDetailScreen({
@@ -53,8 +57,73 @@ class _CollectionDetailScreenState
       _loadCollectionCategoryOptions();
   String? _selectedInsightsCurrency;
   bool _isExporting = false;
+  bool _showWorkCollectionExportPrompt = false;
+  String? _workCollectionPromptCollectionId;
+  bool _isResolvingWorkCollectionPrompt = false;
+
+  static const String _workCollectionExportPromptKeyPrefix =
+      'workCollectionExportPromptShown';
 
   bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
+
+  String _workCollectionPromptStorageKey(String collectionId) {
+    return '$_workCollectionExportPromptKeyPrefix:$collectionId';
+  }
+
+  Future<void> _maybeResolveWorkCollectionExportPrompt(
+    Collection collection,
+  ) async {
+    if (_isResolvingWorkCollectionPrompt) {
+      return;
+    }
+
+    final shouldConsiderPrompt = collection.type == CollectionType.work &&
+        collection.status == CollectionStatus.completed;
+
+    if (!shouldConsiderPrompt) {
+      if (_showWorkCollectionExportPrompt ||
+          _workCollectionPromptCollectionId != collection.id) {
+        setState(() {
+          _showWorkCollectionExportPrompt = false;
+          _workCollectionPromptCollectionId = collection.id;
+        });
+      }
+      return;
+    }
+
+    if (_workCollectionPromptCollectionId == collection.id &&
+        _showWorkCollectionExportPrompt) {
+      return;
+    }
+
+    _isResolvingWorkCollectionPrompt = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final hasShown =
+          prefs.getBool(_workCollectionPromptStorageKey(collection.id)) ??
+              false;
+      if (!mounted) return;
+
+      setState(() {
+        _workCollectionPromptCollectionId = collection.id;
+        _showWorkCollectionExportPrompt = !hasShown;
+      });
+    } finally {
+      _isResolvingWorkCollectionPrompt = false;
+    }
+  }
+
+  Future<void> _dismissWorkCollectionExportPrompt(String collectionId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_workCollectionPromptStorageKey(collectionId), true);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showWorkCollectionExportPrompt = false;
+      _workCollectionPromptCollectionId = collectionId;
+    });
+  }
 
   void _toggleReceiptSelection(String receiptId) {
     setState(() {
@@ -85,24 +154,56 @@ class _CollectionDetailScreenState
 
     try {
       final exportService = ref.read(receiptExportServiceProvider);
-      final result = await exportService.exportAndShare(
+      final result = await exportService.prepareExport(
         receipts: receipts,
         context: ExportContext.collection(
           title: collection.name,
           dateRangeLabel: _buildCollectionDateRangeLabel(collection, receipts),
         ),
+      );
+      if (!mounted) return;
+
+      final action = await showExportReadySheet(
+        context,
+        skippedReceiptCount: result.skippedReceiptIds.length,
+        debugBytesLength: result.fileBytes?.length,
+      );
+      if (!mounted || action == null) {
+        return;
+      }
+
+      if (action == ExportReadyAction.save) {
+        try {
+          final savedPath =
+              await exportService.saveExportToDevice(result: result);
+
+          if (!mounted) return;
+          if (savedPath != null) {
+            final fileName =
+                result.fileName.isNotEmpty ? result.fileName : 'file';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Export "$fileName" saved to your device'),
+              ),
+            );
+          }
+        } catch (e) {
+          AppLogger.error('Export save failed: $e');
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to save export. Please try again.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      await exportService.shareExport(
+        result: result,
         shareContext: context,
       );
-
-      if (result.hasSkippedReceipts) {
-        showRootSnackBar(
-          SnackBar(
-            content: Text(
-              'Export ready. ${result.skippedReceiptIds.length} receipts were skipped.',
-            ),
-          ),
-        );
-      }
     } on ExportException catch (error) {
       showRootSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
@@ -1937,10 +2038,29 @@ class _CollectionDetailScreenState
                         data: (receipts) {
                           final effectiveReceipts =
                               _applyOptimisticReceipts(receipts);
+                          _maybeResolveWorkCollectionExportPrompt(collection);
                           return ListView(
                             padding: const EdgeInsets.only(bottom: 96),
                             children: [
                               _buildSummaryCard(collection, effectiveReceipts),
+                              if (_showWorkCollectionExportPrompt)
+                                WorkCollectionExportPrompt(
+                                  onPrimaryAction: () async {
+                                    await _dismissWorkCollectionExportPrompt(
+                                      collection.id,
+                                    );
+                                    if (!mounted) return;
+                                    await _exportCollection(
+                                      collection,
+                                      effectiveReceipts,
+                                    );
+                                  },
+                                  onSecondaryAction: () {
+                                    _dismissWorkCollectionExportPrompt(
+                                      collection.id,
+                                    );
+                                  },
+                                ),
                               _buildInsightsSection(effectiveReceipts),
                               Padding(
                                 padding:
