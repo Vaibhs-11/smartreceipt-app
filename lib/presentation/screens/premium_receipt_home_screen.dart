@@ -509,15 +509,8 @@ class _PremiumReceiptHomeScreenState
           ),
           trailing: Builder(
             builder: (_) {
-              String formattedAmount;
-              try {
-                formattedAmount =
-                    NumberFormat.simpleCurrency(name: receipt.currency)
-                        .format(receipt.total);
-              } catch (_) {
-                formattedAmount =
-                    '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
-              }
+              final formattedAmount =
+                  _formatCurrencyAmount(receipt.currency, receipt.total);
               return Text(
                 formattedAmount,
                 style: const TextStyle(
@@ -1153,6 +1146,14 @@ class _PremiumReceiptHomeScreenState
     return normalized.isEmpty ? 'AUD' : normalized;
   }
 
+  String _formatCurrencyAmount(String currency, double amount) {
+    try {
+      return NumberFormat.simpleCurrency(name: currency).format(amount);
+    } catch (_) {
+      return '$currency ${amount.toStringAsFixed(2)}';
+    }
+  }
+
   String _formatCurrencyTotals(Map<String, double> totalsByCurrency) {
     final sortedEntries = totalsByCurrency.entries
         .where((entry) => entry.value != 0)
@@ -1181,9 +1182,7 @@ class _PremiumReceiptHomeScreenState
           '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
       final currencyCode =
           _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
-      final formattedPrice = NumberFormat.simpleCurrency(
-        name: currencyCode,
-      ).format(item.price);
+      final formattedPrice = _formatCurrencyAmount(currencyCode, item.price);
 
       rows.add(
         Container(
@@ -1345,9 +1344,10 @@ class _PremiumReceiptHomeScreenState
                     : _safeOriginalName(item);
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-                final formattedPrice = NumberFormat.simpleCurrency(
-                  name: _currencyForReceipt(receipts, item.receiptId),
-                ).format(item.price);
+                final formattedPrice = _formatCurrencyAmount(
+                  _currencyForReceipt(receipts, item.receiptId),
+                  item.price,
+                );
 
                 return ListTile(
                   onTap: () => _openReceipt(item),
@@ -1400,9 +1400,10 @@ class _PremiumReceiptHomeScreenState
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final receipt = receiptFallbackResults[index];
-              final formattedPrice = NumberFormat.simpleCurrency(
-                name: receipt.currency,
-              ).format(receipt.total);
+              final formattedPrice = _formatCurrencyAmount(
+                receipt.currency,
+                receipt.total,
+              );
               return ListTile(
                 onTap: () => _handleReceiptTap(receipt),
                 onLongPress: () => _handleReceiptLongPress(receipt),

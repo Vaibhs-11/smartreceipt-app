@@ -142,8 +142,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (_isEditMode) {
       _populateFromExistingReceipt(widget.existingReceipt!);
     } else {
-      final sortedCurrencyOptions = [..._currencyOptions]
-        ..sort((a, b) => a.compareTo(b));
+      final sortedCurrencyOptions =
+          AppConstants.sortCurrencyOptions(_currencyOptions);
       _currency = sortedCurrencyOptions.first;
     }
     // 🔥 Warm critical providers early
@@ -1543,8 +1543,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           );
         }
 
-        final sortedCurrencyOptions = [..._currencyOptions]
-          ..sort((a, b) => a.compareTo(b));
+        final sortedCurrencyOptions =
+            AppConstants.sortCurrencyOptions(_currencyOptions);
 
         return Scaffold(
           appBar: AppBar(

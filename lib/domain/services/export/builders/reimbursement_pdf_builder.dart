@@ -185,20 +185,29 @@ class ReimbursementPdfBuilder {
         )!;
 
         final grid = PdfGrid();
-        grid.columns.add(count: 5);
+        grid.columns.add(count: 4);
+        grid.columns[0].width = 72;
+        grid.columns[1].width = 120;
+        grid.columns[3].width = 72;
+        grid.columns[2].width =
+            (pageWidth - grid.columns[0].width - grid.columns[1].width - grid.columns[3].width)
+                .clamp(0, pageWidth)
+                .toDouble();
         final header = grid.headers.add(1)[0];
         header.cells[0].value = 'Date';
         header.cells[1].value = 'Merchant';
         header.cells[2].value = 'Item';
         header.cells[3].value = 'Amount';
-        header.cells[4].value = 'Currency';
+        final amountAlignment =
+            PdfStringFormat(alignment: PdfTextAlignment.right);
+        header.cells[3].style.stringFormat = amountAlignment;
         for (final item in categoryGroup.items) {
           final row = grid.rows.add();
           row.cells[0].value = DateFormat('yyyy-MM-dd').format(item.date);
           row.cells[1].value = item.merchant;
           row.cells[2].value = item.name;
           row.cells[3].value = item.amount.toStringAsFixed(2);
-          row.cells[4].value = currencyGroup.currency;
+          row.cells[3].style.stringFormat = amountAlignment;
         }
         grid.style.font = bodyFont;
         result = grid.draw(

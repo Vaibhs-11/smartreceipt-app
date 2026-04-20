@@ -119,15 +119,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         ),
         trailing: Builder(
           builder: (_) {
-            String formattedAmount;
-            try {
-              formattedAmount =
-                  NumberFormat.simpleCurrency(name: receipt.currency)
-                      .format(receipt.total);
-            } catch (_) {
-              formattedAmount =
-                  '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
-            }
+            final formattedAmount =
+                _formatCurrencyAmount(receipt.currency, receipt.total);
             return Text(
               formattedAmount,
               style: const TextStyle(
@@ -417,9 +410,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                 final item = itemResults[index];
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-                final formattedPrice = NumberFormat.simpleCurrency(
-                  name: _currencyForReceipt(receipts, item.receiptId),
-                ).format(item.price);
+                final formattedPrice = _formatCurrencyAmount(
+                  _currencyForReceipt(receipts, item.receiptId),
+                  item.price,
+                );
 
                 return ListTile(
                   onTap: () => Navigator.of(context).pushNamed(
@@ -470,9 +464,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final receipt = receiptFallbackResults[index];
-              final formattedPrice = NumberFormat.simpleCurrency(
-                name: receipt.currency,
-              ).format(receipt.total);
+              final formattedPrice = _formatCurrencyAmount(
+                receipt.currency,
+                receipt.total,
+              );
               return ListTile(
                 onTap: () => Navigator.of(context).pushNamed(
                   '/receiptDetail',
@@ -519,6 +514,14 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       }
     }
     return 'AUD';
+  }
+
+  String _formatCurrencyAmount(String currency, double amount) {
+    try {
+      return NumberFormat.simpleCurrency(name: currency).format(amount);
+    } catch (_) {
+      return '$currency ${amount.toStringAsFixed(2)}';
+    }
   }
 
   List<Receipt> _searchReceiptFallbackResults(

@@ -126,7 +126,10 @@ Extract these exact values:
   0-based index into the totals array indicating which total you selected.
 
 - currency:
-  currency code using ISO-4217 format (e.g. AUD, USD, GBP, CAD, INR, EUR).
+  currency code using a standard 3-letter ISO-4217 code where possible
+  (e.g. AUD, USD, GBP, CAD, INR, EUR, NZD).
+  These are examples only; do not limit output to this shortlist.
+  Return the actual detected currency code when confident.
   Before deciding currency, internally identify the strongest country evidence in the receipt text.
 
   Determine currency using explicit evidence from the receipt text.
