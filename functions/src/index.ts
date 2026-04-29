@@ -19,6 +19,7 @@ export {
   processReceiptCollectionEnrichment,
 } from "./enrichment/processReceiptCollectionEnrichment";
 export {processReceiptEnrichment} from "./enrichment/processReceiptEnrichment";
+export {parseReceiptWithOpenAI} from "./ocr/parseReceiptWithOpenAI";
 export {startTrial} from "./subscriptions/startTrial";
 export {
   syncSubscriptionEntitlement,
