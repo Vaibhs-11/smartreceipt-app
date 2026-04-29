@@ -12,6 +12,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import 'core/firebase/app_check_initializer.dart';
 import 'core/theme/app_theme.dart';
+import 'core/utils/app_logger.dart';
 import 'firebase_options.dart';
 import 'presentation/routes/app_routes.dart';
 import 'presentation/screens/onboarding_screen.dart';
@@ -33,8 +34,7 @@ import 'core/constants/app_constants.dart';
 
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     root_scaffold_messenger.rootScaffoldMessengerKey;
-final GlobalKey<NavigatorState> rootNavigatorKey =
-    GlobalKey<NavigatorState>();
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,20 +54,16 @@ Future<void> main() async {
   );
 
   // Required so Crashlytics logs appear in Play Store release builds.
-  FlutterError.onError =
-      FirebaseCrashlytics.instance.recordFlutterFatalError;
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
   PlatformDispatcher.instance.onError = (error, stack) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     return true;
   };
-  await FirebaseCrashlytics.instance
-      .setCrashlyticsCollectionEnabled(true);
+  await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
 
   await AppCheckInitializer.initialize();
 
-  debugPrint(
-    '✅ Firebase initialized: ${Firebase.app().options.projectId}',
-  );
+  AppLogger.log('Firebase initialized');
 
   runApp(
     const ProviderScope(
@@ -84,8 +80,7 @@ class SmartReceiptApp extends ConsumerStatefulWidget {
 }
 
 class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
-  static const MethodChannel _shareChannel =
-      MethodChannel('receiptnest/share');
+  static const MethodChannel _shareChannel = MethodChannel('receiptnest/share');
   static const String _initialShareMethod = 'getInitialSharedFilePath';
   static const String _shareEventMethod = 'onSharedImage';
 
@@ -295,13 +290,15 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
         return MaterialPageRoute(builder: (_) => const ScanReceiptScreen());
       case AppRoutes.receiptDetail:
         final args = settings.arguments;
-        final receiptId = args is String ? args : args is Map ? args['receiptId'] : null;
-        final highlightCategory = args is Map
-            ? args['highlightCategory'] as String?
-            : null;
-        final highlightItem = args is Map
-            ? args['highlightItem'] as String?
-            : null;
+        final receiptId = args is String
+            ? args
+            : args is Map
+                ? args['receiptId']
+                : null;
+        final highlightCategory =
+            args is Map ? args['highlightCategory'] as String? : null;
+        final highlightItem =
+            args is Map ? args['highlightItem'] as String? : null;
         if (receiptId is String) {
           return MaterialPageRoute(
             builder: (_) => ReceiptDetailScreen(

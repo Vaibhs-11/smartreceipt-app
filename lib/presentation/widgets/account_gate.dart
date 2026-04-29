@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/policies/account_policies.dart';
 import 'package:receiptnest/domain/exceptions/app_config_exception.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -79,7 +80,7 @@ class _AccountGateState extends ConsumerState<AccountGate>
           currentProfile: profile,
         );
       } catch (e) {
-        debugPrint('Subscription sync failed: $e');
+        AppLogger.error('Subscription sync failed: $e');
       }
 
       final refreshedProfile = await userRepo.getCurrentUserProfile();
@@ -101,9 +102,11 @@ class _AccountGateState extends ConsumerState<AccountGate>
       );
       final alreadyShownForCurrentEvent =
           await _hasSeenGateForExpiryEvent(uid, expiryEventMarker);
-      final becameExpired = _wasPremiumEligible == true && !eligibility.isPremiumEligible;
-      final firstExpiredRead =
-          _wasPremiumEligible == null && isExpired && !eligibility.isPremiumEligible;
+      final becameExpired =
+          _wasPremiumEligible == true && !eligibility.isPremiumEligible;
+      final firstExpiredRead = _wasPremiumEligible == null &&
+          isExpired &&
+          !eligibility.isPremiumEligible;
 
       if ((trialExpired || subscriptionExpired) &&
           receiptCount <= appConfig.freeReceiptLimit) {
@@ -163,7 +166,7 @@ class _AccountGateState extends ConsumerState<AccountGate>
         }
         return;
       }
-      debugPrint('Account gate check failed: $e');
+      AppLogger.error('Account gate check failed: $e');
     } finally {
       _checking = false;
     }

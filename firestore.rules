@@ -1,12 +1,28 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // These fields are server-managed and can only be changed by Admin SDK
-    // code (Cloud Functions), never directly by client SDK writes.
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function isPremium(userId) {
+      let user = userDoc(userId).data;
+      return user.accountStatus == 'trial' ||
+          user.subscriptionStatus == 'active';
+    }
+
+    function collectionExists(userId, collectionId) {
+      return exists(/databases/$(database)/documents/users/$(userId)/trips/$(collectionId));
+    }
+
     function modifiesProtectedSubscriptionFields() {
       return request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'accountStatus',
@@ -21,19 +37,47 @@ service cloud.firestore {
       ]);
     }
 
-      // ✅ RESTORE CONFIG RULE
+    function hasValidCollectionShape() {
+      return request.resource.data.name is string &&
+          request.resource.data.type in ['personal', 'work'] &&
+          request.resource.data.status in ['active', 'completed'] &&
+          request.resource.data.createdAt is timestamp &&
+          request.resource.data.updatedAt is timestamp;
+    }
+
+    function hasValidCollectionLink(userId) {
+      return !('collectionId' in request.resource.data) ||
+          request.resource.data.collectionId == null ||
+          (request.resource.data.collectionId is string &&
+              isPremium(userId) &&
+              collectionExists(userId, request.resource.data.collectionId));
+    }
+
     match /config/{document} {
-      allow read: if request.auth != null;
+      allow read: if isSignedIn();
       allow write: if false;
     }
+
     match /users/{userId} {
       allow read, create: if isOwner(userId);
       allow update: if isOwner(userId) && !modifiesProtectedSubscriptionFields();
 
       match /receipts/{receiptId} {
         allow read: if isOwner(userId);
-        allow create: if false; // receipt creation is enforced via Cloud Functions
-        allow update, delete: if isOwner(userId);
+        allow create: if false;
+        allow update: if isOwner(userId) && hasValidCollectionLink(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      match /trips/{collectionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+            isPremium(userId) &&
+            hasValidCollectionShape();
+        allow update: if isOwner(userId) &&
+            isPremium(userId) &&
+            hasValidCollectionShape();
+        allow delete: if isOwner(userId) && isPremium(userId);
       }
     }
   }

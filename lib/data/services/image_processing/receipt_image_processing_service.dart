@@ -22,10 +22,7 @@ class ReceiptImageProcessingService {
         'receiptId': receiptId,
         'originalImagePath': originalImagePath,
       });
-    } catch (e, stack) {
-      debugPrint(
-          'Failed to trigger receipt image enhancement for $receiptId: $e\n$stack');
-    }
+    } catch (_) {}
   */
   }
 }

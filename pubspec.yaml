@@ -1,7 +1,7 @@
 name: receiptnest
 description: A mobile-first receipt scanning & organisation app
 publish_to: "none"
-version: 1.5.0+28
+version: 1.6.0+29
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -45,21 +45,26 @@ dependencies:
   # Image picking & camera
   image_picker: ^1.1.2
   file_picker: ^10.3.3
+  flutter_file_dialog: ^3.0.2
   receive_sharing_intent: ^1.8.0
   camera: ^0.11.2
   connectivity_plus: ^6.1.1
 
   # UI & theming
   flutter_material_color_picker: ^1.2.0
+  fl_chart: ^0.69.2
 
   # PDF & image processing
   pdfx: ^2.6.0
   image: ^4.1.7
   syncfusion_flutter_pdf: ^31.1.18
+  archive: ^4.0.7
+  share_plus: ^11.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  fake_cloud_firestore: ^4.1.0+1
   flutter_lints: ^6.0.0
 
 flutter:
@@ -68,3 +73,4 @@ flutter:
     - config/.env
     - config/env.example
     - assets/branding/receipt_nest_logo.png
+    - assets/fonts/NotoSans-Regular.ttf

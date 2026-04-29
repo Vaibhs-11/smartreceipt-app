@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/category_config.dart';
 
 class CategoryConfigRepository {
@@ -36,20 +36,22 @@ class CategoryConfigRepository {
     try {
       final snapshot = await _configDoc().get();
       if (!snapshot.exists) {
-        debugPrint('Category config document missing; using fallback categories.');
+        AppLogger.log('Using fallback categories');
         return _fallbackCategories;
       }
 
       final data = snapshot.data();
       if (data == null) {
-        debugPrint('Category config document is null; using fallback categories.');
+        AppLogger.log('Using fallback categories');
         return _fallbackCategories;
       }
 
       final config = CategoryConfig.fromFirestore(data);
-      return config.categories.isNotEmpty ? config.categories : _fallbackCategories;
+      return config.categories.isNotEmpty
+          ? config.categories
+          : _fallbackCategories;
     } catch (error) {
-      debugPrint('Failed to load category config: $error');
+      AppLogger.error('Failed to load category config: $error');
       return _fallbackCategories;
     }
   }

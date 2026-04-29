@@ -7,5 +7,14 @@ abstract class ReceiptRepository {
   Future<void> addReceipt(Receipt receipt);
   Future<void> updateReceipt(Receipt receipt);
   Future<void> deleteReceipt(String id);
+  Future<void> assignReceiptsToCollection(
+    List<String> receiptIds,
+    String collectionId,
+  );
+  Future<void> removeReceiptFromCollection(String receiptId);
+  Future<void> removeReceiptsFromCollection(List<String> receiptIds);
+  Future<void> moveReceiptToCollection(
+    String receiptId,
+    String newCollectionId,
+  );
 }
-

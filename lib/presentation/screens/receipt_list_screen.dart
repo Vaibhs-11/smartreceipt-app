@@ -3,14 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/services/analytics_service.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
+import 'package:receiptnest/domain/services/export/export_context.dart';
+import 'package:receiptnest/domain/services/export/export_exception.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_list_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_preview_screen.dart';
+import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/presentation/widgets/export_ready_sheet.dart';
+import 'package:receiptnest/presentation/widgets/smart_prompt_card.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 import 'package:receiptnest/domain/models/categorised_item_view.dart';
 import 'package:receiptnest/domain/utils/item_index_builder.dart';
@@ -26,6 +34,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
   late final TextEditingController _searchController;
   static const String _swipeHintPrefKey = 'receipt_swipe_hint_shown';
   bool _showSwipeHint = false;
+  bool _showTaxExportPrompt = true;
+  bool _isExporting = false;
   List<CategorisedItemView> _itemIndex = const [];
 
   @override
@@ -109,15 +119,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         ),
         trailing: Builder(
           builder: (_) {
-            String formattedAmount;
-            try {
-              formattedAmount =
-                  NumberFormat.simpleCurrency(name: receipt.currency)
-                      .format(receipt.total);
-            } catch (_) {
-              formattedAmount =
-                  '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
-            }
+            final formattedAmount =
+                _formatCurrencyAmount(receipt.currency, receipt.total);
             return Text(
               formattedAmount,
               style: const TextStyle(
@@ -172,6 +175,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     final receiptsAsync = ref.watch(receiptsProvider);
     final filters = ref.watch(receiptSearchFiltersProvider);
     final searchQuery = filters.query.trim().toLowerCase();
+    final hasCollectionAccess = ref.watch(premiumCollectionAccessProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -184,6 +188,22 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           ),
         ),
         actions: [
+          if (hasCollectionAccess)
+            IconButton(
+              icon: const Icon(
+                Icons.folder_open,
+                color: AppColors.primaryNavy,
+              ),
+              tooltip: 'Trips & Events',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CollectionsListScreen(),
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.photo_camera_outlined),
             tooltip: 'Capture receipt',
@@ -200,18 +220,39 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       ),
       body: receiptsAsync.when(
         data: (receipts) {
-          final filtered = _applyFilters(receipts, filters);
+          final rootReceipts = receipts
+              .where((receipt) => receipt.collectionId == null)
+              .toList();
+          final filtered = _applyFilters(rootReceipts, filters);
           _itemIndex = buildItemIndex(filtered);
           final bool canClear =
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
           final bool showItemLevelResults =
               searchQuery.isNotEmpty || filters.taxClaimable == true;
+          final bool shouldShowTaxExportPrompt = filters.taxClaimable != null &&
+              filtered.isNotEmpty &&
+              _showTaxExportPrompt;
 
           return Column(
             children: [
               const SizedBox(height: 8),
               _buildSearchControls(filters),
               _buildActiveFilters(filters),
+              if (shouldShowTaxExportPrompt)
+                SmartPromptCard(
+                  icon: Icons.receipt_long,
+                  title: 'Preparing your tax records?',
+                  description:
+                      'Download all tax claimable receipts for easy filing.',
+                  primaryActionText: 'Export tax receipts',
+                  onPrimaryAction: _isExporting
+                      ? null
+                      : () => _exportFilteredReceipts(filtered),
+                  secondaryActionText: 'Not now',
+                  onSecondaryAction: () {
+                    setState(() => _showTaxExportPrompt = false);
+                  },
+                ),
               Expanded(
                 child: showItemLevelResults
                     ? _buildSearchResults(filtered, searchQuery, filters)
@@ -251,7 +292,24 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         },
       ),
       floatingActionButton: _AddReceiptFab(
-        onPressed: () => Navigator.pushNamed(context, '/addReceipt'),
+        hasCollectionAccess: hasCollectionAccess,
+        onAddReceiptPressed: () =>
+            Navigator.pushNamed(context, AppRoutes.addReceipt),
+        onCreateCollectionPressed: () {
+          Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const CreateCollectionScreen(),
+            ),
+          );
+        },
+        onCollectionsPreviewPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const CollectionsPreviewScreen(),
+            ),
+          );
+        },
       ),
     );
   }
@@ -352,9 +410,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                 final item = itemResults[index];
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-                final formattedPrice = NumberFormat.simpleCurrency(
-                  name: _currencyForReceipt(receipts, item.receiptId),
-                ).format(item.price);
+                final formattedPrice = _formatCurrencyAmount(
+                  _currencyForReceipt(receipts, item.receiptId),
+                  item.price,
+                );
 
                 return ListTile(
                   onTap: () => Navigator.of(context).pushNamed(
@@ -378,7 +437,8 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           : _buildGroupedReceiptsList(receipts);
     }
 
-    final receiptFallbackResults = _searchReceiptFallbackResults(receipts, query);
+    final receiptFallbackResults =
+        _searchReceiptFallbackResults(receipts, query);
     if (receiptFallbackResults.isEmpty) {
       return const Center(
         child: Text('No matching purchases found'),
@@ -404,9 +464,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final receipt = receiptFallbackResults[index];
-              final formattedPrice = NumberFormat.simpleCurrency(
-                name: receipt.currency,
-              ).format(receipt.total);
+              final formattedPrice = _formatCurrencyAmount(
+                receipt.currency,
+                receipt.total,
+              );
               return ListTile(
                 onTap: () => Navigator.of(context).pushNamed(
                   '/receiptDetail',
@@ -455,9 +516,19 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     return 'AUD';
   }
 
-  List<Receipt> _searchReceiptFallbackResults(List<Receipt> receipts, String query) {
+  String _formatCurrencyAmount(String currency, double amount) {
+    try {
+      return NumberFormat.simpleCurrency(name: currency).format(amount);
+    } catch (_) {
+      return '$currency ${amount.toStringAsFixed(2)}';
+    }
+  }
+
+  List<Receipt> _searchReceiptFallbackResults(
+      List<Receipt> receipts, String query) {
     if (query.isEmpty) return const <Receipt>[];
-    final tokens = query.split(RegExp(r'\s+')).where((token) => token.isNotEmpty).toList();
+    final tokens =
+        query.split(RegExp(r'\s+')).where((token) => token.isNotEmpty).toList();
     return receipts.where((receipt) {
       return tokens.every((token) => _matchesQuery(receipt, token));
     }).toList();
@@ -683,6 +754,80 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     }
   }
 
+  Future<void> _exportFilteredReceipts(List<Receipt> receipts) async {
+    if (_isExporting || receipts.isEmpty) {
+      return;
+    }
+
+    setState(() => _isExporting = true);
+
+    try {
+      final exportService = ref.read(receiptExportServiceProvider);
+      final searchQuery = _searchController.text.trim();
+      final title =
+          searchQuery.isNotEmpty ? 'tax_evidence_$searchQuery' : 'tax_evidence';
+
+      final result = await exportService.prepareExport(
+        receipts: receipts,
+        context: ExportContext.search(title: title),
+      );
+      if (!mounted) return;
+      setState(() => _showTaxExportPrompt = false);
+
+      final action = await showExportReadySheet(
+        context,
+        skippedReceiptCount: result.skippedReceiptIds.length,
+        debugBytesLength: result.fileBytes?.length,
+      );
+      if (!mounted || action == null) {
+        return;
+      }
+
+      if (action == ExportReadyAction.save) {
+        try {
+          final savedPath =
+              await exportService.saveExportToDevice(result: result);
+
+          if (!mounted) return;
+          if (savedPath != null) {
+            final fileName =
+                result.fileName.isNotEmpty ? result.fileName : 'file';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Export "$fileName" saved to your device'),
+              ),
+            );
+          }
+        } catch (e) {
+          AppLogger.error('Export save failed: $e');
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to save export. Please try again.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      await exportService.shareExport(
+        result: result,
+        shareContext: context,
+      );
+    } on ExportException catch (error) {
+      showRootSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      showRootSnackBar(
+        const SnackBar(content: Text('Unable to prepare export right now.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
+  }
+
   Future<void> _openFiltersSheet() async {
     final current = ref.read(receiptSearchFiltersProvider);
     final result = await showModalBottomSheet<ReceiptSearchFilters>(
@@ -762,8 +907,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     if (result.file != null) {
       await navigator.pushNamed(
         AppRoutes.addReceipt,
-        arguments:
-            AddReceiptScreenArgs(initialImagePath: result.file!.path),
+        arguments: AddReceiptScreenArgs(initialImagePath: result.file!.path),
       );
       return;
     }
@@ -841,18 +985,72 @@ class _MonthGroup {
 }
 
 class _AddReceiptFab extends StatelessWidget {
-  final VoidCallback onPressed;
-  const _AddReceiptFab({required this.onPressed});
+  const _AddReceiptFab({
+    required this.hasCollectionAccess,
+    required this.onAddReceiptPressed,
+    required this.onCreateCollectionPressed,
+    required this.onCollectionsPreviewPressed,
+  });
+
+  final bool hasCollectionAccess;
+  final VoidCallback onAddReceiptPressed;
+  final VoidCallback onCreateCollectionPressed;
+  final VoidCallback onCollectionsPreviewPressed;
 
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton(
       heroTag: "addReceiptFab",
-      onPressed: onPressed,
+      onPressed: () => _showActions(context),
       backgroundColor: Theme.of(context).colorScheme.primary,
       child: const Icon(Icons.add, color: Colors.white),
     );
   }
+
+  Future<void> _showActions(BuildContext context) async {
+    final action = await showModalBottomSheet<_HomeFabAction>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Add Receipt'),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.addReceipt),
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_copy_outlined),
+                title: const Text('Create Trip or Event'),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.createCollection),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (action == _HomeFabAction.addReceipt) {
+      onAddReceiptPressed();
+      return;
+    }
+
+    if (action == _HomeFabAction.createCollection) {
+      if (hasCollectionAccess) {
+        onCreateCollectionPressed();
+      } else {
+        onCollectionsPreviewPressed();
+      }
+    }
+  }
+}
+
+enum _HomeFabAction {
+  addReceipt,
+  createCollection,
 }
 
 class _EmptyState extends StatelessWidget {

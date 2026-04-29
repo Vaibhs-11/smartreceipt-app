@@ -3,16 +3,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/services/analytics_service.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
+import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
+import 'package:receiptnest/domain/services/export/export_context.dart';
+import 'package:receiptnest/domain/services/export/export_exception.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
+import 'package:receiptnest/presentation/screens/collection_detail_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_list_screen.dart';
+import 'package:receiptnest/presentation/screens/collections_preview_screen.dart';
+import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/domain/models/categorised_item_view.dart';
 import 'package:receiptnest/domain/utils/item_index_builder.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
+import 'package:receiptnest/presentation/widgets/collection_receipt_assignment_sheet.dart';
+import 'package:receiptnest/presentation/widgets/export_ready_sheet.dart';
+import 'package:receiptnest/presentation/widgets/smart_prompt_card.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 
 class PremiumReceiptHomeScreen extends ConsumerStatefulWidget {
@@ -45,6 +56,12 @@ class _PremiumReceiptHomeScreenState
   String _selectedCategory = 'All';
   String _searchQuery = '';
   List<CategorisedItemView> _itemIndex = const [];
+  final Set<String> _selectedReceiptIds = <String>{};
+  bool _isCollectionsExpanded = true;
+  bool _isExporting = false;
+  bool _showTaxExportPrompt = true;
+
+  bool get _isSelectingReceipts => _selectedReceiptIds.isNotEmpty;
 
   @override
   void initState() {
@@ -91,8 +108,7 @@ class _PremiumReceiptHomeScreenState
   }) {
     return {
       'receiptId': receiptId,
-      'highlightCategory':
-          highlightCategory ??
+      'highlightCategory': highlightCategory ??
           (_selectedCategory == 'All' ? null : _selectedCategory),
       'highlightItem': highlightItem,
     };
@@ -120,11 +136,332 @@ class _PremiumReceiptHomeScreenState
     );
   }
 
-  Widget _buildReceiptTile(Receipt receipt) {
+  void _toggleReceiptSelection(String receiptId) {
+    setState(() {
+      if (_selectedReceiptIds.contains(receiptId)) {
+        _selectedReceiptIds.remove(receiptId);
+      } else {
+        _selectedReceiptIds.add(receiptId);
+      }
+    });
+  }
+
+  void _clearReceiptSelection() {
+    if (_selectedReceiptIds.isEmpty) {
+      return;
+    }
+    setState(_selectedReceiptIds.clear);
+  }
+
+  Future<void> _exportSearchResults(List<Receipt> receipts) async {
+    if (_isExporting) {
+      return;
+    }
+
+    setState(() => _isExporting = true);
+
+    try {
+      final exportService = ref.read(receiptExportServiceProvider);
+      final result = await exportService.prepareExport(
+        receipts: receipts,
+        context: ExportContext.search(
+          title: _searchQuery.isNotEmpty
+              ? 'tax_evidence_$_searchQuery'
+              : 'tax_evidence',
+        ),
+      );
+      if (!mounted) return;
+      setState(() => _showTaxExportPrompt = false);
+
+      final action = await showExportReadySheet(
+        context,
+        skippedReceiptCount: result.skippedReceiptIds.length,
+        debugBytesLength: result.fileBytes?.length,
+      );
+      if (!mounted || action == null) {
+        return;
+      }
+
+      if (action == ExportReadyAction.save) {
+        try {
+          final savedPath =
+              await exportService.saveExportToDevice(result: result);
+
+          if (!mounted) return;
+          if (savedPath != null) {
+            final fileName =
+                result.fileName.isNotEmpty ? result.fileName : 'file';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Export "$fileName" saved to your device'),
+              ),
+            );
+          }
+        } catch (e) {
+          AppLogger.error('Export save failed: $e');
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to save export. Please try again.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      await exportService.shareExport(
+        result: result,
+        shareContext: context,
+      );
+    } on ExportException catch (error) {
+      showRootSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      showRootSnackBar(
+        const SnackBar(content: Text('Unable to prepare export right now.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
+  }
+
+  List<Receipt> _visibleSearchExportReceipts(
+    List<Receipt> rootReceipts,
+    ReceiptSearchFilters filters,
+  ) {
+    final filteredReceipts = _applyFilters(rootReceipts, filters);
+    final itemResults = _searchResultsFromIndex(
+      buildItemIndex(rootReceipts),
+      allowedReceiptIds: filteredReceipts.map((receipt) => receipt.id).toSet(),
+      taxClaimable: filters.taxClaimable,
+    );
+
+    if (itemResults.isNotEmpty) {
+      final receiptsById = <String, Receipt>{
+        for (final receipt in rootReceipts) receipt.id: receipt,
+      };
+      final orderedReceipts = <Receipt>[];
+      final seenReceiptIds = <String>{};
+      for (final item in itemResults) {
+        if (!seenReceiptIds.add(item.receiptId)) {
+          continue;
+        }
+        final receipt = receiptsById[item.receiptId];
+        if (receipt != null) {
+          orderedReceipts.add(receipt);
+        }
+      }
+      return orderedReceipts;
+    }
+
+    if (_searchQuery.isEmpty) {
+      return const <Receipt>[];
+    }
+
+    final receiptFallbackResults =
+        _searchReceiptFallbackResults(filteredReceipts)
+          ..sort((a, b) => b.date.compareTo(a.date));
+    return receiptFallbackResults;
+  }
+
+  void _handleReceiptTap(Receipt receipt) {
+    if (_isSelectingReceipts) {
+      _toggleReceiptSelection(receipt.id);
+      return;
+    }
+
+    Navigator.of(context).pushNamed(
+      AppRoutes.receiptDetail,
+      arguments: _receiptDetailArguments(receipt.id),
+    );
+  }
+
+  void _handleReceiptLongPress(Receipt receipt) {
+    _toggleReceiptSelection(receipt.id);
+  }
+
+  Future<String?> _pickCollectionId({
+    String? excludeCollectionId,
+    String title = 'Add to Trip / Event',
+  }) async {
+    while (true) {
+      final action = await showCollectionPickerBottomSheet(
+        context,
+        excludeCollectionId: excludeCollectionId,
+        title: title,
+      );
+
+      if (!mounted || action == null) {
+        return null;
+      }
+
+      if (action.type == CollectionPickerActionType.createNew) {
+        await Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const CreateCollectionScreen(),
+          ),
+        );
+        ref.refresh(collectionsProvider);
+        ref.refresh(collectionsStreamProvider);
+
+        final collections = await ref.read(collectionsProvider.future);
+        if (!mounted) {
+          return null;
+        }
+
+        final hasSelectableCollection = collections.any(
+          (collection) => collection.id != excludeCollectionId,
+        );
+        if (!hasSelectableCollection) {
+          return null;
+        }
+        continue;
+      }
+
+      return action.collectionId;
+    }
+  }
+
+  Future<void> _assignSelectedReceiptsToCollection() async {
+    if (_selectedReceiptIds.isEmpty) {
+      return;
+    }
+
+    if (!ref.read(premiumCollectionAccessProvider)) {
+      await _showUpgradePrompt();
+      return;
+    }
+
+    final collectionId = await _pickCollectionId();
+    if (!mounted || collectionId == null) {
+      return;
+    }
+
+    await ref
+        .read(receiptRepositoryProviderOverride)
+        .assignReceiptsToCollection(_selectedReceiptIds.toList(), collectionId);
+    ref.read(receiptCollectionOverridesProvider.notifier).state = {
+      ...ref.read(receiptCollectionOverridesProvider),
+      for (final receiptId in _selectedReceiptIds) receiptId: collectionId,
+    };
+    _clearReceiptSelection();
+    showRootSnackBar(
+      const SnackBar(content: Text('Receipts added to Trip / Event')),
+    );
+  }
+
+  Future<void> _showUpgradePrompt() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const CollectionsPreviewScreen(),
+      ),
+    );
+  }
+
+  Future<void> _openAddToCollectionFlow(Collection collection) async {
+    if (!ref.read(premiumCollectionAccessProvider)) {
+      await _showUpgradePrompt();
+      return;
+    }
+
+    final action = await showModalBottomSheet<_AddReceiptAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.add_photo_alternate_outlined),
+                title: const Text('Add new receipt'),
+                onTap: () =>
+                    Navigator.of(context).pop(_AddReceiptAction.addNew),
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_add_outlined),
+                title: const Text('Select existing receipts'),
+                onTap: () =>
+                    Navigator.of(context).pop(_AddReceiptAction.addExisting),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == _AddReceiptAction.addNew) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => AddReceiptScreen(
+            initialCollectionId: collection.id,
+          ),
+        ),
+      );
+      return;
+    }
+
+    final receipts = await ref.read(receiptsProvider.future);
+    if (!mounted) {
+      return;
+    }
+
+    final availableReceipts = receipts
+        .where((receipt) => receipt.id.isNotEmpty)
+        .where((receipt) => receipt.collectionId != collection.id)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    final selectedIds = await showReceiptSelectionBottomSheet(
+      context,
+      receipts: availableReceipts,
+      title: 'Add receipts to Trip / Event',
+      ctaLabel: 'Add to Trip / Event',
+    );
+
+    if (!mounted || selectedIds == null || selectedIds.isEmpty) {
+      return;
+    }
+
+    await ref
+        .read(receiptRepositoryProviderOverride)
+        .assignReceiptsToCollection(selectedIds, collection.id);
+    ref.read(receiptCollectionOverridesProvider.notifier).state = {
+      ...ref.read(receiptCollectionOverridesProvider),
+      for (final receiptId in selectedIds) receiptId: collection.id,
+    };
+
+    showRootSnackBar(
+      const SnackBar(content: Text('Receipts added to Trip / Event')),
+    );
+  }
+
+  Widget _buildReceiptTile(
+    Receipt receipt, {
+    VoidCallback? onTap,
+    VoidCallback? onLongPress,
+    bool isSelected = false,
+  }) {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
+        color: isSelected
+            ? AppColors.primaryNavy.withValues(alpha: 0.06)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSelected
+              ? AppColors.primaryNavy.withValues(alpha: 0.25)
+              : Colors.transparent,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.06),
@@ -144,13 +481,18 @@ class _PremiumReceiptHomeScreenState
             horizontal: 16,
             vertical: 14,
           ),
-          onTap: () {
-            Navigator.pushNamed(
-              context,
-              '/receiptDetail',
-              arguments: _receiptDetailArguments(receipt.id),
-            );
-          },
+          leading: _isSelectingReceipts
+              ? Icon(
+                  isSelected
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: isSelected
+                      ? AppColors.primaryNavy
+                      : AppColors.textSecondary,
+                )
+              : null,
+          onTap: onTap,
+          onLongPress: onLongPress,
           title: Text(
             receipt.storeName,
             style: const TextStyle(
@@ -167,15 +509,8 @@ class _PremiumReceiptHomeScreenState
           ),
           trailing: Builder(
             builder: (_) {
-              String formattedAmount;
-              try {
-                formattedAmount =
-                    NumberFormat.simpleCurrency(name: receipt.currency)
-                        .format(receipt.total);
-              } catch (_) {
-                formattedAmount =
-                    '${receipt.currency} ${receipt.total.toStringAsFixed(2)}';
-              }
+              final formattedAmount =
+                  _formatCurrencyAmount(receipt.currency, receipt.total);
               return Text(
                 formattedAmount,
                 style: const TextStyle(
@@ -230,18 +565,58 @@ class _PremiumReceiptHomeScreenState
   Widget build(BuildContext context) {
     final receiptsAsync = ref.watch(receiptsProvider);
     final filters = ref.watch(receiptSearchFiltersProvider);
+    final hasCollectionAccess = ref.watch(premiumCollectionAccessProvider);
+    final collectionsAsync =
+        hasCollectionAccess ? ref.watch(collectionsStreamProvider) : null;
+    final List<Receipt>? loadedReceipts = receiptsAsync.asData?.value;
+    final rootReceipts = loadedReceipts
+        ?.where((receipt) => receipt.collectionId == null)
+        .toList();
+    final showItemLevelResults =
+        _searchQuery.isNotEmpty || filters.taxClaimable == true;
+    final visibleSearchExportReceipts = rootReceipts == null
+        ? const <Receipt>[]
+        : _visibleSearchExportReceipts(rootReceipts, filters);
+    final showExportButton = !_isSelectingReceipts &&
+        showItemLevelResults &&
+        visibleSearchExportReceipts.isNotEmpty;
+    final shouldShowTaxExportPrompt = showExportButton && _showTaxExportPrompt;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          "My Receipts",
-          style: TextStyle(
+        title: Text(
+          _isSelectingReceipts
+              ? '${_selectedReceiptIds.length} selected'
+              : 'My Receipts',
+          style: const TextStyle(
             fontSize: 27,
             fontWeight: FontWeight.w700,
             color: AppColors.primaryNavy,
           ),
         ),
         actions: [
+          if (_isSelectingReceipts)
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: 'Clear selection',
+              onPressed: _clearReceiptSelection,
+            )
+          else if (hasCollectionAccess)
+            IconButton(
+              icon: const Icon(
+                Icons.folder_copy_outlined,
+                color: AppColors.primaryNavy,
+              ),
+              tooltip: 'Trips & Events',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CollectionsListScreen(),
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.photo_camera_outlined),
             tooltip: 'Capture receipt',
@@ -254,70 +629,264 @@ class _PremiumReceiptHomeScreenState
               Navigator.pushNamed(context, AppRoutes.account);
             },
           ),
+          if (showExportButton)
+            IconButton(
+              icon: const Icon(Icons.ios_share_outlined),
+              tooltip: 'Export tax evidence ZIP',
+              onPressed: _isExporting
+                  ? null
+                  : () => _exportSearchResults(visibleSearchExportReceipts),
+            ),
         ],
       ),
-      body: receiptsAsync.when(
-        data: (receipts) {
-          _itemIndex = buildItemIndex(receipts);
-          final filtered = _applyFilters(receipts, filters);
-          final bool canClear =
-              filters.query.trim().isNotEmpty || filters.hasActiveFilters;
-          final bool showItemLevelResults =
-              _searchQuery.isNotEmpty || filters.taxClaimable == true;
+      body: Stack(
+        children: [
+          receiptsAsync.when(
+            data: (receipts) {
+              final rootReceipts = receipts
+                  .where((receipt) => receipt.collectionId == null)
+                  .toList();
+              _itemIndex = buildItemIndex(rootReceipts);
+              final filtered = _applyFilters(rootReceipts, filters);
+              final bool canClear =
+                  filters.query.trim().isNotEmpty || filters.hasActiveFilters;
 
-          final isAllCategory = _selectedCategory == 'All';
+              final isAllCategory = _selectedCategory == 'All';
 
-          return Column(
+              return Column(
+                children: [
+                  const SizedBox(height: 8),
+                  _buildSearchControls(filters),
+                  _buildCategoryChipBar(),
+                  _buildActiveFilters(filters),
+                  if (shouldShowTaxExportPrompt)
+                    SmartPromptCard(
+                      icon: Icons.receipt_long,
+                      title: 'Preparing your tax records?',
+                      description:
+                          'Download all tax claimable receipts for easy filing.',
+                      primaryActionText: 'Export tax receipts',
+                      onPrimaryAction: _isExporting
+                          ? null
+                          : () => _exportSearchResults(
+                                visibleSearchExportReceipts,
+                              ),
+                      secondaryActionText: 'Not now',
+                      onSecondaryAction: () {
+                        setState(() => _showTaxExportPrompt = false);
+                      },
+                    ),
+                  if (collectionsAsync != null)
+                    _buildCollectionsSection(collectionsAsync),
+                  Expanded(
+                    child: showItemLevelResults
+                        ? _buildSearchResults(rootReceipts, filtered, filters)
+                        : isAllCategory
+                            ? (filtered.isEmpty
+                                ? _EmptyState(
+                                    showClear: canClear,
+                                    onClear: () => _clearAll(clearQuery: true),
+                                  )
+                                : _buildGroupedReceiptsList(filtered))
+                            : _buildCategoryResults(rootReceipts),
+                  ),
+                ],
+              );
+            },
+            loading: () => Column(
+              children: [
+                const SizedBox(height: 8),
+                _buildSearchControls(filters),
+                _buildCategoryChipBar(),
+                _buildActiveFilters(filters),
+                const Expanded(
+                    child: Center(child: CircularProgressIndicator())),
+              ],
+            ),
+            error: (e, _) {
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                if (!mounted) return;
+                if (isNetworkException(e)) {
+                  await showNoInternetDialog(context);
+                }
+              });
+              return Column(
+                children: [
+                  const SizedBox(height: 8),
+                  _buildSearchControls(filters),
+                  _buildCategoryChipBar(),
+                  _buildActiveFilters(filters),
+                  Expanded(child: Center(child: Text('Error: $e'))),
+                ],
+              );
+            },
+          ),
+          if (_isExporting)
+            ColoredBox(
+              color: Colors.black26,
+              child: Center(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 12),
+                        Text('Preparing export...'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      floatingActionButton: _isSelectingReceipts
+          ? null
+          : _AddReceiptFab(
+              hasCollectionAccess: hasCollectionAccess,
+              onAddReceiptPressed: () =>
+                  Navigator.pushNamed(context, AppRoutes.addReceipt),
+              onCreateCollectionPressed: () {
+                Navigator.of(context, rootNavigator: true).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CreateCollectionScreen(),
+                  ),
+                );
+              },
+              onCollectionsPreviewPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CollectionsPreviewScreen(),
+                  ),
+                );
+              },
+            ),
+      bottomNavigationBar: _isSelectingReceipts
+          ? SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: FilledButton.icon(
+                onPressed: _assignSelectedReceiptsToCollection,
+                icon: const Icon(Icons.folder_open),
+                label: const Text('Add to Trip / Event'),
+              ),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildCollectionsSection(
+      AsyncValue<List<Collection>> collectionsAsync) {
+    return collectionsAsync.when(
+      data: (collections) {
+        if (collections.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final activeCollections = collections
+            .where(
+                (collection) => collection.status != CollectionStatus.completed)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        final completedCollections = collections
+            .where(
+                (collection) => collection.status == CollectionStatus.completed)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        final displayCollections = activeCollections.length >= 5
+            ? activeCollections.take(5).toList()
+            : <Collection>[
+                ...activeCollections,
+                ...completedCollections.take(5 - activeCollections.length),
+              ];
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 8),
-              _buildSearchControls(filters),
-              _buildCategoryChipBar(),
-              _buildActiveFilters(filters),
-              Expanded(
-                child: showItemLevelResults
-                    ? _buildSearchResults(receipts, filtered, filters)
-                    : isAllCategory
-                        ? (filtered.isEmpty
-                            ? _EmptyState(
-                                showClear: canClear,
-                                onClear: () => _clearAll(clearQuery: true),
-                              )
-                            : _buildGroupedReceiptsList(filtered))
-                        : _buildCategoryResults(receipts),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Trips & Events',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      _isCollectionsExpanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _isCollectionsExpanded = !_isCollectionsExpanded;
+                      });
+                    },
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const CollectionsListScreen(),
+                        ),
+                      );
+                    },
+                    child: const Text('See all'),
+                  ),
+                ],
+              ),
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 200),
+                crossFadeState: _isCollectionsExpanded
+                    ? CrossFadeState.showFirst
+                    : CrossFadeState.showSecond,
+                firstChild: Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 220,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: displayCollections.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        itemBuilder: (context, index) {
+                          final collection = displayCollections[index];
+                          return _CollectionSummaryCard(
+                            collection: collection,
+                            fullWidth: displayCollections.length == 1,
+                            onAddReceiptsPressed: () =>
+                                _openAddToCollectionFlow(collection),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                secondChild: const SizedBox.shrink(),
               ),
             ],
-          );
-        },
-        loading: () => Column(
-          children: [
-            const SizedBox(height: 8),
-            _buildSearchControls(filters),
-            _buildCategoryChipBar(),
-            _buildActiveFilters(filters),
-            const Expanded(child: Center(child: CircularProgressIndicator())),
-          ],
-        ),
-        error: (e, _) {
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            if (!mounted) return;
-            if (isNetworkException(e)) {
-              await showNoInternetDialog(context);
-            }
-          });
-          return Column(
-            children: [
-              const SizedBox(height: 8),
-              _buildSearchControls(filters),
-              _buildCategoryChipBar(),
-              _buildActiveFilters(filters),
-              Expanded(child: Center(child: Text('Error: $e'))),
-            ],
-          );
-        },
-      ),
-      floatingActionButton: _AddReceiptFab(
-        onPressed: () => Navigator.pushNamed(context, '/addReceipt'),
-      ),
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 
@@ -551,7 +1120,8 @@ class _PremiumReceiptHomeScreenState
     final totals = <String, double>{};
 
     for (final item in items) {
-      final currencyCode = _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
+      final currencyCode =
+          _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
       totals[currencyCode] = (totals[currencyCode] ?? 0.0) + item.price;
     }
 
@@ -574,6 +1144,14 @@ class _PremiumReceiptHomeScreenState
   String _normalizeCurrencyCode(String? currencyCode) {
     final normalized = currencyCode?.trim() ?? '';
     return normalized.isEmpty ? 'AUD' : normalized;
+  }
+
+  String _formatCurrencyAmount(String currency, double amount) {
+    try {
+      return NumberFormat.simpleCurrency(name: currency).format(amount);
+    } catch (_) {
+      return '$currency ${amount.toStringAsFixed(2)}';
+    }
   }
 
   String _formatCurrencyTotals(Map<String, double> totalsByCurrency) {
@@ -600,11 +1178,11 @@ class _PremiumReceiptHomeScreenState
     for (var i = 0; i < itemCount; i++) {
       final item = group.items[i];
       final title = item.itemName;
-      final subtitle = '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-      final currencyCode = _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
-      final formattedPrice = NumberFormat.simpleCurrency(
-        name: currencyCode,
-      ).format(item.price);
+      final subtitle =
+          '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
+      final currencyCode =
+          _normalizeCurrencyCode(receiptCurrencyById[item.receiptId]);
+      final formattedPrice = _formatCurrencyAmount(currencyCode, item.price);
 
       rows.add(
         Container(
@@ -673,8 +1251,8 @@ class _PremiumReceiptHomeScreenState
             _monthlyTotalsByCurrency(itemResults, receiptCurrencyById);
         final totalText = _formatCurrencyTotals(totalsByCurrency);
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 80),
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
@@ -702,47 +1280,42 @@ class _PremiumReceiptHomeScreenState
                 ],
               ),
             ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 80),
-                children: groupedItems.expand((group) {
-                  final monthlyTotals = _monthlyTotalsByCurrency(
-                    group.items,
-                    receiptCurrencyById,
-                  );
-                  final monthlyTotalText = _formatCurrencyTotals(monthlyTotals);
+            ...groupedItems.expand((group) {
+              final monthlyTotals = _monthlyTotalsByCurrency(
+                group.items,
+                receiptCurrencyById,
+              );
+              final monthlyTotalText = _formatCurrencyTotals(monthlyTotals);
 
-                  return [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            group.label,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primaryNavy,
-                            ),
-                          ),
-                          Text(
-                            monthlyTotalText,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primaryNavy,
-                            ),
-                          ),
-                        ],
+              return [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        group.label,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
                       ),
-                    ),
-                    ..._buildItemGroupRows(group, receiptCurrencyById),
-                    const SizedBox(height: 16),
-                  ];
-                }).toList(),
-              ),
-            ),
+                      Text(
+                        monthlyTotalText,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ..._buildItemGroupRows(group, receiptCurrencyById),
+                const SizedBox(height: 16),
+              ];
+            }),
           ],
         );
       }
@@ -771,9 +1344,10 @@ class _PremiumReceiptHomeScreenState
                     : _safeOriginalName(item);
                 final subtitle =
                     '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-                final formattedPrice = NumberFormat.simpleCurrency(
-                  name: _currencyForReceipt(receipts, item.receiptId),
-                ).format(item.price);
+                final formattedPrice = _formatCurrencyAmount(
+                  _currencyForReceipt(receipts, item.receiptId),
+                  item.price,
+                );
 
                 return ListTile(
                   onTap: () => _openReceipt(item),
@@ -797,7 +1371,8 @@ class _PremiumReceiptHomeScreenState
       return _buildGroupedReceiptsList(filteredReceipts);
     }
 
-    final receiptFallbackResults = _searchReceiptFallbackResults(filteredReceipts);
+    final receiptFallbackResults =
+        _searchReceiptFallbackResults(filteredReceipts);
     if (receiptFallbackResults.isEmpty) {
       return const Center(
         child: Text('No matching purchases found'),
@@ -825,14 +1400,13 @@ class _PremiumReceiptHomeScreenState
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final receipt = receiptFallbackResults[index];
-              final formattedPrice = NumberFormat.simpleCurrency(
-                name: receipt.currency,
-              ).format(receipt.total);
+              final formattedPrice = _formatCurrencyAmount(
+                receipt.currency,
+                receipt.total,
+              );
               return ListTile(
-                onTap: () => Navigator.of(context).pushNamed(
-                  AppRoutes.receiptDetail,
-                  arguments: _receiptDetailArguments(receipt.id),
-                ),
+                onTap: () => _handleReceiptTap(receipt),
+                onLongPress: () => _handleReceiptLongPress(receipt),
                 title: Text(receipt.storeName),
                 subtitle: Text(
                   DateFormat.yMMMd().format(receipt.date),
@@ -863,11 +1437,24 @@ class _PremiumReceiptHomeScreenState
     Set<String>? allowedReceiptIds,
     bool? taxClaimable,
   }) {
+    return _searchResultsFromIndex(
+      _itemIndex,
+      allowedReceiptIds: allowedReceiptIds,
+      taxClaimable: taxClaimable,
+    );
+  }
+
+  List<CategorisedItemView> _searchResultsFromIndex(
+    List<CategorisedItemView> itemIndex, {
+    Set<String>? allowedReceiptIds,
+    bool? taxClaimable,
+  }) {
     if (_searchQuery.isEmpty && taxClaimable == null) return const [];
 
     final query = _searchQuery;
-    final results = _itemIndex.where((item) {
-      if (allowedReceiptIds != null && !allowedReceiptIds.contains(item.receiptId)) {
+    final results = itemIndex.where((item) {
+      if (allowedReceiptIds != null &&
+          !allowedReceiptIds.contains(item.receiptId)) {
         return false;
       }
       if (taxClaimable != null && item.taxClaimable != taxClaimable) {
@@ -882,9 +1469,8 @@ class _PremiumReceiptHomeScreenState
       }
       final canonicalName = _safeCanonicalName(item).toLowerCase();
       final brand = _safeBrand(item).toLowerCase();
-      final searchTokens = _safeSearchTokens(item)
-          .map((token) => token.toLowerCase())
-          .toList();
+      final searchTokens =
+          _safeSearchTokens(item).map((token) => token.toLowerCase()).toList();
       final originalName = _safeOriginalName(item).toLowerCase();
       final merchant = item.merchant.toLowerCase();
       final notes = _safeNotes(item).toLowerCase();
@@ -1082,12 +1668,25 @@ class _PremiumReceiptHomeScreenState
 
   Widget _buildGroupedReceiptsList(List<Receipt> receipts) {
     final monthGroups = _groupReceiptsByMonth(receipts);
-    final children = <Widget>[];
+    final children = <Widget>[
+      const Padding(
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Text(
+          'Receipts',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primaryNavy,
+          ),
+        ),
+      ),
+    ];
     var overallIndex = 0;
 
     for (var groupIndex = 0; groupIndex < monthGroups.length; groupIndex++) {
       final group = monthGroups[groupIndex];
-      final totalsByCurrency = _monthlyTotalsByCurrencyForReceipts(group.receipts);
+      final totalsByCurrency =
+          _monthlyTotalsByCurrencyForReceipts(group.receipts);
       final totalText = _formatCurrencyTotals(totalsByCurrency);
       children.add(
         Padding(
@@ -1118,6 +1717,27 @@ class _PremiumReceiptHomeScreenState
 
       for (final receipt in group.receipts) {
         final currentIndex = overallIndex++;
+        final isSelected = _selectedReceiptIds.contains(receipt.id);
+        final receiptTile = Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Stack(
+            children: [
+              _buildReceiptTile(
+                receipt,
+                onTap: () => _handleReceiptTap(receipt),
+                onLongPress: () => _handleReceiptLongPress(receipt),
+                isSelected: isSelected,
+              ),
+              if (!_isSelectingReceipts) _buildSwipeHintOverlay(currentIndex),
+            ],
+          ),
+        );
+
+        if (_isSelectingReceipts) {
+          children.add(receiptTile);
+          continue;
+        }
+
         children.add(
           Dismissible(
             key: ValueKey(receipt.id),
@@ -1170,15 +1790,7 @@ class _PremiumReceiptHomeScreenState
                 const SnackBar(content: Text("Receipt deleted")),
               );
             },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Stack(
-                children: [
-                  _buildReceiptTile(receipt),
-                  _buildSwipeHintOverlay(currentIndex),
-                ],
-              ),
-            ),
+            child: receiptTile,
           ),
         );
       }
@@ -1328,8 +1940,7 @@ class _PremiumReceiptHomeScreenState
     if (result.file != null) {
       await navigator.pushNamed(
         AppRoutes.addReceipt,
-        arguments:
-            AddReceiptScreenArgs(initialImagePath: result.file!.path),
+        arguments: AddReceiptScreenArgs(initialImagePath: result.file!.path),
       );
       return;
     }
@@ -1419,19 +2030,290 @@ class _ItemMonthGroup {
 }
 
 class _AddReceiptFab extends StatelessWidget {
-  final VoidCallback onPressed;
-  const _AddReceiptFab({required this.onPressed});
+  const _AddReceiptFab({
+    required this.hasCollectionAccess,
+    required this.onAddReceiptPressed,
+    required this.onCreateCollectionPressed,
+    required this.onCollectionsPreviewPressed,
+  });
+
+  final bool hasCollectionAccess;
+  final VoidCallback onAddReceiptPressed;
+  final VoidCallback onCreateCollectionPressed;
+  final VoidCallback onCollectionsPreviewPressed;
 
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton(
       heroTag: "addReceiptFab",
-      onPressed: onPressed,
+      onPressed: () => _showActions(context),
       backgroundColor: Theme.of(context).colorScheme.primary,
       child: const Icon(Icons.add, color: Colors.white),
     );
   }
+
+  Future<void> _showActions(BuildContext context) async {
+    final action = await showModalBottomSheet<_HomeFabAction>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: const Text('Add Receipt'),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.addReceipt),
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_copy_outlined),
+                title: const Text('Create Trip or Event'),
+                onTap: () =>
+                    Navigator.of(context).pop(_HomeFabAction.createCollection),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (action == _HomeFabAction.addReceipt) {
+      onAddReceiptPressed();
+      return;
+    }
+
+    if (action == _HomeFabAction.createCollection) {
+      if (hasCollectionAccess) {
+        onCreateCollectionPressed();
+      } else {
+        onCollectionsPreviewPressed();
+      }
+    }
+  }
 }
+
+class _CollectionSummaryCard extends ConsumerWidget {
+  const _CollectionSummaryCard({
+    required this.collection,
+    required this.onAddReceiptsPressed,
+    this.fullWidth = false,
+  });
+
+  final Collection collection;
+  final VoidCallback onAddReceiptsPressed;
+  final bool fullWidth;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final receipts = ref.watch(receiptsProvider).maybeWhen(
+          data: (List<Receipt> receipts) => receipts,
+          orElse: () => const <Receipt>[],
+        );
+    final isCompleted = collection.status == CollectionStatus.completed;
+    final collectionReceipts = receipts
+        .where((receipt) => receipt.collectionId == collection.id)
+        .toList();
+    final receiptCount = collectionReceipts.length;
+    final hasReceipts = collectionReceipts.isNotEmpty;
+    final dateLabel = _buildDateLabel(collection);
+
+    return SizedBox(
+      width: 200,
+      child: Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isCompleted ? 0.03 : 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: isCompleted ? Colors.grey.shade300 : Colors.grey.shade200,
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      CollectionDetailScreen(collectionId: collection.id),
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.max,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 2),
+                        child: Icon(
+                          Icons.folder_copy_outlined,
+                          size: 18,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          collection.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primaryNavy,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text(
+                        collection.type == CollectionType.work
+                            ? 'Work'
+                            : 'Personal',
+                        style: const TextStyle(color: AppColors.textSecondary),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: AppColors.accentTeal,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isCompleted ? 'Completed' : 'Active',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isCompleted
+                              ? Colors.grey.shade600
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (dateLabel != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      dateLabel,
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                  ],
+                  const Spacer(),
+                  if (hasReceipts)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$receiptCount receipt${receiptCount == 1 ? '' : 's'}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.primaryNavy,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: onAddReceiptsPressed,
+                          child: const Text('+ Add'),
+                        ),
+                      ],
+                    )
+                  else
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'No receipts yet',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.primaryNavy,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                AppColors.primaryNavy.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: TextButton(
+                            onPressed: onAddReceiptsPressed,
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'Add receipts',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryNavy,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String? _buildDateLabel(Collection collection) {
+  if (collection.startDate == null && collection.endDate == null) {
+    return null;
+  }
+
+  final formatter = DateFormat.yMMMd();
+  if (collection.startDate != null && collection.endDate == null) {
+    return 'Starts ${formatter.format(collection.startDate!)}';
+  }
+
+  final startText = collection.startDate == null
+      ? 'Any start'
+      : formatter.format(collection.startDate!);
+  final endText = collection.endDate == null
+      ? 'Any end'
+      : formatter.format(collection.endDate!);
+  return '$startText - $endText';
+}
+
+enum _HomeFabAction {
+  addReceipt,
+  createCollection,
+}
+
+enum _AddReceiptAction { addNew, addExisting }
 
 class _EmptyState extends StatelessWidget {
   final bool showClear;

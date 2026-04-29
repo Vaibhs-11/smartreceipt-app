@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
@@ -7,7 +8,11 @@ import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 
 class SqliteReceiptRepository implements ReceiptRepository {
-  SqliteReceiptRepository();
+  SqliteReceiptRepository({
+    Future<Database> Function()? databaseOpener,
+  }) : _dbFuture = (databaseOpener ?? _openDb)();
+
+  final Future<Database> _dbFuture;
 
   static Future<Database> _openDb() async {
     final String dir = (await getApplicationDocumentsDirectory()).path;
@@ -15,7 +20,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
     return openDatabase(
       dbPath,
       password: 'smartreceipt_dev',
-      version: 4, // schema now tracks processed/original image metadata
+      version: 6,
       onCreate: (Database db, int version) async {
         await db.execute('''
         CREATE TABLE receipts (
@@ -31,7 +36,8 @@ class SqliteReceiptRepository implements ReceiptRepository {
           processedImagePath TEXT,
           imageProcessingStatus TEXT,
           extractedText TEXT,
-          metadata TEXT
+          metadata TEXT,
+          collectionId TEXT
         );
         ''');
       },
@@ -49,13 +55,57 @@ class SqliteReceiptRepository implements ReceiptRepository {
               'ALTER TABLE receipts ADD COLUMN imageProcessingStatus TEXT;');
         }
         if (oldVersion < 4) {
-          await db.execute('ALTER TABLE receipts ADD COLUMN metadata TEXT;');
+          await ensureColumnExists(
+            db,
+            tableName: 'receipts',
+            columnName: 'metadata',
+            columnDefinition: 'metadata TEXT',
+          );
+        }
+        if (oldVersion < 6) {
+          await ensureColumnExists(
+            db,
+            tableName: 'receipts',
+            columnName: 'collectionId',
+            columnDefinition: 'collectionId TEXT',
+          );
         }
       },
     );
   }
 
-  static final Future<Database> _dbFuture = _openDb();
+  @visibleForTesting
+  static Future<void> ensureColumnExists(
+    DatabaseExecutor db, {
+    required String tableName,
+    required String columnName,
+    required String columnDefinition,
+  }) async {
+    final tableInfo = await db.rawQuery('PRAGMA table_info($tableName)');
+    if (_hasColumn(tableInfo, columnName)) {
+      return;
+    }
+
+    await db.execute('ALTER TABLE $tableName ADD COLUMN $columnDefinition;');
+  }
+
+  @visibleForTesting
+  static bool hasColumn(
+    List<Map<String, Object?>> tableInfo,
+    String columnName,
+  ) {
+    return _hasColumn(tableInfo, columnName);
+  }
+
+  @visibleForTesting
+  static Map<String, Object?> receiptToDbMap(Receipt receipt) {
+    return _toDbMap(receipt);
+  }
+
+  @visibleForTesting
+  static Receipt receiptFromDbMap(Map<String, Object?> map) {
+    return _fromDbMap(map);
+  }
 
   @override
   Future<void> addReceipt(Receipt receipt) async {
@@ -114,7 +164,58 @@ class SqliteReceiptRepository implements ReceiptRepository {
     return getAllReceipts();
   }
 
-  Map<String, Object?> _toDbMap(Receipt r) => <String, Object?>{
+  @override
+  Future<void> assignReceiptsToCollection(
+    List<String> receiptIds,
+    String collectionId,
+  ) async {
+    if (receiptIds.isEmpty) {
+      return;
+    }
+
+    final Database db = await _dbFuture;
+    final placeholders = List<String>.filled(receiptIds.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE receipts SET collectionId = ? WHERE id IN ($placeholders)',
+      <Object?>[collectionId, ...receiptIds],
+    );
+  }
+
+  @override
+  Future<void> removeReceiptFromCollection(String receiptId) async {
+    await removeReceiptsFromCollection(<String>[receiptId]);
+  }
+
+  @override
+  Future<void> removeReceiptsFromCollection(List<String> receiptIds) async {
+    if (receiptIds.isEmpty) {
+      return;
+    }
+
+    final Database db = await _dbFuture;
+    final placeholders = List<String>.filled(receiptIds.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE receipts SET collectionId = NULL WHERE id IN ($placeholders)',
+      receiptIds.cast<Object?>(),
+    );
+  }
+
+  @override
+  Future<void> moveReceiptToCollection(
+    String receiptId,
+    String newCollectionId,
+  ) {
+    return assignReceiptsToCollection(<String>[receiptId], newCollectionId);
+  }
+
+  static bool _hasColumn(
+    List<Map<String, Object?>> tableInfo,
+    String columnName,
+  ) {
+    return tableInfo.any((column) => column['name'] == columnName);
+  }
+
+  static Map<String, Object?> _toDbMap(Receipt r) => <String, Object?>{
         'id': r.id,
         'storeName': r.storeName,
         'date': r.date.toIso8601String(),
@@ -128,9 +229,10 @@ class SqliteReceiptRepository implements ReceiptRepository {
         'imageProcessingStatus': r.imageProcessingStatus,
         'extractedText': r.extractedText,
         'metadata': r.metadata != null ? jsonEncode(r.metadata) : null,
+        'collectionId': r.collectionId,
       };
 
-  Receipt _fromDbMap(Map<String, Object?> map) {
+  static Receipt _fromDbMap(Map<String, Object?> map) {
     final List<String> tags = (map['tags'] as String?) != null
         ? (jsonDecode(map['tags']! as String) as List<dynamic>).cast<String>()
         : <String>[];
@@ -140,7 +242,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
       try {
         final decoded = jsonDecode(metadataRaw);
         if (decoded is Map) {
-          metadata = Map<String, Object?>.from(decoded as Map);
+          metadata = Map<String, Object?>.from(decoded);
         }
       } catch (_) {
         metadata = null;
@@ -160,6 +262,7 @@ class SqliteReceiptRepository implements ReceiptRepository {
       imageProcessingStatus: map['imageProcessingStatus'] as String?,
       extractedText: map['extractedText'] as String?,
       metadata: metadata,
+      collectionId: map['collectionId'] as String?,
     );
   }
 }

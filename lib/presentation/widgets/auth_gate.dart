@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/home_screen.dart';
 import 'package:receiptnest/presentation/screens/login_screen.dart';
@@ -15,10 +16,10 @@ class AuthGate extends ConsumerWidget {
     return authState.when(
       data: (user) {
         if (user == null) {
-          debugPrint("❌ No user logged in → LoginScreen");
+          AppLogger.log('No user logged in');
           return const LoginScreen();
         } else {
-          debugPrint("✅ User logged in → HomeScreen (uid: ${user.uid})");
+          AppLogger.log('User logged in');
           return const AccountGate(child: HomeScreen());
         }
       },
@@ -26,7 +27,7 @@ class AuthGate extends ConsumerWidget {
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (err, stack) {
-        debugPrint("⚠️ AuthGate error: $err");
+        AppLogger.error('AuthGate error: $err');
         return const LoginScreen();
       },
     );

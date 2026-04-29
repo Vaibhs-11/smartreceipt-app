@@ -1,9 +1,13 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
-import {onDocumentCreated} from "firebase-functions/v2/firestore";
+import {
+  onDocumentCreated,
+  onDocumentUpdated,
+} from "firebase-functions/v2/firestore";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 import {ImageAnnotatorClient} from "@google-cloud/vision";
 import * as admin from "firebase-admin";
+import {getFunctions} from "firebase-admin/functions";
 import sharp from "sharp";
 import * as path from "path";
 import * as fs from "fs/promises";
@@ -11,7 +15,11 @@ import {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
 import {logEvent} from "./analytics/log_event";
 export {aggregateDailyMetrics} from "./analytics/aggregateDailyMetrics";
 export {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
+export {
+  processReceiptCollectionEnrichment,
+} from "./enrichment/processReceiptCollectionEnrichment";
 export {processReceiptEnrichment} from "./enrichment/processReceiptEnrichment";
+export {parseReceiptWithOpenAI} from "./ocr/parseReceiptWithOpenAI";
 export {startTrial} from "./subscriptions/startTrial";
 export {
   syncSubscriptionEntitlement,
@@ -239,6 +247,84 @@ export const processReceiptImage = onDocumentCreated(
       } catch (e) {
         logger.debug("Temp output cleanup skipped");
       }
+    }
+  }
+);
+
+export const onReceiptUpdated = onDocumentUpdated(
+  "users/{userId}/receipts/{receiptId}",
+  async (event) => {
+    if (!event.data) return;
+
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    if (typeof before !== "object" || typeof after !== "object") return;
+
+    const userId = event.params.userId;
+    const receiptId = event.params.receiptId;
+
+    const beforeCollectionId =
+      typeof before.collectionId === "string" ? before.collectionId : null;
+
+    const afterCollectionId =
+      typeof after.collectionId === "string" ? after.collectionId : null;
+
+    if (beforeCollectionId === afterCollectionId) return;
+
+    // REMOVE FROM COLLECTION -> CLEAR
+    if (beforeCollectionId !== null && afterCollectionId === null) {
+      const alreadyCleared =
+        Array.isArray(after.items) &&
+        after.items.every(
+          (item: Record<string, unknown> | null) =>
+            item?.collection_category == null &&
+            item?.collection_enrichment_version == null
+        );
+
+      if (alreadyCleared) return;
+
+      const items = Array.isArray(after.items) ? after.items : [];
+
+      const cleanedItems = items.map((item) => {
+        if (typeof item !== "object" || item === null) return item;
+
+        const newItem = {...item};
+        delete newItem.collection_category;
+        delete newItem.collection_enrichment_version;
+
+        return newItem;
+      });
+
+      const receiptRef = admin.firestore()
+        .collection("users")
+        .doc(userId)
+        .collection("receipts")
+        .doc(receiptId);
+
+      await receiptRef.update({
+        items: cleanedItems,
+        collectionEnrichment: {
+          status: "pending",
+          version: null,
+          enrichedAt: null,
+          collectionId: null,
+        },
+      });
+
+      return;
+    }
+
+    // ASSIGN / MOVE -> ENQUEUE
+    if (afterCollectionId !== null) {
+      const queue = getFunctions()
+        .taskQueue("processReceiptCollectionEnrichment");
+
+      await queue.enqueue({
+        userId,
+        receiptId,
+        collectionId: afterCollectionId,
+      });
     }
   }
 );

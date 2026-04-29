@@ -294,13 +294,7 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
       }
       ref.refresh(userProfileProvider);
       if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => const HomeScreen(),
-          settings: const RouteSettings(name: AppRoutes.home),
-        ),
-        (_) => false,
-      );
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (isNetworkException(e)) {
         if (mounted) {
@@ -324,7 +318,7 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   void _exitToHome() {
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => const HomeScreen(),
         settings: const RouteSettings(name: AppRoutes.home),
       ),
