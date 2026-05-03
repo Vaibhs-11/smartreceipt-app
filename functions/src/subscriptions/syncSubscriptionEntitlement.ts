@@ -1,48 +1,9 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
-import * as admin from "firebase-admin";
-import {
-  enqueueEnrichmentForExistingReceipts,
-} from "../enrichment/backfillExistingReceiptEnrichment";
-import {logEvent} from "../analytics/log_event";
+import * as logger from "firebase-functions/logger";
 
-type SubscriptionTier = "free" | "monthly" | "yearly";
-type SubscriptionStatus = "active" | "expired" | "none";
-type SubscriptionSource = "apple" | "google";
-
-const SUBSCRIPTION_TIERS = new Set<SubscriptionTier>([
-  "free",
-  "monthly",
-  "yearly",
-]);
-const SUBSCRIPTION_STATUSES = new Set<SubscriptionStatus>([
-  "active",
-  "expired",
-  "none",
-]);
-const SUBSCRIPTION_SOURCES = new Set<SubscriptionSource>([
-  "apple",
-  "google",
-]);
-
-const asTier = (value: unknown): SubscriptionTier => {
-  if (typeof value !== "string") return "free";
-  return SUBSCRIPTION_TIERS.has(value as SubscriptionTier) ?
-    (value as SubscriptionTier) :
-    "free";
-};
-
-const asStatus = (value: unknown): SubscriptionStatus => {
-  if (typeof value !== "string") return "none";
-  return SUBSCRIPTION_STATUSES.has(value as SubscriptionStatus) ?
-    (value as SubscriptionStatus) :
-    "none";
-};
-
-const asSource = (value: unknown): SubscriptionSource | null => {
-  if (typeof value !== "string") return null;
-  return SUBSCRIPTION_SOURCES.has(value as SubscriptionSource) ?
-    (value as SubscriptionSource) :
-    null;
+const sanitizedString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  return value.slice(0, 64);
 };
 
 export const syncSubscriptionEntitlement = onCall(async (request) => {
@@ -51,45 +12,16 @@ export const syncSubscriptionEntitlement = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
 
-  const firestore = admin.firestore();
-  const userRef = firestore.collection("users").doc(uid);
-  const existingUserDoc = await userRef.get();
-  const existingData = existingUserDoc.data() ?? {};
-  const wasActivePaid =
-    asStatus(existingData["subscriptionStatus"]) === "active" &&
-    asTier(existingData["subscriptionTier"]) !== "free";
+  logger.warn("Client subscription entitlement sync disabled", {
+    uid,
+    requestedSource: sanitizedString(request.data?.source),
+    requestedStatus: sanitizedString(request.data?.status),
+    requestedTier: sanitizedString(request.data?.tier),
+    timestamp: new Date().toISOString(),
+  });
 
-  const tier = asTier(request.data?.tier);
-  const status = asStatus(request.data?.status);
-  const source = asSource(request.data?.source);
-  const updatedAtMillis = request.data?.updatedAtMillis;
-
-  let updatedAt = admin.firestore.Timestamp.now();
-  if (typeof updatedAtMillis === "number" &&
-    Number.isFinite(updatedAtMillis)) {
-    updatedAt = admin.firestore.Timestamp.fromMillis(updatedAtMillis);
-  }
-
-  const payload: Record<string, unknown> = {
-    subscriptionTier: status === "active" ? tier : "free",
-    subscriptionStatus: status,
-    subscriptionUpdatedAt: updatedAt,
+  return {
+    accepted: false,
+    reason: "client_entitlement_sync_disabled",
   };
-  if (source) {
-    payload["subscriptionSource"] = source;
-  }
-
-  await userRef.set(payload, {merge: true});
-
-  const nowActivePaid = status === "active" && tier !== "free";
-  if (nowActivePaid && !wasActivePaid) {
-    void logEvent({
-      userId: uid,
-      eventName: "premium_activated",
-      params: source ? {source} : {},
-    });
-    await enqueueEnrichmentForExistingReceipts(uid);
-  }
-
-  return {status: "updated"};
 });

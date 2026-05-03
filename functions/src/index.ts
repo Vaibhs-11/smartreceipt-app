@@ -13,6 +13,10 @@ import * as path from "path";
 import * as fs from "fs/promises";
 import {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
 import {logEvent} from "./analytics/log_event";
+import {
+  assertPayloadSize,
+  assertUserRateLimit,
+} from "./security/rateLimit";
 export {aggregateDailyMetrics} from "./analytics/aggregateDailyMetrics";
 export {enqueueReceiptEnrichment} from "./enrichment/enqueueReceiptEnrichment";
 export {
@@ -59,6 +63,15 @@ const firestore = admin.firestore();
 
 const configRef = firestore.collection("config").doc("app");
 
+const VISION_OCR_MAX_CALLS_PER_HOUR = 20;
+const CREATE_RECEIPT_MAX_CALLS_PER_HOUR = 50;
+const MAX_VISION_OCR_PAYLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_CREATE_RECEIPT_PAYLOAD_BYTES = 1024 * 1024;
+const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
+const MAX_STORAGE_PATH_LENGTH = 1024;
+const MAX_IMAGE_URL_LENGTH = 2048;
+const MAX_RECEIPT_ID_LENGTH = 150;
+
 const fetchAppConfig = async (): Promise<AppConfigDoc> => {
   const snap = await configRef.get();
   if (!snap.exists) {
@@ -97,14 +110,53 @@ export const visionOcr = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
 
+  assertPayloadSize(request.data, MAX_VISION_OCR_PAYLOAD_BYTES);
+  await assertUserRateLimit({
+    firestore,
+    uid,
+    functionName: "visionOcr",
+    maxCalls: VISION_OCR_MAX_CALLS_PER_HOUR,
+  });
+
   const {path: imagePath, imageBase64, imageUrl, gcsUri} =
     request.data || {};
+
+  const hasImagePath = imagePath !== undefined && imagePath !== null;
+  const hasImageBase64 = imageBase64 !== undefined && imageBase64 !== null;
+  const hasImageUrl = imageUrl !== undefined && imageUrl !== null;
+  const hasGcsUri = gcsUri !== undefined && gcsUri !== null;
 
   if (!imagePath && !imageBase64 && !imageUrl && !gcsUri) {
     throw new HttpsError(
       "invalid-argument",
       "Must provide either 'path', 'imageBase64', 'imageUrl', or 'gcsUri'."
     );
+  }
+  if (hasImagePath && (
+    typeof imagePath !== "string" ||
+    imagePath.length > MAX_STORAGE_PATH_LENGTH
+  )) {
+    throw new HttpsError("invalid-argument", "path is invalid");
+  }
+  if (hasGcsUri && (
+    typeof gcsUri !== "string" ||
+    gcsUri.length > MAX_IMAGE_URL_LENGTH ||
+    !gcsUri.startsWith("gs://")
+  )) {
+    throw new HttpsError("invalid-argument", "gcsUri is invalid");
+  }
+  if (hasImageUrl && (
+    typeof imageUrl !== "string" ||
+    imageUrl.length > MAX_IMAGE_URL_LENGTH ||
+    !imageUrl.startsWith("https://")
+  )) {
+    throw new HttpsError("invalid-argument", "imageUrl is invalid");
+  }
+  if (hasImageBase64 && (
+    typeof imageBase64 !== "string" ||
+    imageBase64.length > MAX_IMAGE_BASE64_LENGTH
+  )) {
+    throw new HttpsError("invalid-argument", "imageBase64 is invalid");
   }
 
   try {
@@ -146,9 +198,22 @@ export const visionOcr = onCall(async (request) => {
       result.fullTextAnnotation?.pages?.[0]?.property
         ?.detectedLanguages?.[0]?.languageCode || null;
 
+    logger.info("Vision OCR completed", {
+      uid,
+      inputType: gcsUri ? "gcsUri" :
+        imagePath ? "path" :
+          imageBase64 ? "imageBase64" :
+            "imageUrl",
+      textLength: text.length,
+      locale,
+    });
+
     return {text, locale};
   } catch (error) {
-    logger.error("Vision API failed", {error});
+    logger.error("Vision API failed", {
+      uid,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
     throw new HttpsError(
       "internal",
       "Failed to process receipt image with Vision API",
@@ -547,9 +612,25 @@ export const createReceipt = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
 
+  assertPayloadSize(request.data, MAX_CREATE_RECEIPT_PAYLOAD_BYTES);
+  await assertUserRateLimit({
+    firestore,
+    uid,
+    functionName: "createReceipt",
+    maxCalls: CREATE_RECEIPT_MAX_CALLS_PER_HOUR,
+  });
+
   const receipt = request.data?.receipt as Record<string, unknown> | undefined;
   const receiptId = request.data?.receiptId as string | undefined;
-  if (!receipt || !receiptId) {
+  if (
+    !receipt ||
+    typeof receipt !== "object" ||
+    Array.isArray(receipt) ||
+    typeof receiptId !== "string" ||
+    !receiptId.trim() ||
+    receiptId.length > MAX_RECEIPT_ID_LENGTH ||
+    receiptId.includes("/")
+  ) {
     throw new HttpsError(
       "invalid-argument",
       "Missing receipt payload or receiptId"
@@ -597,11 +678,17 @@ export const createReceipt = onCall(async (request) => {
     );
     parsedDate = new Date(seconds * 1000);
   }
+  if (parsedDate && Number.isNaN(parsedDate.getTime())) {
+    throw new HttpsError("invalid-argument", "receipt date is invalid");
+  }
 
   const expiryValue = receipt["expiryDate"];
   let parsedExpiry: Date | null = null;
   if (typeof expiryValue === "string") {
     parsedExpiry = new Date(expiryValue);
+  }
+  if (parsedExpiry && Number.isNaN(parsedExpiry.getTime())) {
+    throw new HttpsError("invalid-argument", "receipt expiryDate is invalid");
   }
 
   const payload: Record<string, unknown> = {

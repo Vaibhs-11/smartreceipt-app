@@ -2,9 +2,15 @@ import {onTaskDispatched} from "firebase-functions/v2/tasks";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import {logEvent} from "../analytics/log_event";
+import {
+  assertPayloadSize,
+  assertUserRateLimit,
+} from "../security/rateLimit";
 
 const CURRENT_COLLECTION_ENRICHMENT_VERSION = 1;
 const OPENAI_TIMEOUT_MS = 45000;
+const MAX_COLLECTION_ENRICHMENT_TASK_PAYLOAD_BYTES = 8 * 1024;
+const COLLECTION_ENRICHMENT_MAX_CALLS_PER_HOUR = 50;
 
 const FALLBACK_COLLECTION_CATEGORIES = [
   "Travel",
@@ -176,8 +182,7 @@ const parseOpenAIConfigFromResponse = async (payload: {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API failed: ${response.status} ${errorText}`);
+      throw new Error(`OpenAI API failed: ${response.status}`);
     }
 
     const responseData = (await response.json()) as GPTCompletion;
@@ -239,6 +244,11 @@ export const processReceiptCollectionEnrichment = onTaskDispatched(
     secrets: ["OPENAI_API_KEY"],
   },
   async (request) => {
+    assertPayloadSize(
+      request.data,
+      MAX_COLLECTION_ENRICHMENT_TASK_PAYLOAD_BYTES
+    );
+
     const data = request.data as ReceiptCollectionEnrichmentTaskPayload;
     const userId = typeof data.userId === "string" ? data.userId : "";
     const receiptId = typeof data.receiptId === "string" ? data.receiptId : "";
@@ -247,7 +257,10 @@ export const processReceiptCollectionEnrichment = onTaskDispatched(
 
     if (!userId || !receiptId || !collectionId) {
       logger.error("Invalid receipt collection enrichment task payload", {
-        payload: request.data,
+        hasUserId: !!userId,
+        hasReceiptId: !!receiptId,
+        hasCollectionId: !!collectionId,
+        taskId: request.id,
       });
       return;
     }
@@ -261,6 +274,13 @@ export const processReceiptCollectionEnrichment = onTaskDispatched(
     });
 
     const firestore = admin.firestore();
+    await assertUserRateLimit({
+      firestore,
+      uid: userId,
+      functionName: "processReceiptCollectionEnrichment",
+      maxCalls: COLLECTION_ENRICHMENT_MAX_CALLS_PER_HOUR,
+    });
+
     const receiptRef = firestore
       .collection("users")
       .doc(userId)

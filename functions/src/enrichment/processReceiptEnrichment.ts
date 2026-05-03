@@ -2,11 +2,17 @@ import {onTaskDispatched} from "firebase-functions/v2/tasks";
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import {logEvent} from "../analytics/log_event";
+import {
+  assertPayloadSize,
+  assertUserRateLimit,
+} from "../security/rateLimit";
 
 
 const CURRENT_ENRICHMENT_VERSION = 2;
 const OPENAI_TIMEOUT_MS = 45000;
 const MAX_SEARCH_TOKENS = 10;
+const MAX_ENRICHMENT_TASK_PAYLOAD_BYTES = 8 * 1024;
+const RECEIPT_ENRICHMENT_MAX_CALLS_PER_HOUR = 50;
 
 const FALLBACK_CATEGORIES = [
   "Food & Dining",
@@ -251,8 +257,7 @@ const parseOpenAIConfigFromResponse = async (payload: {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API failed: ${response.status} ${errorText}`);
+      throw new Error(`OpenAI API failed: ${response.status}`);
     }
 
     const responseData = (await response.json()) as GPTCompletion;
@@ -314,13 +319,17 @@ export const processReceiptEnrichment = onTaskDispatched(
     secrets: ["OPENAI_API_KEY"],
   },
   async (request) => {
+    assertPayloadSize(request.data, MAX_ENRICHMENT_TASK_PAYLOAD_BYTES);
+
     const data = request.data as ReceiptEnrichmentTaskPayload;
     const userId = typeof data.userId === "string" ? data.userId : "";
     const receiptId = typeof data.receiptId === "string" ? data.receiptId : "";
 
     if (!userId || !receiptId) {
       logger.error("Invalid receipt enrichment task payload", {
-        payload: request.data,
+        hasUserId: !!userId,
+        hasReceiptId: !!receiptId,
+        taskId: request.id,
       });
       return;
     }
@@ -333,6 +342,13 @@ export const processReceiptEnrichment = onTaskDispatched(
     });
 
     const firestore = admin.firestore();
+    await assertUserRateLimit({
+      firestore,
+      uid: userId,
+      functionName: "processReceiptEnrichment",
+      maxCalls: RECEIPT_ENRICHMENT_MAX_CALLS_PER_HOUR,
+    });
+
     const receiptRef = firestore
       .collection("users")
       .doc(userId)

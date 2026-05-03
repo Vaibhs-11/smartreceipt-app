@@ -2,17 +2,21 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:receiptnest/domain/entities/ocr_result.dart';
 import 'package:receiptnest/domain/services/ocr_service.dart';
 
 class ChatGptOcrService implements OcrService {
-  final String openAiApiKey;
+  static final bool _clientOpenAiParsingEnabled = false;
+
+  final String? openAiApiKey;
   static Future<String?>? _cachedAppVersion;
 
-  ChatGptOcrService({required this.openAiApiKey});
+  ChatGptOcrService({this.openAiApiKey});
 
   @override
   Future<OcrResult> parseImage(String imagePathOrUrl) async {
@@ -27,6 +31,35 @@ class ChatGptOcrService implements OcrService {
 
   @override
   Future<OcrResult> parseRawText(String rawText) async {
+    debugPrint('Using backend OCR parsing');
+    try {
+      final callable =
+          FirebaseFunctions.instance.httpsCallable('parseReceiptWithOpenAI');
+      final result = await callable.call<Map<String, dynamic>>(
+        <String, dynamic>{'rawText': rawText},
+      );
+      final parsed =
+          _ocrResultFromBackendResponse(result.data, fallbackRawText: rawText);
+      debugPrint('Backend OCR success');
+      return parsed;
+    } catch (e, stackTrace) {
+      debugPrint('Backend OCR failed');
+      await FirebaseCrashlytics.instance.recordError(
+        Exception('Backend OCR failed'),
+        stackTrace,
+        fatal: false,
+      );
+      throw Exception('Receipt parsing failed. Please try again.');
+    }
+  }
+
+  // ignore: unused_element
+  Future<OcrResult> _parseRawTextWithOpenAI(String rawText) async {
+    final key = openAiApiKey;
+    if (!_clientOpenAiParsingEnabled || key == null || key.isEmpty) {
+      throw UnsupportedError('Client OpenAI parsing is disabled');
+    }
+
     final url = Uri.parse("https://api.openai.com/v1/chat/completions");
 
     // Improved prompt: be strict, do not round, include currency, candidate totals, enrichment metadata,
@@ -273,7 +306,7 @@ $rawText
       url,
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer $openAiApiKey",
+        "Authorization": "Bearer $key",
       },
       body: jsonEncode({
         "model": "gpt-4o-mini",
@@ -344,15 +377,14 @@ $rawText
               priceNum = double.tryParse(trimmed);
               if (priceNum == null) {
                 // Keep digits/decimal points; remove only common currency tokens and whitespace.
-                final cleaned = trimmed
-                    .replaceAll(RegExp(r'[\s\$€£₹¥]'), '')
-                    .replaceAll(
-                      RegExp(
-                        r'\b(aud|usd|gbp|eur|cad|nzd|sgd|inr|jpy|cny)\b',
-                        caseSensitive: false,
-                      ),
-                      '',
-                    );
+                final cleaned =
+                    trimmed.replaceAll(RegExp(r'[\s\$€£₹¥]'), '').replaceAll(
+                          RegExp(
+                            r'\b(aud|usd|gbp|eur|cad|nzd|sgd|inr|jpy|cny)\b',
+                            caseSensitive: false,
+                          ),
+                          '',
+                        );
                 if (cleaned.isNotEmpty) {
                   priceNum = double.tryParse(cleaned);
                 }
@@ -486,9 +518,63 @@ $rawText
     );
   }
 
+  OcrResult _ocrResultFromBackendResponse(
+    Object? data, {
+    required String fallbackRawText,
+  }) {
+    if (data is! Map) {
+      throw const FormatException('Invalid backend OCR response');
+    }
+
+    final parsed = Map<dynamic, dynamic>.from(data);
+    final rawDate = parsed['date']?.toString() ?? '';
+    final items = <OcrReceiptItem>[];
+    final rawItems = parsed['items'];
+
+    if (rawItems is List) {
+      for (final item in rawItems) {
+        if (item is! Map) continue;
+        final itemMap = Map<dynamic, dynamic>.from(item);
+        final name = itemMap['name']?.toString() ?? '';
+        final price = _numFromDynamic(itemMap['price']);
+        final priceConfidence =
+            itemMap['priceConfidence']?.toString().toLowerCase() == 'low'
+                ? 'low'
+                : 'high';
+        items.add(
+          OcrReceiptItem(
+            name: name,
+            price: price,
+            priceConfidence: priceConfidence,
+          ),
+        );
+      }
+    }
+
+    return OcrResult(
+      isReceipt: _parseBool(parsed['isReceipt']) ?? true,
+      receiptRejectionReason: _normalizeOptionalString(
+        parsed['receiptRejectionReason']?.toString(),
+      ),
+      storeName: _normalizeOptionalString(parsed['storeName']?.toString()) ??
+          'Unknown Store',
+      date: _tryParseDate(rawDate) ?? DateTime.now(),
+      total: _numFromDynamic(parsed['total']) ?? 0.0,
+      rawText: parsed['rawText']?.toString() ?? fallbackRawText,
+      items: items,
+      currency: _normalizeOptionalString(parsed['currency']?.toString()),
+      searchKeywords: _extractSearchKeywords(parsed['searchKeywords']),
+      normalizedBrand: _normalizeOptionalString(
+        parsed['normalizedBrand']?.toString(),
+      ),
+      category: _normalizeOptionalString(parsed['category']?.toString()),
+    );
+  }
+
   static Future<String?> _getAppVersion() {
-    _cachedAppVersion ??=
-        PackageInfo.fromPlatform().then((info) => info.version).catchError((_) {
+    _cachedAppVersion ??= PackageInfo.fromPlatform()
+        .then<String?>((info) => info.version)
+        .catchError((_) {
       return null;
     });
     return _cachedAppVersion!;
