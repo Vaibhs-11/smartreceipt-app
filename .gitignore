@@ -23,6 +23,10 @@ android/keystores/smartreceipt-upload-keystore.jks
 # Env and secrets
 .env
 .env.*
+**/.env
+**/.env.*
+*.pem
+*.key
 
 # IDEs
 .vscode/
@@ -30,3 +34,4 @@ android/keystores/smartreceipt-upload-keystore.jks
 
 # Functions
 functions/keys/*
+functions/keys/*.json

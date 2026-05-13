@@ -1,6 +1,5 @@
 // providers.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receiptnest/data/repositories/firebase/firebase_account_repository.dart';
 import 'package:receiptnest/data/repositories/firebase/firebase_collection_repository.dart';
@@ -133,11 +132,7 @@ final cloudOcrServiceProvider = Provider<CloudOcrService>((ref) {
 });
 
 final chatGptOcrServiceProvider = Provider<ChatGptOcrService>((ref) {
-  final openAiKey = dotenv.env['OPENAI_API_KEY'];
-  if (openAiKey == null || openAiKey.isEmpty) {
-    throw Exception("Missing OPENAI_API_KEY in .env");
-  }
-  return ChatGptOcrService(openAiApiKey: openAiKey);
+  return ChatGptOcrService();
 });
 
 final ocrServiceProvider = Provider<OcrService>((ref) {

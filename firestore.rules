@@ -37,6 +37,20 @@ service cloud.firestore {
       ]);
     }
 
+    function createsProtectedSubscriptionFields() {
+      return request.resource.data.keys().hasAny([
+        'accountStatus',
+        'trialUsed',
+        'trialStartedAt',
+        'trialEndsAt',
+        'subscriptionTier',
+        'subscriptionStatus',
+        'subscriptionEndsAt',
+        'subscriptionSource',
+        'subscriptionUpdatedAt',
+      ]);
+    }
+
     function hasValidCollectionShape() {
       return request.resource.data.name is string &&
           request.resource.data.type in ['personal', 'work'] &&
@@ -59,7 +73,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, create: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && !createsProtectedSubscriptionFields();
       allow update: if isOwner(userId) && !modifiesProtectedSubscriptionFields();
 
       match /receipts/{receiptId} {

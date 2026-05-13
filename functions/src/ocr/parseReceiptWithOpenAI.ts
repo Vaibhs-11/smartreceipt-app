@@ -1,8 +1,15 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
+import * as admin from "firebase-admin";
+import {
+  assertPayloadSize,
+  assertUserRateLimit,
+} from "../security/rateLimit";
 
 const OPENAI_TIMEOUT_MS = 45000;
 const MAX_OCR_TEXT_LENGTH = 20000;
+const MAX_PARSE_PAYLOAD_BYTES = 128 * 1024;
+const PARSE_RECEIPT_MAX_CALLS_PER_HOUR = 20;
 const MAX_ITEMS = 200;
 const MAX_KEYWORDS = 30;
 const MAX_ITEM_NAME_LENGTH = 300;
@@ -518,6 +525,8 @@ export const parseReceiptWithOpenAI = onCall(
       throw new HttpsError("unauthenticated", "User must be authenticated");
     }
 
+    assertPayloadSize(request.data, MAX_PARSE_PAYLOAD_BYTES);
+
     const rawText = request.data?.rawText;
     if (typeof rawText !== "string") {
       throw new HttpsError("invalid-argument", "rawText must be a string");
@@ -530,6 +539,13 @@ export const parseReceiptWithOpenAI = onCall(
     if (trimmedRawText.length > MAX_OCR_TEXT_LENGTH) {
       throw new HttpsError("invalid-argument", "OCR text is too long");
     }
+
+    await assertUserRateLimit({
+      firestore: admin.firestore(),
+      uid,
+      functionName: "parseReceiptWithOpenAI",
+      maxCalls: PARSE_RECEIPT_MAX_CALLS_PER_HOUR,
+    });
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {

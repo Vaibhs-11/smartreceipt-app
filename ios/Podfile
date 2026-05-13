@@ -51,6 +51,7 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
   end
 end
