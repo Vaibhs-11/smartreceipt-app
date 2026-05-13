@@ -1,7 +1,18 @@
 import * as admin from "firebase-admin";
 import {getFunctions} from "firebase-admin/functions";
 
-admin.initializeApp();
+const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || "smartreceipt-8faff";
+const ADMIN_SERVICE_ACCOUNT_ID =
+  process.env.FIREBASE_SERVICE_ACCOUNT_ID ||
+  "smartreceipt-8faff@appspot.gserviceaccount.com";
+
+// Uses Application Default Credentials locally. Before running:
+// gcloud auth application-default login
+// gcloud auth application-default set-quota-project smartreceipt-8faff
+admin.initializeApp({
+  projectId: PROJECT_ID,
+  serviceAccountId: ADMIN_SERVICE_ACCOUNT_ID,
+});
 
 const firestore = admin.firestore();
 
@@ -124,5 +135,14 @@ async function main() {
 
 main().catch((error) => {
   console.error("Requeue script failed:", error);
+  console.error(
+    [
+      "Local ADC setup:",
+      "1. gcloud auth application-default login",
+      "2. gcloud auth application-default set-quota-project smartreceipt-8faff",
+      "3. FIREBASE_SERVICE_ACCOUNT_ID=" +
+        "<deployed-functions-service-account-email>",
+    ].join("\n")
+  );
   process.exit(1);
 });
