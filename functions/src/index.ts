@@ -316,6 +316,35 @@ export const processReceiptImage = onDocumentCreated(
   }
 );
 
+export const onReceiptCreatedCollectionEnrichment = onDocumentCreated(
+  "users/{userId}/receipts/{receiptId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const data = snap.data();
+    const collectionId =
+      typeof data.collectionId === "string" ? data.collectionId.trim() : "";
+    if (!collectionId) return;
+
+    const {userId, receiptId} = event.params;
+    const queue = getFunctions()
+      .taskQueue("processReceiptCollectionEnrichment");
+
+    await queue.enqueue({
+      userId,
+      receiptId,
+      collectionId,
+    });
+
+    logger.info("Enqueued collection enrichment for created receipt", {
+      userId,
+      receiptId,
+      collectionId,
+    });
+  }
+);
+
 export const onReceiptUpdated = onDocumentUpdated(
   "users/{userId}/receipts/{receiptId}",
   async (event) => {

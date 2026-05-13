@@ -288,6 +288,25 @@ const parseReceiptItems = (
   );
 };
 
+const mergeWithLatestItems = async (
+  receiptRef: admin.firestore.DocumentReference,
+  enrichedItems: Array<Record<string, unknown>>
+): Promise<Array<Record<string, unknown>>> => {
+  const latestSnap = await receiptRef.get();
+  if (!latestSnap.exists) {
+    return enrichedItems;
+  }
+
+  const latestItems = parseReceiptItems(
+    latestSnap.data() as admin.firestore.DocumentData
+  );
+
+  return enrichedItems.map((item, index) => ({
+    ...(latestItems[index] ?? {}),
+    ...item,
+  }));
+};
+
 const setEnrichmentStatus = async (
   receiptRef: admin.firestore.DocumentReference,
   status: string
@@ -456,8 +475,10 @@ export const processReceiptEnrichment = onTaskDispatched(
         return currentItem;
       });
 
+      const mergedItems = await mergeWithLatestItems(receiptRef, enrichedItems);
+
       await receiptRef.update({
-        "items": enrichedItems,
+        "items": mergedItems,
         "enrichment.status": "completed",
         "enrichment.version": CURRENT_ENRICHMENT_VERSION,
         "enrichment.enrichedAt": admin.firestore.FieldValue.serverTimestamp(),
