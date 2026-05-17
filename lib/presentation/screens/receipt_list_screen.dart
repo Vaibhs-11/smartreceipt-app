@@ -229,7 +229,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
               filters.query.trim().isNotEmpty || filters.hasActiveFilters;
           final bool showItemLevelResults =
               searchQuery.isNotEmpty || filters.taxClaimable == true;
-          final bool shouldShowTaxExportPrompt = filters.taxClaimable != null &&
+          final bool shouldShowTaxExportPrompt = filters.taxClaimable == true &&
               filtered.isNotEmpty &&
               _showTaxExportPrompt;
 
