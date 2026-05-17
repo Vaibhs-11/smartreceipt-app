@@ -231,6 +231,10 @@ class _PremiumReceiptHomeScreenState
     List<Receipt> rootReceipts,
     ReceiptSearchFilters filters,
   ) {
+    if (filters.taxClaimable != true) {
+      return const <Receipt>[];
+    }
+
     final filteredReceipts = _applyFilters(rootReceipts, filters);
     final itemResults = _searchResultsFromIndex(
       buildItemIndex(rootReceipts),
@@ -574,11 +578,12 @@ class _PremiumReceiptHomeScreenState
         .toList();
     final showItemLevelResults =
         _searchQuery.isNotEmpty || filters.taxClaimable == true;
+    final isTaxClaimableSearch = filters.taxClaimable == true;
     final visibleSearchExportReceipts = rootReceipts == null
         ? const <Receipt>[]
         : _visibleSearchExportReceipts(rootReceipts, filters);
     final showExportButton = !_isSelectingReceipts &&
-        showItemLevelResults &&
+        isTaxClaimableSearch &&
         visibleSearchExportReceipts.isNotEmpty;
     final shouldShowTaxExportPrompt = showExportButton && _showTaxExportPrompt;
 
