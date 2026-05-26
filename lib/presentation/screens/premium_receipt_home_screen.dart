@@ -38,6 +38,8 @@ class _PremiumReceiptHomeScreenState
     extends ConsumerState<PremiumReceiptHomeScreen> {
   late final TextEditingController _searchController;
   static const String _swipeHintPrefKey = 'receipt_swipe_hint_shown';
+  static const String _hiddenHomeCollectionsPrefKeyPrefix =
+      'hidden_home_collection_ids';
   static const List<_CategoryChipItem> _categoryChips = [
     _CategoryChipItem(label: 'All', icon: Icons.receipt_long),
     _CategoryChipItem(label: 'Food & Dining', icon: Icons.restaurant),
@@ -57,6 +59,7 @@ class _PremiumReceiptHomeScreenState
   String _searchQuery = '';
   List<CategorisedItemView> _itemIndex = const [];
   final Set<String> _selectedReceiptIds = <String>{};
+  Set<String> _hiddenHomeCollectionIds = <String>{};
   bool _isCollectionsExpanded = true;
   bool _isExporting = false;
   bool _showTaxExportPrompt = true;
@@ -69,6 +72,7 @@ class _PremiumReceiptHomeScreenState
     final initialFilters = ref.read(receiptSearchFiltersProvider);
     _searchController = TextEditingController(text: initialFilters.query);
     _loadSwipeHint();
+    _loadHiddenHomeCollections();
   }
 
   @override
@@ -95,9 +99,64 @@ class _PremiumReceiptHomeScreenState
     await prefs.setBool(_swipeHintPrefKey, true);
   }
 
+  String _hiddenHomeCollectionsPrefKey() {
+    final userId = ref.read(userIdProvider);
+    return userId == null
+        ? _hiddenHomeCollectionsPrefKeyPrefix
+        : '$_hiddenHomeCollectionsPrefKeyPrefix:$userId';
+  }
+
+  Future<void> _loadHiddenHomeCollections() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hiddenIds =
+        prefs.getStringList(_hiddenHomeCollectionsPrefKey()) ?? const [];
+    if (!mounted) return;
+    setState(() {
+      _hiddenHomeCollectionIds = hiddenIds.toSet();
+    });
+  }
+
+  Future<void> _setHomeCollectionHidden(
+    String collectionId, {
+    required bool hidden,
+  }) async {
+    final nextHiddenIds = Set<String>.from(_hiddenHomeCollectionIds);
+    if (hidden) {
+      nextHiddenIds.add(collectionId);
+    } else {
+      nextHiddenIds.remove(collectionId);
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _hiddenHomeCollectionsPrefKey(),
+      nextHiddenIds.toList()..sort(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _hiddenHomeCollectionIds = nextHiddenIds;
+    });
+  }
+
+  Future<void> _openCollectionsList() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const CollectionsListScreen(),
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    await _loadHiddenHomeCollections();
+  }
+
   void _onCategorySelected(String category) {
     setState(() {
       _selectedCategory = category;
+      if (category != 'All') {
+        _isCollectionsExpanded = false;
+      }
     });
   }
 
@@ -613,14 +672,7 @@ class _PremiumReceiptHomeScreenState
                 color: AppColors.primaryNavy,
               ),
               tooltip: 'Trips & Events',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const CollectionsListScreen(),
-                  ),
-                );
-              },
+              onPressed: _openCollectionsList,
             ),
           IconButton(
             icon: const Icon(Icons.photo_camera_outlined),
@@ -797,12 +849,21 @@ class _PremiumReceiptHomeScreenState
           return const SizedBox.shrink();
         }
 
-        final activeCollections = collections
+        final homeCollections = collections
+            .where(
+              (collection) => !_hiddenHomeCollectionIds.contains(collection.id),
+            )
+            .toList();
+        if (homeCollections.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final activeCollections = homeCollections
             .where(
                 (collection) => collection.status != CollectionStatus.completed)
             .toList()
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        final completedCollections = collections
+        final completedCollections = homeCollections
             .where(
                 (collection) => collection.status == CollectionStatus.completed)
             .toList()
@@ -844,14 +905,7 @@ class _PremiumReceiptHomeScreenState
                     },
                   ),
                   TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => const CollectionsListScreen(),
-                        ),
-                      );
-                    },
+                    onPressed: _openCollectionsList,
                     child: const Text('See all'),
                   ),
                 ],
@@ -876,6 +930,8 @@ class _PremiumReceiptHomeScreenState
                           return _CollectionSummaryCard(
                             collection: collection,
                             fullWidth: displayCollections.length == 1,
+                            onHideFromHomePressed: () =>
+                                _showHideCollectionFromHomeSheet(collection),
                             onAddReceiptsPressed: () =>
                                 _openAddToCollectionFlow(collection),
                           );
@@ -893,6 +949,108 @@ class _PremiumReceiptHomeScreenState
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
     );
+  }
+
+  Future<void> _showHideCollectionFromHomeSheet(Collection collection) async {
+    final shouldHide = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  collection.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: const Text('Trip / Event'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.visibility_off_outlined),
+                title: const Text('Hide from Home'),
+                onTap: () => Navigator.of(context).pop(true),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || shouldHide != true) {
+      return;
+    }
+
+    if (collection.status != CollectionStatus.completed) {
+      final confirmed = await _confirmHideOpenCollectionFromHome(collection);
+      if (!mounted || !confirmed) {
+        return;
+      }
+    }
+
+    await _hideCollectionFromHome(collection);
+  }
+
+  Future<bool> _confirmHideOpenCollectionFromHome(
+    Collection collection,
+  ) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              title: const Text('Hide this trip from Home?'),
+              content: Text(
+                '"${collection.name}" is still open. This trip/event will no '
+                'longer appear in the Home screen Trips & Events section. You '
+                'can still access it anytime from the Trips & Events icon in '
+                'the top-right of Home.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Hide from Home'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+  }
+
+  Future<void> _hideCollectionFromHome(Collection collection) async {
+    await _setHomeCollectionHidden(collection.id, hidden: true);
+    if (!mounted) {
+      return;
+    }
+
+    final controller = rootScaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content:
+            const Text('Hidden from Home. Open Trips & Events to view all.'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            await _setHomeCollectionHidden(collection.id, hidden: false);
+          },
+        ),
+      ),
+    );
+    var isSnackBarClosed = false;
+    controller?.closed.whenComplete(() {
+      isSnackBarClosed = true;
+    });
+    Future<void>.delayed(const Duration(seconds: 10), () {
+      if (!isSnackBarClosed) {
+        controller?.close();
+      }
+    });
   }
 
   Widget _buildSearchControls(ReceiptSearchFilters filters) {
@@ -1083,7 +1241,14 @@ class _PremiumReceiptHomeScreenState
                     ],
                   ),
                 ),
-                ..._buildItemGroupRows(group, receiptCurrencyById),
+                ..._buildItemGroupRows(
+                  group,
+                  receiptCurrencyById,
+                  onEditCategory: (item) => _editHomeItemCategory(
+                    receipts: receipts,
+                    item: item,
+                  ),
+                ),
                 const SizedBox(height: 16),
               ];
             }).toList(),
@@ -1175,8 +1340,9 @@ class _PremiumReceiptHomeScreenState
 
   List<Widget> _buildItemGroupRows(
     _ItemMonthGroup group,
-    Map<String, String> receiptCurrencyById,
-  ) {
+    Map<String, String> receiptCurrencyById, {
+    Future<void> Function(CategorisedItemView item)? onEditCategory,
+  }) {
     final rows = <Widget>[];
     final itemCount = group.items.length;
 
@@ -1214,6 +1380,8 @@ class _PremiumReceiptHomeScreenState
                 vertical: 14,
               ),
               onTap: () => _openReceipt(item),
+              onLongPress:
+                  onEditCategory == null ? null : () => onEditCategory(item),
               title: Text(title),
               subtitle: Text(subtitle),
               trailing: Text(
@@ -1231,6 +1399,157 @@ class _PremiumReceiptHomeScreenState
     }
 
     return rows;
+  }
+
+  Future<void> _editHomeItemCategory({
+    required List<Receipt> receipts,
+    required CategorisedItemView item,
+  }) async {
+    final selectedCategory = await _showHomeItemCategoryPicker(item: item);
+    if (!mounted || selectedCategory == null) {
+      return;
+    }
+
+    final receiptIndex =
+        receipts.indexWhere((receipt) => receipt.id == item.receiptId);
+    if (receiptIndex == -1) {
+      return;
+    }
+
+    final receipt = receipts[receiptIndex];
+    if (item.itemIndex < 0 || item.itemIndex >= receipt.items.length) {
+      return;
+    }
+
+    final receiptItem = receipt.items[item.itemIndex];
+    if (receiptItem.category == selectedCategory) {
+      return;
+    }
+
+    final existingOverrides = receiptItem.manualOverrides;
+    final updatedItems = receipt.items.toList();
+    updatedItems[item.itemIndex] = receiptItem.copyWith(
+      category: selectedCategory,
+      manualOverrides: ReceiptItemManualOverrides(
+        category: true,
+        brand: existingOverrides?.brand ?? false,
+        canonicalName: existingOverrides?.canonicalName ?? false,
+      ),
+    );
+
+    try {
+      await ref
+          .read(receiptRepositoryProviderOverride)
+          .updateReceipt(receipt.copyWith(items: updatedItems));
+    } catch (error) {
+      AppLogger.error('Failed to update item category: $error');
+      if (!mounted) {
+        return;
+      }
+      showRootSnackBar(
+        const SnackBar(content: Text('Unable to update category right now.')),
+      );
+    }
+  }
+
+  Future<String?> _showHomeItemCategoryPicker({
+    required CategorisedItemView item,
+  }) {
+    final availableCategories = _categoryChips
+        .where((category) => category.label != 'All')
+        .map((category) => category.label)
+        .toList();
+    final currentCategory = item.category ?? 'Other';
+
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.itemName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Change category',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                for (final category in availableCategories)
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 2,
+                    ),
+                    leading: Icon(
+                      category == currentCategory
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      size: 20,
+                      color: category == currentCategory
+                          ? AppColors.primaryNavy
+                          : AppColors.textSecondary.withValues(alpha: 0.65),
+                    ),
+                    title: Text(
+                      category,
+                      style: TextStyle(
+                        fontWeight: category == currentCategory
+                            ? FontWeight.w600
+                            : FontWeight.w500,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    trailing: category == currentCategory
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  AppColors.primaryNavy.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'Current',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryNavy,
+                              ),
+                            ),
+                          )
+                        : null,
+                    onTap: () => Navigator.of(context).pop(category),
+                  ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildSearchResults(
@@ -2102,11 +2421,13 @@ class _CollectionSummaryCard extends ConsumerWidget {
   const _CollectionSummaryCard({
     required this.collection,
     required this.onAddReceiptsPressed,
+    required this.onHideFromHomePressed,
     this.fullWidth = false,
   });
 
   final Collection collection;
   final VoidCallback onAddReceiptsPressed;
+  final VoidCallback onHideFromHomePressed;
   final bool fullWidth;
 
   @override
@@ -2154,6 +2475,7 @@ class _CollectionSummaryCard extends ConsumerWidget {
                 ),
               );
             },
+            onLongPress: onHideFromHomePressed,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(

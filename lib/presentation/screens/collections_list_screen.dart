@@ -1,17 +1,75 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/domain/entities/collection.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/screens/collection_detail_screen.dart';
 import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
+import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
-class CollectionsListScreen extends ConsumerWidget {
+class CollectionsListScreen extends ConsumerStatefulWidget {
   const CollectionsListScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CollectionsListScreen> createState() =>
+      _CollectionsListScreenState();
+}
+
+class _CollectionsListScreenState extends ConsumerState<CollectionsListScreen> {
+  static const String _hiddenHomeCollectionsPrefKeyPrefix =
+      'hidden_home_collection_ids';
+
+  Set<String> _hiddenHomeCollectionIds = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHiddenHomeCollections();
+  }
+
+  String _hiddenHomeCollectionsPrefKey() {
+    final userId = ref.read(userIdProvider);
+    return userId == null
+        ? _hiddenHomeCollectionsPrefKeyPrefix
+        : '$_hiddenHomeCollectionsPrefKeyPrefix:$userId';
+  }
+
+  Future<void> _loadHiddenHomeCollections() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hiddenIds =
+        prefs.getStringList(_hiddenHomeCollectionsPrefKey()) ?? const [];
+    if (!mounted) return;
+    setState(() {
+      _hiddenHomeCollectionIds = hiddenIds.toSet();
+    });
+  }
+
+  Future<void> _setHomeCollectionHidden(
+    String collectionId, {
+    required bool hidden,
+  }) async {
+    final nextHiddenIds = Set<String>.from(_hiddenHomeCollectionIds);
+    if (hidden) {
+      nextHiddenIds.add(collectionId);
+    } else {
+      nextHiddenIds.remove(collectionId);
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _hiddenHomeCollectionsPrefKey(),
+      nextHiddenIds.toList()..sort(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _hiddenHomeCollectionIds = nextHiddenIds;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final collectionsAsync = ref.watch(collectionsStreamProvider);
     final hasAccess = ref.watch(premiumCollectionAccessProvider);
 
@@ -48,8 +106,15 @@ class CollectionsListScreen extends ConsumerWidget {
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final collection = collections[index];
+                        final isHiddenFromHome =
+                            _hiddenHomeCollectionIds.contains(collection.id);
                         return _CollectionCard(
                           collection: collection,
+                          onLongPress: isHiddenFromHome
+                              ? () => _showCollectionHomeVisibilitySheet(
+                                    collection,
+                                  )
+                              : null,
                           onTap: () {
                             Navigator.push(
                               context,
@@ -87,16 +152,62 @@ class CollectionsListScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Future<void> _showCollectionHomeVisibilitySheet(
+    Collection collection,
+  ) async {
+    final shouldShow = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  collection.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: const Text('Hidden from Home'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.visibility_outlined),
+                title: const Text('Show on Home'),
+                onTap: () => Navigator.of(context).pop(true),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || shouldShow != true) {
+      return;
+    }
+
+    await _setHomeCollectionHidden(collection.id, hidden: false);
+    if (!mounted) {
+      return;
+    }
+    showRootSnackBar(
+      const SnackBar(content: Text('Trip / Event will show on Home.')),
+    );
+  }
 }
 
 class _CollectionCard extends StatelessWidget {
   const _CollectionCard({
     required this.collection,
     required this.onTap,
+    this.onLongPress,
   });
 
   final Collection collection;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -109,6 +220,7 @@ class _CollectionCard extends StatelessWidget {
           vertical: 12,
         ),
         onTap: onTap,
+        onLongPress: onLongPress,
         leading: const Icon(
           Icons.folder_copy_outlined,
           color: AppColors.primaryNavy,
