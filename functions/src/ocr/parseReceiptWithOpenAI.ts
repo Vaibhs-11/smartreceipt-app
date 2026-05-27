@@ -34,6 +34,7 @@ interface ParsedTotalCandidate {
   label?: unknown;
   amount?: unknown;
   context?: unknown;
+  kind?: unknown;
 }
 
 interface ParsedReceipt {
@@ -102,11 +103,29 @@ Extract these exact values:
   prices or derive item prices from totals.
 
 - total:
-  exact final billed amount. Choose the amount explicitly labelled TOTAL,
-  GRAND TOTAL, INVOICE TOTAL, or the final amount payable. Do not round.
+  exact final amount the customer was charged, paid, owes, or must pay.
+
+  Selection rules:
+  - Prefer labels such as TOTAL PAID, AMOUNT PAID, AMOUNT PAYABLE,
+    GRAND TOTAL, INVOICE TOTAL, BALANCE DUE, TOTAL DUE, PAID, or CHARGED.
+  - If discounts, vouchers, promotions, credits, rewards, or savings are shown,
+    choose the amount AFTER those adjustments.
+  - SUBTOTAL is not the final total when a later payable/paid/due/charged
+    amount exists.
+  - "Total including GST", "Total incl GST", "Total inc tax", or equivalent
+    usually means the final total including tax.
+  - "GST included", "GST", "tax", "tax total", or "VAT" alone is only the tax
+    component, not the receipt total.
+  - Cash tendered, amount tendered, received, change, card balance, available
+    balance, and loyalty balance are not receipt totals.
+  - If multiple candidate totals exist, select the final payable/paid amount,
+    not the largest amount.
 
 - totals:
-  list of candidate totals with label, amount, and context.
+  list of candidate monetary totals with label, amount, context, and kind.
+  kind must be one of:
+  "final_payable", "amount_paid", "subtotal", "tax", "discount",
+  "tendered", "change", "balance", "unknown".
 
 - selectedTotalIndex:
   0-based index into totals for the selected final total.
@@ -148,7 +167,12 @@ Example response format:
     {"name": "ITEM B", "price": null, "priceConfidence": "low"}
   ],
   "totals": [
-    {"label": "TOTAL", "amount": 17.34, "context": "TOTAL 17.34"}
+    {
+      "label": "TOTAL",
+      "amount": 17.34,
+      "context": "TOTAL 17.34",
+      "kind": "final_payable"
+    }
   ],
   "selectedTotalIndex": 0,
   "total": 17.34,
@@ -233,26 +257,40 @@ const localExtractTotal = (text: string): number | null => {
   const excludedPhrases = [
     "tendered",
     "change",
-    "balance due",
     "cash received",
     "amount tendered",
+    "available balance",
+    "avail bal",
+    "total savings",
+    "you saved",
   ];
   const keywordWeights: Record<string, number> = {
-    "total paid": 220,
+    "total paid": 260,
+    "amount paid": 255,
+    "amount payable": 250,
+    "grand total": 240,
+    "invoice total": 230,
+    "total due": 225,
+    "balance due": 220,
+    "total inc gst": 215,
+    "total incl gst": 215,
+    "total including gst": 215,
     "total inc tax": 210,
-    "grand total": 200,
-    "amount payable": 190,
-    "invoice total": 180,
-    "amount due": 170,
+    "amount due": 205,
+    "charged": 180,
+    "paid": 180,
     "total": 160,
-    "subtotal": 120,
-    "paid": 110,
-    "eftpos": 100,
-    "payment": 100,
+    "eftpos": 90,
+    "payment": 90,
+    "subtotal": 40,
   };
 
   const allMoney: number[] = [];
-  const candidates: Array<{value: number; score: number}> = [];
+  const candidates: Array<{
+    value: number;
+    score: number;
+    lineIndex: number;
+  }> = [];
 
   for (const line of lines) {
     moneyRe.lastIndex = 0;
@@ -268,9 +306,14 @@ const localExtractTotal = (text: string): number | null => {
     const line = lines[i].trim();
     if (!line) continue;
     const lower = line.toLowerCase();
-    if ((lower.includes("gst") && lower.includes("total")) ||
-      lower.includes("avail bal") ||
-      lower.includes("available balance") ||
+    const taxComponentOnly =
+      /\b(gst|tax|vat)\b/.test(lower) &&
+      !/\btotal\s+(inc|incl|including)\b/.test(lower) &&
+      !(
+        /\bgrand total\b|\binvoice total\b|\bamount payable\b|\btotal paid\b/
+          .test(lower)
+      );
+    if (taxComponentOnly ||
       excludedPhrases.some((phrase) => lower.includes(phrase))) {
       continue;
     }
@@ -309,6 +352,7 @@ const localExtractTotal = (text: string): number | null => {
       candidates.push({
         value: amount,
         score: bestWeight + (amount === 0 ? -100 : 0),
+        lineIndex: i,
       });
     }
   }
@@ -332,6 +376,7 @@ const localExtractTotal = (text: string): number | null => {
           candidates.push({
             value: parsed,
             score: 75 + (parsed === 0 ? -100 : 0),
+            lineIndex: i,
           });
         }
         match = moneyRe.exec(line);
@@ -340,17 +385,15 @@ const localExtractTotal = (text: string): number | null => {
   }
 
   if (candidates.length > 0) {
-    let bestNonZero: number | null = null;
-    let bestZero: number | null = null;
+    candidates.sort((a, b) => {
+      const score = b.score - a.score;
+      if (score !== 0) return score;
+      return b.lineIndex - a.lineIndex;
+    });
     for (const candidate of candidates) {
-      if (candidate.value > 0 &&
-        (bestNonZero === null || candidate.value > bestNonZero)) {
-        bestNonZero = candidate.value;
-      } else if (candidate.value === 0) {
-        bestZero = 0;
-      }
+      if (candidate.value > 0) return candidate.value;
     }
-    return bestNonZero ?? bestZero;
+    return candidates.find((candidate) => candidate.value === 0)?.value ?? null;
   }
 
   return allMoney.length > 0 ? Math.max(...allMoney) : null;
@@ -423,6 +466,7 @@ const sanitizeTotals = (totals: unknown): Array<{
   label: string;
   amount: number | null;
   context: string;
+  kind: string;
 }> => {
   if (!Array.isArray(totals)) return [];
   return totals.slice(0, 20).map((item) => {
@@ -433,6 +477,7 @@ const sanitizeTotals = (totals: unknown): Array<{
       label: String(record.label ?? ""),
       amount: numberFromDynamic(record.amount),
       context: String(record.context ?? "").slice(0, 500),
+      kind: String(record.kind ?? "unknown"),
     };
   });
 };
@@ -570,16 +615,18 @@ export const parseReceiptWithOpenAI = onCall(
       const gptTotal = numberFromDynamic(parsed.total);
       const gptChosen = gptSelectedTotal ?? gptTotal;
       const localTotal = localExtractTotal(trimmedRawText);
-      const total =
-        gptChosen === null && localTotal !== null ?
-          localTotal :
-          gptChosen !== null && localTotal === null ?
-            gptChosen :
-            gptChosen !== null && localTotal !== null ?
-              Math.abs(gptChosen - localTotal) < 0.01 ?
-                gptChosen :
-                localTotal :
-              0;
+      const total = gptChosen ?? localTotal ?? 0;
+      if (
+        gptChosen !== null &&
+        localTotal !== null &&
+        Math.abs(gptChosen - localTotal) >= 0.01
+      ) {
+        logger.warn("Receipt total mismatch; using model-selected total", {
+          uid,
+          gptChosen,
+          localTotal,
+        });
+      }
       const normalizedBrand = normalizeOptionalString(parsed.normalizedBrand);
       const category = normalizeOptionalString(parsed.category);
       const searchKeywords = sanitizeKeywords(parsed.searchKeywords);
