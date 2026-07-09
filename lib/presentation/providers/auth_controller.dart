@@ -44,8 +44,14 @@ class AuthController extends StateNotifier<AuthState> {
     await _run(() => _authService.signInWithEmailAndPassword(email, password));
   }
 
+  Future<void> signInAnonymously() async {
+    await _run(_authService.signInAnonymously);
+  }
+
   Future<void> signUpWithEmailPassword(String email, String password) async {
-    await _run(() => _authService.createUserWithEmailAndPassword(email, password));
+    await _run(
+      () => _authService.createUserWithEmailAndPassword(email, password),
+    );
   }
 
   Future<void> signOut() async {

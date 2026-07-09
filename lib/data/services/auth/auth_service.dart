@@ -3,19 +3,22 @@ import 'dart:async';
 
 // Public model
 class AppUser {
-  const AppUser({required this.uid, this.email});
+  const AppUser({required this.uid, this.email, this.isAnonymous = false});
   final String uid;
   final String? email;
+  final bool isAnonymous;
 }
 
 abstract class AuthService {
   Stream<AppUser?> authStateChanges();
   Future<AppUser?> signInAnonymously();
   Future<AppUser?> signInWithEmailAndPassword(String email, String password);
-  Future<AppUser?> createUserWithEmailAndPassword(String email, String password);
+  Future<AppUser?> createUserWithEmailAndPassword(
+    String email,
+    String password,
+  );
   Future<void> signOut();
 }
-
 
 //class FirebaseAuthService implements AuthService {
 //  final FirebaseAuth _auth = FirebaseAuth.instance;

@@ -4,12 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Make sure this file (next step) exposes `authControllerProvider`
 import 'package:receiptnest/core/services/analytics_service.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
-  const SignupScreen({super.key});
+  const SignupScreen({super.key, this.popOnSuccess = false});
+
+  final bool popOnSuccess;
 
   @override
   ConsumerState<SignupScreen> createState() => _SignupScreenState();
@@ -65,18 +68,23 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       await controller.signUpWithEmailPassword(email, password);
       unawaited(AnalyticsService.logSignUp());
       // AuthGate should navigate automatically when auth state changes.
-      showRootSnackBar(
-        const SnackBar(content: Text('Account created!')),
-      );
-      if (mounted) Navigator.of(context).pop(); // go back to Login if you pushed this route
+      showRootSnackBar(const SnackBar(content: Text('Account created!')));
+      if (!mounted) return;
+      if (widget.popOnSuccess) {
+        Navigator.of(context).pop(true);
+      } else {
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
+      }
     } catch (e) {
       if (isNetworkException(e)) {
-        await showNoInternetDialog(context);
+        if (mounted) {
+          await showNoInternetDialog(context);
+        }
         return;
       }
-      showRootSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      showRootSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -131,7 +139,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                           border: const OutlineInputBorder(),
                           suffixIcon: IconButton(
                             onPressed: () => setState(() => _hidePw = !_hidePw),
-                            icon: Icon(_hidePw ? Icons.visibility : Icons.visibility_off),
+                            icon: Icon(
+                              _hidePw ? Icons.visibility : Icons.visibility_off,
+                            ),
                           ),
                         ),
                         validator: _pwValidator,
@@ -150,8 +160,13 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                           labelText: 'Confirm password',
                           border: const OutlineInputBorder(),
                           suffixIcon: IconButton(
-                            onPressed: () => setState(() => _hidePw2 = !_hidePw2),
-                            icon: Icon(_hidePw2 ? Icons.visibility : Icons.visibility_off),
+                            onPressed: () =>
+                                setState(() => _hidePw2 = !_hidePw2),
+                            icon: Icon(
+                              _hidePw2
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
                           ),
                         ),
                         validator: _pw2Validator,
@@ -165,7 +180,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                           padding: const EdgeInsets.only(bottom: 12),
                           child: Text(
                             state.error.toString(),
-                            style: TextStyle(color: Theme.of(context).colorScheme.error),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
                           ),
                         ),
 
@@ -178,7 +195,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                               ? const SizedBox(
                                   height: 18,
                                   width: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Text('Create account'),
                         ),
@@ -186,7 +205,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
                       const SizedBox(height: 12),
                       TextButton(
-                        onPressed: isLoading ? null : () => Navigator.pop(context),
+                        onPressed:
+                            isLoading ? null : () => Navigator.pop(context),
                         child: const Text('I already have an account'),
                       ),
                     ],

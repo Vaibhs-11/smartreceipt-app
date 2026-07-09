@@ -32,6 +32,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   bool _deletingAccount = false;
   bool _connectivityChecked = false;
   bool _hasInternet = true;
+  bool _navigatingAfterSignOut = false;
 
   @override
   void initState() {
@@ -52,15 +53,24 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     });
   }
 
+  void _navigateToOnboardingAfterSignOut() {
+    if (_navigatingAfterSignOut) return;
+    _navigatingAfterSignOut = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        AppRoutes.onboarding,
+        (_) => false,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<AsyncValue<AppUser?>>(authStateProvider, (_, next) {
       final user = next.maybeWhen(data: (value) => value, orElse: () => null);
       if (user == null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        });
+        _navigateToOnboardingAfterSignOut();
       }
     });
 
@@ -103,10 +113,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           },
           data: (profile) {
             if (profile == null) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              });
+              _navigateToOnboardingAfterSignOut();
               return const SizedBox.shrink();
             }
             final receiptCount = countAsync.maybeWhen(
@@ -568,9 +575,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 foregroundColor: Colors.red.shade700,
               ),
               onPressed: () async {
-                await ref.read(authServiceProvider).signOut();
                 ref.read(receiptSearchFiltersProvider.notifier).state =
                     const ReceiptSearchFilters();
+                ref.read(receiptCollectionOverridesProvider.notifier).state =
+                    const <String, String?>{};
+                await ref.read(authServiceProvider).signOut();
+                if (!mounted) return;
+                _navigateToOnboardingAfterSignOut();
               },
               icon: const Icon(Icons.logout),
               label: const Text('Logout'),

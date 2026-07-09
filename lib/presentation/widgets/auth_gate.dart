@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
-import 'package:receiptnest/presentation/screens/home_screen.dart';
-import 'package:receiptnest/presentation/screens/login_screen.dart';
+import 'package:receiptnest/presentation/screens/home_screen_router.dart';
+import 'package:receiptnest/presentation/screens/onboarding_screen.dart';
 import 'package:receiptnest/presentation/widgets/account_gate.dart';
 
 class AuthGate extends ConsumerWidget {
@@ -15,12 +15,12 @@ class AuthGate extends ConsumerWidget {
 
     return authState.when(
       data: (user) {
-        if (user == null) {
+        if (user == null || user.isAnonymous) {
           AppLogger.log('No user logged in');
-          return const LoginScreen();
+          return const OnboardingScreen();
         } else {
           AppLogger.log('User logged in');
-          return const AccountGate(child: HomeScreen());
+          return const AccountGate(child: HomeScreenRouter());
         }
       },
       loading: () => const Scaffold(
@@ -28,7 +28,7 @@ class AuthGate extends ConsumerWidget {
       ),
       error: (err, stack) {
         AppLogger.error('AuthGate error: $err');
-        return const LoginScreen();
+        return const OnboardingScreen();
       },
     );
   }
