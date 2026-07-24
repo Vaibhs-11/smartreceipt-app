@@ -5,14 +5,19 @@ import 'package:receiptnest/data/services/auth/auth_service.dart';
 
 class FirebaseAuthService implements AuthService {
   FirebaseAuthService({fb_auth.FirebaseAuth? instance})
-      : _auth = instance ?? fb_auth.FirebaseAuth.instance;
+    : _auth = instance ?? fb_auth.FirebaseAuth.instance;
 
   final fb_auth.FirebaseAuth _auth;
 
   final _firestore = FirebaseFirestore.instance;
 
-  AppUser? _mapUser(fb_auth.User? user) =>
-      user == null ? null : AppUser(uid: user.uid, email: user.email);
+  AppUser? _mapUser(fb_auth.User? user) => user == null
+      ? null
+      : AppUser(
+          uid: user.uid,
+          email: user.email,
+          isAnonymous: user.isAnonymous,
+        );
 
   @override
   Stream<AppUser?> authStateChanges() {
@@ -41,7 +46,9 @@ class FirebaseAuthService implements AuthService {
 
   @override
   Future<AppUser?> signInWithEmailAndPassword(
-      String email, String password) async {
+    String email,
+    String password,
+  ) async {
     final cred = await _auth.signInWithEmailAndPassword(
       email: email,
       password: password,
@@ -52,7 +59,30 @@ class FirebaseAuthService implements AuthService {
 
   @override
   Future<AppUser?> createUserWithEmailAndPassword(
-      String email, String password) async {
+    String email,
+    String password,
+  ) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser != null && currentUser.isAnonymous) {
+      final credential = fb_auth.EmailAuthProvider.credential(
+        email: email,
+        password: password,
+      );
+      final linked = await currentUser.linkWithCredential(credential);
+      final user = linked.user;
+      if (user == null) return null;
+
+      await _firestore.collection("users").doc(user.uid).set({
+        "uid": user.uid,
+        "email": user.email,
+        "createdAt": FieldValue.serverTimestamp(),
+        "isAnonymous": false,
+        "trialDowngradeRequired": false,
+      }, SetOptions(merge: true));
+
+      return _mapUser(user);
+    }
+
     final cred = await _auth.createUserWithEmailAndPassword(
       email: email,
       password: password,

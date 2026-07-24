@@ -3,6 +3,7 @@ import {
   onDocumentCreated,
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
+import {onSchedule} from "firebase-functions/v2/scheduler";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as logger from "firebase-functions/logger";
 import {ImageAnnotatorClient} from "@google-cloud/vision";
@@ -71,6 +72,9 @@ const MAX_IMAGE_BASE64_LENGTH = 10 * 1024 * 1024;
 const MAX_STORAGE_PATH_LENGTH = 1024;
 const MAX_IMAGE_URL_LENGTH = 2048;
 const MAX_RECEIPT_ID_LENGTH = 150;
+const MAX_FEEDBACK_TEXT_LENGTH = 2000;
+const MAX_FEEDBACK_EMAIL_LENGTH = 320;
+const ANONYMOUS_ONBOARDING_RETENTION_HOURS = 48;
 
 const fetchAppConfig = async (): Promise<AppConfigDoc> => {
   const snap = await configRef.get();
@@ -773,6 +777,87 @@ export const createReceipt = onCall(async (request) => {
   }
   return {ok: true};
 });
+
+export const submitOnboardingFeedback = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "User must be authenticated");
+  }
+
+  const reason = request.data?.reason;
+  const message = request.data?.message;
+  const replyEmail = request.data?.replyEmail;
+
+  if (typeof reason !== "string" || !reason.trim()) {
+    throw new HttpsError("invalid-argument", "Feedback reason is required");
+  }
+  if (reason.length > 200) {
+    throw new HttpsError("invalid-argument", "Feedback reason is too long");
+  }
+  if (message !== undefined &&
+      (typeof message !== "string" ||
+        message.length > MAX_FEEDBACK_TEXT_LENGTH)) {
+    throw new HttpsError("invalid-argument", "Feedback message is invalid");
+  }
+  if (replyEmail !== undefined &&
+      (typeof replyEmail !== "string" ||
+        replyEmail.length > MAX_FEEDBACK_EMAIL_LENGTH)) {
+    throw new HttpsError("invalid-argument", "Reply email is invalid");
+  }
+
+  const userSnap = await firestore.collection("users").doc(uid).get();
+  const userData = userSnap.data() ?? {};
+  await firestore.collection("onboardingFeedback").add({
+    uid,
+    isAnonymous: userData["isAnonymous"] === true,
+    reason: reason.trim(),
+    message: typeof message === "string" ? message.trim() : "",
+    replyEmail: typeof replyEmail === "string" ? replyEmail.trim() : "",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return {ok: true};
+});
+
+export const cleanupAnonymousOnboardingUsers = onSchedule(
+  "every 24 hours",
+  async () => {
+    const cutoff = admin.firestore.Timestamp.fromMillis(
+      Date.now() - ANONYMOUS_ONBOARDING_RETENTION_HOURS * 60 * 60 * 1000
+    );
+    const snap = await firestore
+      .collection("users")
+      .where("isAnonymous", "==", true)
+      .where("createdAt", "<", cutoff)
+      .limit(50)
+      .get();
+
+    const bucket = admin.storage().bucket();
+    for (const doc of snap.docs) {
+      const uid = doc.id;
+      try {
+        await bucket.deleteFiles({
+          prefix: `receipts/${uid}/`,
+          force: true,
+        });
+      } catch (error) {
+        logger.warn("Anonymous storage cleanup failed", {uid, error});
+      }
+
+      try {
+        await firestore.recursiveDelete(doc.ref);
+      } catch (error) {
+        logger.warn("Anonymous Firestore cleanup failed", {uid, error});
+      }
+
+      try {
+        await admin.auth().deleteUser(uid);
+      } catch (error) {
+        logger.warn("Anonymous auth cleanup failed", {uid, error});
+      }
+    }
+  }
+);
 
 // ----------------------
 // NEW: Account deletion callable

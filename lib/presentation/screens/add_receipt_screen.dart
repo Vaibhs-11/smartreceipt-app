@@ -32,6 +32,10 @@ import 'package:receiptnest/services/receipt_image_source_service.dart';
 import 'package:receiptnest/presentation/screens/trial_ended_gate_screen.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
 import 'package:receiptnest/presentation/screens/home_screen.dart';
+import 'package:receiptnest/presentation/screens/login_screen.dart';
+import 'package:receiptnest/presentation/screens/onboarding_feedback_screen.dart';
+import 'package:receiptnest/presentation/screens/signup_screen.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 
@@ -54,11 +58,13 @@ class AddReceiptScreenArgs {
   final String? initialImagePath;
   final AddReceiptInitialAction? initialAction;
   final String? initialCollectionId;
+  final bool isOnboardingPreview;
 
   const AddReceiptScreenArgs({
     this.initialImagePath,
     this.initialAction,
     this.initialCollectionId,
+    this.isOnboardingPreview = false,
   });
 }
 
@@ -69,15 +75,18 @@ class AddReceiptScreen extends ConsumerStatefulWidget {
   final Receipt? existingReceipt;
   final File? initialFile;
   final bool isFromShare;
+  final bool isOnboardingPreview;
 
-  const AddReceiptScreen(
-      {super.key,
-      this.initialImagePath,
-      this.initialAction,
-      this.initialCollectionId,
-      this.existingReceipt,
-      this.initialFile,
-      this.isFromShare = false});
+  const AddReceiptScreen({
+    super.key,
+    this.initialImagePath,
+    this.initialAction,
+    this.initialCollectionId,
+    this.existingReceipt,
+    this.initialFile,
+    this.isFromShare = false,
+    this.isOnboardingPreview = false,
+  });
 
   @override
   ConsumerState<AddReceiptScreen> createState() => _AddReceiptScreenState();
@@ -102,8 +111,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   String? _currentReceiptId;
   List<ReceiptItem> _items = [];
 
-  final List<String> _currencyOptions =
-      List<String>.from(AppConstants.supportedCurrencies);
+  final List<String> _currencyOptions = List<String>.from(
+    AppConstants.supportedCurrencies,
+  );
   late String _currency;
   DateTime _date = DateTime.now();
   String? _originalImagePath;
@@ -125,6 +135,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   bool _dateEdited = false;
   bool _currencyEdited = false;
   bool _isExitingAfterNoInternet = false;
+  bool _onboardingReceiptReady = false;
+  File? _onboardingSourceFile;
   late final bool _isEditMode;
 
   final ScrollController _scrollController = ScrollController();
@@ -142,8 +154,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     if (_isEditMode) {
       _populateFromExistingReceipt(widget.existingReceipt!);
     } else {
-      final sortedCurrencyOptions =
-          AppConstants.sortCurrencyOptions(_currencyOptions);
+      final sortedCurrencyOptions = AppConstants.sortCurrencyOptions(
+        _currencyOptions,
+      );
       _currency = sortedCurrencyOptions.first;
     }
     // 🔥 Warm critical providers early
@@ -238,10 +251,14 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       ScaffoldMessenger.of(context).clearSnackBars();
       final popped = await navigator.maybePop();
       if (!popped && mounted) {
-        navigator.pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-          (_) => false,
-        );
+        if (widget.isOnboardingPreview) {
+          navigator.pushNamedAndRemoveUntil(AppRoutes.onboarding, (_) => false);
+        } else {
+          navigator.pushAndRemoveUntil(
+            MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
+            (_) => false,
+          );
+        }
       }
     } finally {
       // Reset only after navigation frame completes
@@ -262,14 +279,15 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       await _startReceiptProcessing(file);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to import receipt')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to import receipt')));
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isProcessing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
@@ -410,9 +428,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     for (final item in items) {
       _itemNameCtrls.add(TextEditingController(text: item.name));
       _itemPriceCtrls.add(
-        TextEditingController(
-          text: item.price?.toStringAsFixed(2) ?? '',
-        ),
+        TextEditingController(text: item.price?.toStringAsFixed(2) ?? ''),
       );
     }
   }
@@ -598,6 +614,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       await _exitAfterNoInternet();
       return false;
     }
+    if (widget.isOnboardingPreview) return true;
     if (!await _ensureCanAddReceipt()) return false;
     return true;
   }
@@ -617,8 +634,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       }
       final receiptCount = await receiptRepo.getReceiptCount();
 
-      final allowed =
-          AccountPolicies.canAddReceipt(profile, receiptCount, now, appConfig);
+      final allowed = AccountPolicies.canAddReceipt(
+        profile,
+        receiptCount,
+        now,
+        appConfig,
+      );
       if (allowed) return true;
 
       if (AccountPolicies.isExpired(profile, now) &&
@@ -652,7 +673,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       if (needsGate && mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
+          MaterialPageRoute<void>(
             builder: (_) => TrialEndedGateScreen(
               isSubscriptionEnded:
                   profile.subscriptionStatus == SubscriptionStatus.expired,
@@ -705,8 +726,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     AppConfig appConfig,
     bool subscriptionExpired,
   ) async {
-    final isTrialActive =
-        AccountPolicies.isTrialActive(profile, DateTime.now().toUtc());
+    final isTrialActive = AccountPolicies.isTrialActive(
+      profile,
+      DateTime.now().toUtc(),
+    );
     final bool showExpiredMessage =
         subscriptionExpired && receiptCount > appConfig.freeReceiptLimit;
     await showDialog<void>(
@@ -748,8 +771,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
             onPressed: () {
               ScaffoldMessenger.of(context).clearSnackBars();
               Navigator.of(context).pop();
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PurchaseScreen()),
+              Navigator.of(
+                context,
+              ).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PurchaseScreen(),
+                ),
               );
             },
             child: const Text('Upgrade'),
@@ -777,9 +804,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         return;
       }
       if (mounted) {
-        showRootSnackBar(
-          SnackBar(content: Text('Could not start trial: $e')),
-        );
+        showRootSnackBar(SnackBar(content: Text('Could not start trial: $e')));
       }
       return;
     }
@@ -791,10 +816,6 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   Future<void> _submit() async {
     if (_isLoading) return;
-    final addReceipt =
-        _isEditMode ? null : ref.read(addReceiptUseCaseProviderOverride);
-    final imageProcessor =
-        _isEditMode ? null : ref.read(receiptImageProcessingServiceProvider);
     final navigator = Navigator.of(context);
 
     if (mounted) {
@@ -808,65 +829,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       if (_receiptRejected) return;
       if (!(_formKey.currentState?.validate() ?? false)) return;
 
-      _syncItemsFromControllers();
-
-      final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
-
-      final receipt = Receipt(
-        id: _ensureReceiptIdForSave(),
-        storeName: _storeCtrl.text.trim(),
-        date: _date,
-        total: total,
-        currency: _currency,
-        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-        imagePath: _originalImagePath,
-        originalImagePath: _originalImagePath,
-        processedImagePath: _processedImagePath,
-        imageProcessingStatus: _imageProcessingStatus,
-        extractedText: _extractedText,
-        items: _items,
-        searchKeywords: _searchKeywords,
-        normalizedBrand: _normalizedBrand,
-        collectionId:
-            widget.existingReceipt?.collectionId ?? widget.initialCollectionId,
-        metadata: _buildMetadata(),
-      );
-
-      try {
-        if (_isEditMode) {
-          final repo = ref.read(receiptRepositoryProviderOverride);
-          await repo.updateReceipt(receipt);
-        } else {
-          await addReceipt!(receipt);
-        }
-      } catch (e) {
-        if (e is AppConfigUnavailableException) {
-          await _handleAppConfigUnavailable();
-          return;
-        }
-        if (isNetworkException(e)) {
-          if (mounted) {
-            await showNoInternetDialog(context);
-            await _exitAfterNoInternet();
-          }
-          return;
-        }
-        if (!mounted) return;
-        showRootSnackBar(
-          const SnackBar(
-            content: Text('Could not save receipt. Please try again.'),
-          ),
-        );
-        return;
-      }
-      if (!_isEditMode &&
-          _originalImagePath != null &&
-          _originalImagePath!.isNotEmpty) {
-        unawaited(imageProcessor!.enqueueEnhancement(
-          receiptId: _activeReceiptId,
-          originalImagePath: _originalImagePath!,
-        ));
-      }
+      if (!await _saveCurrentReceipt()) return;
 
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
@@ -879,6 +842,155 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         _isLoading = false;
       }
     }
+  }
+
+  Receipt _buildReceiptForSave() {
+    _syncItemsFromControllers();
+    final double total = double.tryParse(_totalCtrl.text.trim()) ?? 0;
+
+    return Receipt(
+      id: _ensureReceiptIdForSave(),
+      storeName: _storeCtrl.text.trim(),
+      date: _date,
+      total: total,
+      currency: _currency,
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      imagePath: _originalImagePath,
+      originalImagePath: _originalImagePath,
+      processedImagePath: _processedImagePath,
+      imageProcessingStatus: _imageProcessingStatus,
+      extractedText: _extractedText,
+      items: _items,
+      searchKeywords: _searchKeywords,
+      normalizedBrand: _normalizedBrand,
+      collectionId:
+          widget.existingReceipt?.collectionId ?? widget.initialCollectionId,
+      metadata: _buildMetadata(),
+    );
+  }
+
+  Future<bool> _saveCurrentReceipt() async {
+    final receipt = _buildReceiptForSave();
+
+    try {
+      if (_isEditMode) {
+        final repo = ref.read(receiptRepositoryProviderOverride);
+        await repo.updateReceipt(receipt);
+      } else {
+        final addReceipt = ref.read(addReceiptUseCaseProviderOverride);
+        await addReceipt(receipt);
+      }
+    } catch (e) {
+      if (e is AppConfigUnavailableException) {
+        await _handleAppConfigUnavailable();
+        return false;
+      }
+      if (isNetworkException(e)) {
+        if (mounted) {
+          await showNoInternetDialog(context);
+          await _exitAfterNoInternet();
+        }
+        return false;
+      }
+      if (!mounted) return false;
+      showRootSnackBar(
+        const SnackBar(
+          content: Text('Could not save receipt. Please try again.'),
+        ),
+      );
+      return false;
+    }
+
+    if (!_isEditMode &&
+        _originalImagePath != null &&
+        _originalImagePath!.isNotEmpty) {
+      final imageProcessor = ref.read(receiptImageProcessingServiceProvider);
+      unawaited(
+        imageProcessor.enqueueEnhancement(
+          receiptId: _activeReceiptId,
+          originalImagePath: _originalImagePath!,
+        ),
+      );
+    }
+
+    return true;
+  }
+
+  Future<void> _createAccountAndSaveOnboardingReceipt() async {
+    final signedUp = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const SignupScreen(popOnSuccess: true),
+      ),
+    );
+    if (signedUp == true) {
+      await _saveOnboardingReceiptAfterAuth(reuploadOriginalFile: false);
+    }
+  }
+
+  Future<void> _loginAndSaveOnboardingReceipt() async {
+    final signedIn = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const LoginScreen(popOnSuccess: true),
+      ),
+    );
+    if (signedIn == true) {
+      await _saveOnboardingReceiptAfterAuth(reuploadOriginalFile: true);
+    }
+  }
+
+  Future<void> _saveOnboardingReceiptAfterAuth({
+    required bool reuploadOriginalFile,
+  }) async {
+    if (_isLoading) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    if (mounted) {
+      setState(() => _isLoading = true);
+    } else {
+      _isLoading = true;
+    }
+
+    try {
+      if (reuploadOriginalFile) {
+        final file = _onboardingSourceFile;
+        if (file != null && await file.exists()) {
+          final uploaded = await _uploadFileToStorage(file);
+          if (uploaded == null) {
+            showRootSnackBar(
+              const SnackBar(
+                content: Text('Could not prepare receipt image. Try again.'),
+              ),
+            );
+            return;
+          }
+          _originalImagePath = uploaded.downloadUrl;
+          _processedImagePath = null;
+          _imageProcessingStatus = 'pending';
+        }
+      }
+
+      if (!await _saveCurrentReceipt()) return;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      showRootSnackBar(
+        const SnackBar(content: Text('Receipt saved to your account.')),
+      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      } else {
+        _isLoading = false;
+      }
+    }
+  }
+
+  void _openOnboardingFeedback() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const OnboardingFeedbackScreen()),
+    );
   }
 
   Future<UploadedFile?> _uploadFileToStorage(File file) async {
@@ -978,6 +1090,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       _category = result.category;
       _items = result.toReceiptItems();
       _resetItemControllers(_items);
+      if (widget.isOnboardingPreview) {
+        _onboardingReceiptReady = true;
+      }
 
       _extractedText = 'Store: ${result.storeName}\n'
           'Date: ${DateFormat.yMMMd().format(result.date)}\n'
@@ -1123,15 +1238,20 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
   Future<void> _startReceiptProcessing(File file) async {
     if (_isLoading) return;
     if (!await _ensurePreconditions()) return;
+    if (widget.isOnboardingPreview) {
+      _onboardingSourceFile = file;
+    }
     _currentReceiptId = const Uuid().v4();
     if (mounted) {
       setState(() {
         _isLoading = true;
+        _onboardingReceiptReady = false;
         _receiptRejected = false;
         _receiptRejectionReason = null;
       });
     } else {
       _isLoading = true;
+      _onboardingReceiptReady = false;
       _receiptRejected = false;
       _receiptRejectionReason = null;
     }
@@ -1213,8 +1333,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       try {
         final Uint8List bytes = await file.readAsBytes();
         final sfpdf.PdfDocument document = sfpdf.PdfDocument(inputBytes: bytes);
-        final sfpdf.PdfTextExtractor extractor =
-            sfpdf.PdfTextExtractor(document);
+        final sfpdf.PdfTextExtractor extractor = sfpdf.PdfTextExtractor(
+          document,
+        );
 
         final buffer = StringBuffer();
         for (int i = 0; i < document.pages.count; i++) {
@@ -1222,7 +1343,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
             startPageIndex: i,
             endPageIndex: i,
           );
-          if (pageText != null && pageText.trim().isNotEmpty) {
+          if (pageText.trim().isNotEmpty) {
             buffer.writeln(pageText);
           }
         }
@@ -1268,8 +1389,10 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
         await page.close();
         await pdf.close();
 
-        final jpgPath = file.path
-            .replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '_p1.jpg');
+        final jpgPath = file.path.replaceAll(
+          RegExp(r'\.pdf$', caseSensitive: false),
+          '_p1.jpg',
+        );
 
         tempImageFile = File(jpgPath);
         await tempImageFile.writeAsBytes(jpgBytes, flush: true);
@@ -1423,9 +1546,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
   void _showImageSourceError(ReceiptImageSourceFailure failure) {
     if (!mounted) return;
-    showRootSnackBar(
-      SnackBar(content: Text(failure.message)),
-    );
+    showRootSnackBar(SnackBar(content: Text(failure.message)));
   }
 
   Future<void> _pickFile() async {
@@ -1489,8 +1610,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       setState(() {
         _items.add(ReceiptItem(name: name, price: price, taxClaimable: false));
         _itemNameCtrls.add(TextEditingController(text: name));
-        _itemPriceCtrls
-            .add(TextEditingController(text: price.toStringAsFixed(2)));
+        _itemPriceCtrls.add(
+          TextEditingController(text: price.toStringAsFixed(2)),
+        );
         _itemNameCtrl.clear();
         _itemPriceCtrl.clear();
       });
@@ -1508,6 +1630,73 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
     }
   }
 
+  Widget _buildOnboardingBottomBar(double bottomPadding) {
+    if (!_onboardingReceiptReady) {
+      return SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
+          child: const Text(
+            'Scan or upload one receipt to see how ReceiptNest extracts the details.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+        ),
+      );
+    }
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.primaryNavy.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Text(
+                'ReceiptNest found the key details. Create an account to save '
+                'this receipt and start organising the rest.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed:
+                    _isLoading ? null : _createAccountAndSaveOnboardingReceipt,
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('Create an account to save this receipt'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _isLoading ? null : _loginAndSaveOnboardingReceipt,
+              icon: const Icon(Icons.login),
+              label: const Text('Log in to save it'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primaryNavy,
+                side: const BorderSide(color: AppColors.primaryNavy),
+              ),
+            ),
+            TextButton(
+              onPressed: _isLoading ? null : _openOnboardingFeedback,
+              child: const Text('I did not like the app'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // bottom padding to lift Save button above keyboard when open
@@ -1516,9 +1705,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
 
     final profileAsync = ref.watch(userProfileProvider);
     return profileAsync.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, __) {
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
@@ -1543,13 +1731,16 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
           );
         }
 
-        final sortedCurrencyOptions =
-            AppConstants.sortCurrencyOptions(_currencyOptions);
+        final sortedCurrencyOptions = AppConstants.sortCurrencyOptions(
+          _currencyOptions,
+        );
 
         return Scaffold(
           appBar: AppBar(
             title: Text(
-              _isEditMode ? 'Edit Receipt' : 'Add Receipt',
+              widget.isOnboardingPreview
+                  ? 'Try ReceiptNest'
+                  : (_isEditMode ? 'Edit Receipt' : 'Add Receipt'),
               style: const TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
@@ -1570,8 +1761,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                       children: [
                         TextFormField(
                           controller: _storeCtrl,
-                          decoration:
-                              const InputDecoration(labelText: 'Store name'),
+                          decoration: const InputDecoration(
+                            labelText: 'Store name',
+                          ),
                           onChanged: (_) => _storeEdited = true,
                           validator: (String? v) =>
                               v == null || v.trim().isEmpty ? 'Required' : null,
@@ -1583,7 +1775,9 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           decoration: const InputDecoration(labelText: 'Date'),
                           onTap: () => _pickDate(_dateCtrl),
                         ),
-                        if (!_isEditMode) ...[
+                        if (!_isEditMode &&
+                            (!widget.isOnboardingPreview ||
+                                !_onboardingReceiptReady)) ...[
                           const SizedBox(height: 12),
                           Row(
                             children: <Widget>[
@@ -1630,9 +1824,11 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                 controller: _totalCtrl,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
-                                        decimal: true),
+                                  decimal: true,
+                                ),
                                 decoration: const InputDecoration(
-                                    labelText: 'Total amount'),
+                                  labelText: 'Total amount',
+                                ),
                                 onChanged: (_) => _totalEdited = true,
                                 validator: (String? v) =>
                                     (double.tryParse(v ?? '') == null)
@@ -1648,8 +1844,12 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                 _currency = v ?? _currency;
                               }),
                               items: sortedCurrencyOptions
-                                  .map((String c) => DropdownMenuItem<String>(
-                                      value: c, child: Text(c)))
+                                  .map(
+                                    (String c) => DropdownMenuItem<String>(
+                                      value: c,
+                                      child: Text(c),
+                                    ),
+                                  )
                                   .toList(),
                             ),
                           ],
@@ -1658,7 +1858,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                         TextFormField(
                           controller: _notesCtrl,
                           decoration: const InputDecoration(
-                              labelText: 'Notes (optional)'),
+                            labelText: 'Notes (optional)',
+                          ),
                           maxLines: 3,
                         ),
                         const SizedBox(height: 20),
@@ -1725,9 +1926,7 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Expanded(
-                                  child: Text('Item removed'),
-                                ),
+                                const Expanded(child: Text('Item removed')),
                                 TextButton(
                                   onPressed: _undoRemoveItem,
                                   child: const Text('UNDO'),
@@ -1750,7 +1949,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                               child: TextField(
                                 controller: _itemNameCtrl,
                                 decoration: const InputDecoration(
-                                    labelText: 'Item name'),
+                                  labelText: 'Item name',
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1759,9 +1959,11 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                                 controller: _itemPriceCtrl,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
-                                        decimal: true),
-                                decoration:
-                                    const InputDecoration(labelText: 'Price'),
+                                  decimal: true,
+                                ),
+                                decoration: const InputDecoration(
+                                  labelText: 'Price',
+                                ),
                               ),
                             ),
                             IconButton(
@@ -1774,7 +1976,8 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                           ],
                         ),
                         const SizedBox(
-                            height: 100), // spacer so last row not hidden
+                          height: 100,
+                        ), // spacer so last row not hidden
                       ],
                     ),
                   ),
@@ -1801,21 +2004,26 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
                 ),
             ],
           ),
-          bottomNavigationBar: SafeArea(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
-              child: SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading || _receiptRejected ? null : _submit,
-                  icon: const Icon(Icons.save_outlined),
-                  label: Text(_isLoading
-                      ? 'Saving…'
-                      : (_isEditMode ? 'Update' : 'Save')),
+          bottomNavigationBar: widget.isOnboardingPreview
+              ? _buildOnboardingBottomBar(bottomPadding)
+              : SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPadding),
+                    child: SizedBox(
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed:
+                            _isLoading || _receiptRejected ? null : _submit,
+                        icon: const Icon(Icons.save_outlined),
+                        label: Text(
+                          _isLoading
+                              ? 'Saving…'
+                              : (_isEditMode ? 'Update' : 'Save'),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
         );
       },
     );

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:receiptnest/core/services/analytics_service.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
+import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/signup_screen.dart';
 import 'package:receiptnest/presentation/utils/auth_error_messages.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
@@ -13,7 +14,9 @@ import 'package:receiptnest/core/constants/app_constants.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.popOnSuccess = false});
+
+  final bool popOnSuccess;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -45,6 +48,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _passwordController.text.trim(),
       );
       unawaited(AnalyticsService.logLogin());
+      if (!mounted) return;
+      if (widget.popOnSuccess) {
+        Navigator.of(context).pop(true);
+      } else {
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
+      }
     } catch (e) {
       if (!mounted) return;
 
@@ -92,10 +103,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   Text(
                     'Organise your receipts with confidence.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 15, color: Colors.grey[600]),
                   ),
                   const SizedBox(height: 24),
 
@@ -165,10 +173,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                       child: Text(
                         'Forgot password?',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
+                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       ),
                     ),
                   ),
@@ -184,9 +189,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        textStyle: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                        ),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       child: isLoading
                           ? const SizedBox(
@@ -203,12 +206,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   TextButton(
                     onPressed: isLoading
                         ? null
-                        : () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<SignupScreen>(
-                                builder: (_) => const SignupScreen(),
+                        : () async {
+                            final signedUp =
+                                await Navigator.of(context).push<bool>(
+                              MaterialPageRoute<bool>(
+                                builder: (_) => SignupScreen(
+                                  popOnSuccess: widget.popOnSuccess,
+                                ),
                               ),
                             );
+                            if (widget.popOnSuccess &&
+                                signedUp == true &&
+                                context.mounted) {
+                              Navigator.of(context).pop(true);
+                            } else if (!widget.popOnSuccess &&
+                                signedUp == true &&
+                                context.mounted) {
+                              Navigator.of(context).pushNamedAndRemoveUntil(
+                                AppRoutes.home,
+                                (_) => false,
+                              );
+                            }
                           },
                     child: RichText(
                       text: const TextSpan(
@@ -280,19 +298,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       labelText: labelText,
       hintText: hintText,
       hintStyle: const TextStyle(color: Color(0xFF6B7280)),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(
-          color: AppColors.primaryNavy,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: AppColors.primaryNavy, width: 1.5),
       ),
     );
   }
@@ -329,35 +342,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _forgotPassword() async {
-    final TextEditingController emailController =
-        TextEditingController(text: _emailController.text);
+    final TextEditingController emailController = TextEditingController(
+      text: _emailController.text,
+    );
 
-    final bool confirmed =
-        await showDialog<bool>(
-              context: context,
-              builder: (BuildContext ctx) => AlertDialog(
-                title: const Text('Reset password'),
-                content: TextField(
-                  controller: emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    hintText: 'you@example.com',
-                  ),
-                  keyboardType: TextInputType.emailAddress,
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    child: const Text('Send reset link'),
-                  ),
-                ],
+    final bool confirmed = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext ctx) => AlertDialog(
+            title: const Text('Reset password'),
+            content: TextField(
+              controller: emailController,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                hintText: 'you@example.com',
               ),
-            ) ??
-            false;
+              keyboardType: TextInputType.emailAddress,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Send reset link'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
 
     if (!confirmed) return;
 

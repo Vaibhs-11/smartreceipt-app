@@ -26,6 +26,7 @@ import 'presentation/screens/purchase_screen.dart';
 import 'presentation/screens/account_screen.dart';
 import 'presentation/screens/login_screen.dart';
 import 'presentation/screens/home_screen_router.dart';
+import 'presentation/screens/onboarding_feedback_screen.dart';
 import 'presentation/widgets/account_gate.dart';
 import 'presentation/providers/providers.dart';
 import 'presentation/utils/root_scaffold_messenger.dart'
@@ -49,9 +50,7 @@ Future<void> main() async {
   }
 
   // Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Required so Crashlytics logs appear in Play Store release builds.
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
@@ -65,11 +64,7 @@ Future<void> main() async {
 
   AppLogger.log('Firebase initialized');
 
-  runApp(
-    const ProviderScope(
-      child: SmartReceiptApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: SmartReceiptApp()));
 }
 
 class SmartReceiptApp extends ConsumerStatefulWidget {
@@ -236,17 +231,6 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(authStateProvider, (prev, next) {
-      final previousUser = prev?.asData?.value;
-      final nextUser = next.asData?.value;
-
-      if (previousUser != null && nextUser == null) {
-        ref.refresh(userProfileProvider);
-        ref.refresh(receiptCountProvider);
-        ref.refresh(receiptsProvider);
-      }
-    });
-
     final authState = ref.watch(authStateProvider);
     return MaterialApp(
       title: AppConstants.appName,
@@ -256,15 +240,14 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
       theme: AppTheme.lightTheme,
       home: authState.when(
         data: (user) {
-          if (user == null) {
-            return const LoginScreen();
+          if (user == null || user.isAnonymous) {
+            return const OnboardingScreen();
           }
           return const AccountGate(child: HomeScreenRouter());
         },
-        loading: () => const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
-        error: (_, __) => const LoginScreen(),
+        loading: () =>
+            const Scaffold(body: Center(child: CircularProgressIndicator())),
+        error: (_, __) => const OnboardingScreen(),
       ),
       onGenerateRoute: _onGenerateRoute,
     );
@@ -274,14 +257,26 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
     switch (settings.name) {
       case AppRoutes.onboarding:
         return MaterialPageRoute(builder: (_) => const OnboardingScreen());
+      case AppRoutes.home:
+        return MaterialPageRoute(
+          builder: (_) => const AccountGate(child: HomeScreenRouter()),
+        );
+      case AppRoutes.login:
+        return MaterialPageRoute(builder: (_) => const LoginScreen());
       case AppRoutes.signup:
         return MaterialPageRoute(builder: (_) => const SignupScreen());
+      case AppRoutes.onboardingFeedback:
+        return MaterialPageRoute(
+          builder: (_) => const OnboardingFeedbackScreen(),
+        );
       case AppRoutes.addReceipt:
         final args = settings.arguments as AddReceiptScreenArgs?;
         return MaterialPageRoute(
           builder: (_) => AddReceiptScreen(
             initialImagePath: args?.initialImagePath,
             initialAction: args?.initialAction,
+            initialCollectionId: args?.initialCollectionId,
+            isOnboardingPreview: args?.isOnboardingPreview ?? false,
             initialFile: null,
             isFromShare: false,
           ),

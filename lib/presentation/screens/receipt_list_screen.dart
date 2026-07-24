@@ -32,6 +32,7 @@ class ReceiptListScreen extends ConsumerStatefulWidget {
 
 class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
   late final TextEditingController _searchController;
+  late final FocusNode _searchFocusNode;
   static const String _swipeHintPrefKey = 'receipt_swipe_hint_shown';
   bool _showSwipeHint = false;
   bool _showTaxExportPrompt = true;
@@ -43,13 +44,21 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     super.initState();
     final initialFilters = ref.read(receiptSearchFiltersProvider);
     _searchController = TextEditingController(text: initialFilters.query);
+    _searchFocusNode = FocusNode();
     _loadSwipeHint();
   }
 
   @override
   void dispose() {
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _dismissSearchFocus() {
+    if (_searchFocusNode.hasFocus) {
+      _searchFocusNode.unfocus();
+    }
   }
 
   Future<void> _loadSwipeHint() async {
@@ -101,6 +110,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       ),
       child: ListTile(
         onTap: () {
+          _dismissSearchFocus();
           Navigator.pushNamed(
             context,
             '/receiptDetail',
@@ -322,7 +332,9 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           Expanded(
             child: TextField(
               controller: _searchController,
+              focusNode: _searchFocusNode,
               onChanged: _onQueryChanged,
+              onTapOutside: (_) => _dismissSearchFocus(),
               onSubmitted: (query) {
                 if (query.trim().isEmpty) return;
                 AnalyticsService.logSearchUsed(
@@ -404,6 +416,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           ),
           Expanded(
             child: ListView.separated(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               itemCount: itemResults.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, index) {
@@ -416,10 +429,13 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                 );
 
                 return ListTile(
-                  onTap: () => Navigator.of(context).pushNamed(
-                    '/receiptDetail',
-                    arguments: item.receiptId,
-                  ),
+                  onTap: () {
+                    _dismissSearchFocus();
+                    Navigator.of(context).pushNamed(
+                      '/receiptDetail',
+                      arguments: item.receiptId,
+                    );
+                  },
                   title: Text(item.itemName),
                   subtitle: Text(subtitle),
                   trailing: Text(formattedPrice),
@@ -460,6 +476,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
         ),
         Expanded(
           child: ListView.separated(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             itemCount: receiptFallbackResults.length,
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
@@ -469,10 +486,13 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
                 receipt.total,
               );
               return ListTile(
-                onTap: () => Navigator.of(context).pushNamed(
-                  '/receiptDetail',
-                  arguments: receipt.id,
-                ),
+                onTap: () {
+                  _dismissSearchFocus();
+                  Navigator.of(context).pushNamed(
+                    '/receiptDetail',
+                    arguments: receipt.id,
+                  );
+                },
                 title: Text(receipt.storeName),
                 subtitle: Text(DateFormat.yMMMd().format(receipt.date)),
                 trailing: Text(formattedPrice),
@@ -710,6 +730,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     }
 
     return ListView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.only(bottom: 12),
       children: children,
     );
