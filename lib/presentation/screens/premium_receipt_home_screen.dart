@@ -59,6 +59,7 @@ class _PremiumReceiptHomeScreenState
   String _searchQuery = '';
   List<CategorisedItemView> _itemIndex = const [];
   final Set<String> _selectedReceiptIds = <String>{};
+  final Set<String> _collapsedCategoryItemGroupKeys = <String>{};
   Set<String> _hiddenHomeCollectionIds = <String>{};
   bool _isCollectionsExpanded = true;
   bool _isExporting = false;
@@ -156,6 +157,14 @@ class _PremiumReceiptHomeScreenState
       _selectedCategory = category;
       if (category != 'All') {
         _isCollectionsExpanded = false;
+      }
+    });
+  }
+
+  void _toggleCategoryItemGroup(String groupKey) {
+    setState(() {
+      if (!_collapsedCategoryItemGroupKeys.add(groupKey)) {
+        _collapsedCategoryItemGroupKeys.remove(groupKey);
       }
     });
   }
@@ -1241,7 +1250,7 @@ class _PremiumReceiptHomeScreenState
                     ],
                   ),
                 ),
-                ..._buildItemGroupRows(
+                ..._buildCategoryItemGroupRows(
                   group,
                   receiptCurrencyById,
                   onEditCategory: (item) => _editHomeItemCategory(
@@ -1343,11 +1352,128 @@ class _PremiumReceiptHomeScreenState
     Map<String, String> receiptCurrencyById, {
     Future<void> Function(CategorisedItemView item)? onEditCategory,
   }) {
-    final rows = <Widget>[];
-    final itemCount = group.items.length;
+    return _buildItemRows(
+      group.items,
+      receiptCurrencyById,
+      onEditCategory: onEditCategory,
+    );
+  }
 
-    for (var i = 0; i < itemCount; i++) {
-      final item = group.items[i];
+  List<Widget> _buildCategoryItemGroupRows(
+    _ItemMonthGroup group,
+    Map<String, String> receiptCurrencyById, {
+    Future<void> Function(CategorisedItemView item)? onEditCategory,
+  }) {
+    final rows = <Widget>[];
+    final itemsByReceipt = <String, List<CategorisedItemView>>{};
+
+    for (final item in group.items) {
+      itemsByReceipt
+          .putIfAbsent(item.receiptId, () => <CategorisedItemView>[])
+          .add(item);
+    }
+
+    for (final receiptItems in itemsByReceipt.values) {
+      final firstItem = receiptItems.first;
+      final groupKey = '$_selectedCategory:${firstItem.receiptId}';
+      final isCollapsed = _collapsedCategoryItemGroupKeys.contains(groupKey);
+      final totalsByCurrency =
+          _monthlyTotalsByCurrency(receiptItems, receiptCurrencyById);
+      final totalText = _formatCurrencyTotals(totalsByCurrency);
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _toggleCategoryItemGroup(groupKey),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                firstItem.merchant,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primaryNavy,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              isCollapsed
+                                  ? Icons.expand_more
+                                  : Icons.expand_less,
+                              size: 20,
+                              color: AppColors.primaryNavy,
+                              semanticLabel: isCollapsed
+                                  ? 'Expand items'
+                                  : 'Collapse items',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (totalText.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    Text(
+                      totalText,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                DateFormat.yMMMd().format(firstItem.date),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.primaryNavy,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!isCollapsed) {
+        rows.addAll(
+          _buildItemRows(
+            receiptItems,
+            receiptCurrencyById,
+            onEditCategory: onEditCategory,
+            showSubtitle: false,
+          ),
+        );
+      }
+    }
+
+    return rows;
+  }
+
+  List<Widget> _buildItemRows(
+    List<CategorisedItemView> items,
+    Map<String, String> receiptCurrencyById, {
+    Future<void> Function(CategorisedItemView item)? onEditCategory,
+    bool showSubtitle = true,
+  }) {
+    final rows = <Widget>[];
+
+    for (final item in items) {
       final title = item.itemName;
       final subtitle =
           '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
@@ -1383,7 +1509,7 @@ class _PremiumReceiptHomeScreenState
               onLongPress:
                   onEditCategory == null ? null : () => onEditCategory(item),
               title: Text(title),
-              subtitle: Text(subtitle),
+              subtitle: showSubtitle ? Text(subtitle) : null,
               trailing: Text(
                 formattedPrice,
                 style: const TextStyle(
