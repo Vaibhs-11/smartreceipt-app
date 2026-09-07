@@ -10,6 +10,7 @@ import 'package:receiptnest/domain/entities/receipt.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
+import 'package:receiptnest/presentation/models/grouped_item_results.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/add_receipt_screen.dart';
 import 'package:receiptnest/presentation/screens/collections_list_screen.dart';
@@ -38,6 +39,7 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
   bool _showTaxExportPrompt = true;
   bool _isExporting = false;
   List<CategorisedItemView> _itemIndex = const [];
+  final Set<String> _collapsedSearchItemGroupKeys = <String>{};
 
   @override
   void initState() {
@@ -59,6 +61,14 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     if (_searchFocusNode.hasFocus) {
       _searchFocusNode.unfocus();
     }
+  }
+
+  void _toggleSearchItemGroup(String groupKey) {
+    setState(() {
+      if (!_collapsedSearchItemGroupKeys.add(groupKey)) {
+        _collapsedSearchItemGroupKeys.remove(groupKey);
+      }
+    });
   }
 
   Future<void> _loadSwipeHint() async {
@@ -401,49 +411,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       final title = query.isNotEmpty
           ? 'Search results for "$query" (${itemResults.length} items)'
           : 'Tax claimable items (${itemResults.length} items)';
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          Expanded(
-            child: ListView.separated(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              itemCount: itemResults.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final item = itemResults[index];
-                final subtitle =
-                    '${item.merchant} • ${DateFormat.yMMMd().format(item.date)}';
-                final formattedPrice = _formatCurrencyAmount(
-                  _currencyForReceipt(receipts, item.receiptId),
-                  item.price,
-                );
-
-                return ListTile(
-                  onTap: () {
-                    _dismissSearchFocus();
-                    Navigator.of(context).pushNamed(
-                      '/receiptDetail',
-                      arguments: item.receiptId,
-                    );
-                  },
-                  title: Text(item.itemName),
-                  subtitle: Text(subtitle),
-                  trailing: Text(formattedPrice),
-                );
-              },
-            ),
-          ),
-        ],
+      return _buildHierarchicalSearchResults(
+        receipts: receipts,
+        items: itemResults,
+        title: title,
       );
     }
 
@@ -461,47 +432,257 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final fallbackReceiptIds =
+        receiptFallbackResults.map((receipt) => receipt.id).toSet();
+    final fallbackItems = _itemIndex
+        .where((item) => fallbackReceiptIds.contains(item.receiptId))
+        .toList();
+
+    return _buildHierarchicalSearchResults(
+      receipts: receipts,
+      items: fallbackItems,
+      includedReceiptIds: fallbackReceiptIds,
+      title:
+          'Search results for "$query" (${receiptFallbackResults.length} receipts)',
+    );
+  }
+
+  Widget _buildHierarchicalSearchResults({
+    required List<Receipt> receipts,
+    required List<CategorisedItemView> items,
+    required String title,
+    Set<String>? includedReceiptIds,
+  }) {
+    final monthGroups = groupItemResults(
+      receipts: receipts,
+      items: items,
+      includedReceiptIds: includedReceiptIds,
+    );
+
+    return ListView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.only(bottom: 12),
       children: [
         Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
           child: Text(
-            'Search results for "$query" (${receiptFallbackResults.length} receipts)',
+            title,
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
           ),
         ),
-        Expanded(
-          child: ListView.separated(
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            itemCount: receiptFallbackResults.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final receipt = receiptFallbackResults[index];
-              final formattedPrice = _formatCurrencyAmount(
-                receipt.currency,
-                receipt.total,
-              );
-              return ListTile(
-                onTap: () {
-                  _dismissSearchFocus();
-                  Navigator.of(context).pushNamed(
-                    '/receiptDetail',
-                    arguments: receipt.id,
-                  );
-                },
-                title: Text(receipt.storeName),
-                subtitle: Text(DateFormat.yMMMd().format(receipt.date)),
-                trailing: Text(formattedPrice),
-              );
-            },
-          ),
-        ),
+        for (final monthGroup in monthGroups) ...[
+          _buildSearchMonthHeader(monthGroup),
+          for (final receiptGroup in monthGroup.receipts)
+            _buildSearchReceiptGroup(receiptGroup),
+          const SizedBox(height: 16),
+        ],
       ],
     );
+  }
+
+  Widget _buildSearchMonthHeader(ItemResultMonthGroup monthGroup) {
+    final totalText = _formatCurrencyTotals(
+      _totalsForSearchReceiptGroups(monthGroup.receipts),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            DateFormat('MMMM yyyy').format(monthGroup.monthKey),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryNavy,
+            ),
+          ),
+          if (totalText.isNotEmpty)
+            Text(
+              totalText,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primaryNavy,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchReceiptGroup(ItemResultReceiptGroup receiptGroup) {
+    final receipt = receiptGroup.receipt;
+    final query = ref.read(receiptSearchFiltersProvider).query.trim();
+    final groupKey = 'search:$query:${receipt.id}';
+    final isCollapsed = _collapsedSearchItemGroupKeys.contains(groupKey);
+    final totalText = _formatCurrencyTotals({
+      _normalizeCurrencyCode(receipt.currency): receiptGroup.displayedSubtotal,
+    });
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: receiptGroup.items.isEmpty
+                ? () => _openSearchReceipt(receipt.id)
+                : () => _toggleSearchItemGroup(groupKey),
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                receipt.storeName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primaryNavy,
+                                ),
+                              ),
+                            ),
+                            if (receiptGroup.items.isNotEmpty)
+                              Icon(
+                                isCollapsed
+                                    ? Icons.expand_more
+                                    : Icons.expand_less,
+                                size: 20,
+                                color: AppColors.primaryNavy,
+                                semanticLabel: isCollapsed
+                                    ? 'Expand items'
+                                    : 'Collapse items',
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat.yMMMd().format(receipt.date),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.primaryNavy,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (totalText.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    Text(
+                      totalText,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (!isCollapsed)
+            for (final item in receiptGroup.items)
+              _buildSearchItemRow(
+                item,
+                _normalizeCurrencyCode(receipt.currency),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchItemRow(CategorisedItemView item, String currency) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Card(
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+          onTap: () => _openSearchReceipt(item.receiptId),
+          title: Text(item.itemName),
+          trailing: Text(
+            _formatCurrencyAmount(currency, item.price),
+            style: const TextStyle(
+              color: AppColors.accentTeal,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openSearchReceipt(String receiptId) {
+    _dismissSearchFocus();
+    Navigator.of(context).pushNamed(
+      '/receiptDetail',
+      arguments: receiptId,
+    );
+  }
+
+  Map<String, double> _totalsForSearchReceiptGroups(
+    Iterable<ItemResultReceiptGroup> receiptGroups,
+  ) {
+    final totals = <String, double>{};
+    for (final receiptGroup in receiptGroups) {
+      final currency = _normalizeCurrencyCode(receiptGroup.receipt.currency);
+      totals[currency] =
+          (totals[currency] ?? 0) + receiptGroup.displayedSubtotal;
+    }
+    return totals;
+  }
+
+  String _normalizeCurrencyCode(String? currencyCode) {
+    final normalized = currencyCode?.trim() ?? '';
+    return normalized.isEmpty ? 'AUD' : normalized;
+  }
+
+  String _formatCurrencyTotals(Map<String, double> totalsByCurrency) {
+    final sortedEntries = totalsByCurrency.entries
+        .where((entry) => entry.value != 0)
+        .toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+
+    if (sortedEntries.isEmpty) return '';
+
+    final formatter = NumberFormat('#,##0.##');
+    return sortedEntries
+        .map((entry) => '${entry.key} ${formatter.format(entry.value)}')
+        .join(' • ');
   }
 
   List<CategorisedItemView> _searchResults(
@@ -524,16 +705,6 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
     }).toList();
     results.sort((a, b) => b.date.compareTo(a.date));
     return results;
-  }
-
-  String _currencyForReceipt(List<Receipt> receipts, String receiptId) {
-    for (final receipt in receipts) {
-      if (receipt.id == receiptId) {
-        final normalizedCurrency = receipt.currency.trim();
-        return normalizedCurrency.isEmpty ? 'AUD' : normalizedCurrency;
-      }
-    }
-    return 'AUD';
   }
 
   String _formatCurrencyAmount(String currency, double amount) {
