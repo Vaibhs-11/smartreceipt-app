@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
-import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/repositories/receipt_repository.dart';
 import 'package:receiptnest/domain/repositories/user_repository.dart';
 import 'package:receiptnest/domain/services/subscription_service.dart';
@@ -14,7 +14,8 @@ import 'package:receiptnest/presentation/widgets/account_gate.dart';
 import 'package:receiptnest/services/connectivity_service.dart';
 
 void main() {
-  testWidgets('Free user without trial or downgrade does not show trial ended gate', (
+  testWidgets(
+      'Free user without trial or downgrade does not show trial ended gate', (
     WidgetTester tester,
   ) async {
     final freeProfile = AppUserProfile(
@@ -36,14 +37,14 @@ void main() {
           userRepositoryProvider.overrideWithValue(
             _FakeUserRepository(profile: freeProfile),
           ),
-          subscriptionServiceProvider.overrideWithValue(_FakeSubscriptionService()),
+          subscriptionServiceProvider
+              .overrideWithValue(_FakeSubscriptionService()),
           receiptRepositoryProviderOverride.overrideWithValue(
             _FakeReceiptRepository(),
           ),
           connectivityServiceProvider.overrideWithValue(
             _AlwaysConnectedConnectivityService(),
           ),
-          
         ],
         child: MaterialApp(
           home: const AccountGate(
@@ -64,12 +65,6 @@ class _FakeUserRepository implements UserRepository {
   _FakeUserRepository({required this.profile});
 
   final AppUserProfile profile;
-
-  @override
-  Future<void> applySubscriptionEntitlement(
-    SubscriptionEntitlement entitlement, {
-    AppUserProfile? currentProfile,
-  }) async {}
 
   @override
   Future<void> clearDowngradeRequired() async {}
@@ -129,17 +124,15 @@ class _FakeSubscriptionService implements SubscriptionService {
   }
 
   @override
-  Future<List<ProductDetails>> fetchProducts() async => const <ProductDetails>[];
+  Future<List<ProductDetails>> fetchProducts() async =>
+      const <ProductDetails>[];
 
   @override
-  Future<SubscriptionEntitlement> getCurrentEntitlement() async =>
-      const SubscriptionEntitlement(
-        tier: SubscriptionTier.free,
-        status: SubscriptionStatus.none,
-      );
+  Future<void> purchase(ProductDetails product,
+      {required String accountToken}) async {}
 
   @override
-  Future<void> purchase(ProductDetails product) async {}
+  Future<void> completePurchase(PurchaseDetails purchase) async {}
 
   @override
   Future<void> restorePurchases() async {}

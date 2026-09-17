@@ -11,14 +11,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receiptnest/main.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/data/services/auth/auth_service.dart';
+import 'package:receiptnest/presentation/providers/subscription_controller.dart';
+import 'subscription_controller_test.dart' show TestStore, TestBackend;
 
 void main() {
   testWidgets('App builds', (WidgetTester tester) async {
     final authService = _FakeAuthService();
+    final store = TestStore();
+    addTearDown(store.events.close);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           authServiceProvider.overrideWithValue(authService),
+          subscriptionControllerProvider.overrideWithValue(
+              SubscriptionController(
+                  service: store,
+                  backend: TestBackend(store.operations),
+                  currentUid: () => null,
+                  onVerified: () {},
+                  isSubscriptionProduct: (_) => false)),
         ],
         child: const SmartReceiptApp(),
       ),

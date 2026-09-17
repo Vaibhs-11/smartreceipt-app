@@ -638,25 +638,15 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Future<void> _restorePurchases() async {
     if (_restoringPurchases) return;
     setState(() => _restoringPurchases = true);
-    final subscriptionService = ref.read(subscriptionServiceProvider);
-    final userRepo = ref.read(userRepositoryProvider);
     try {
       final connectivity = ref.read(connectivityServiceProvider);
       if (!await ensureInternetConnection(context, connectivity)) return;
-      await subscriptionService.restorePurchases();
-      final profile = await userRepo.getCurrentUserProfile();
-      if (profile != null) {
-        final entitlement = await subscriptionService.getCurrentEntitlement();
-        await userRepo.applySubscriptionEntitlement(
-          entitlement,
-          currentProfile: profile,
-        );
-      }
-      ref.refresh(userProfileProvider);
+      final count = await ref.read(subscriptionControllerProvider).restore();
       if (!mounted) return;
-      showRootSnackBar(
-        const SnackBar(content: Text('Purchases restored.')),
-      );
+      showRootSnackBar(SnackBar(
+          content: Text(count > 0
+              ? 'Purchases restored. Premium is active.'
+              : 'No active subscription found. Your current plan is unchanged.')));
     } catch (e) {
       if (isNetworkException(e)) {
         if (mounted) {

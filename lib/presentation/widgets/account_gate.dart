@@ -65,22 +65,12 @@ class _AccountGateState extends ConsumerState<AccountGate>
       }
       final userRepo = ref.read(userRepositoryProvider);
       final receiptRepo = ref.read(receiptRepositoryProviderOverride);
-      final subscriptionService = ref.read(subscriptionServiceProvider);
       final now = DateTime.now().toUtc();
       final appConfig = await ref.read(appConfigProvider.future);
 
       final profile = await userRepo.getCurrentUserProfile();
       if (profile == null) {
         return;
-      }
-      try {
-        final entitlement = await subscriptionService.getCurrentEntitlement();
-        await userRepo.applySubscriptionEntitlement(
-          entitlement,
-          currentProfile: profile,
-        );
-      } catch (e) {
-        AppLogger.error('Subscription sync failed: $e');
       }
 
       final refreshedProfile = await userRepo.getCurrentUserProfile();
@@ -91,9 +81,10 @@ class _AccountGateState extends ConsumerState<AccountGate>
 
       final eligibility = AccountPolicies.evaluate(refreshedProfile, now);
       final trialExpired = eligibility.trialExpired;
-      final subscriptionExpired = AccountPolicies.isSubscriptionExpired(
-        refreshedProfile,
-      );
+      final subscriptionExpired = !eligibility.isPremiumEligible &&
+          AccountPolicies.isSubscriptionExpired(
+            refreshedProfile,
+          );
       final isExpired = trialExpired || subscriptionExpired;
       final expiryEventMarker = _buildExpiryEventMarker(
         profile: refreshedProfile,

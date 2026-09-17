@@ -28,7 +28,14 @@ export {parseReceiptWithOpenAI} from "./ocr/parseReceiptWithOpenAI";
 export {startTrial} from "./subscriptions/startTrial";
 export {
   syncSubscriptionEntitlement,
+  getSubscriptionAccountToken,
 } from "./subscriptions/syncSubscriptionEntitlement";
+export {appStoreNotifications, googlePlayNotifications} from
+  "./subscriptions/storeNotifications";
+import {hasLivePaidAccess} from "./subscriptions/subscriptionPolicy";
+export {reconcileSubscriptions} from "./subscriptions/reconcileSubscriptions";
+export {onPaidSubscriptionActivated} from
+  "./subscriptions/onPaidSubscriptionActivated";
 
 // ----------------------
 // Initialization
@@ -444,9 +451,7 @@ const asAccountStatus = (raw?: string | null): AccountStatus => {
 };
 
 const hasPaidEntitlement = (user: UserDoc): boolean => {
-  return user.subscriptionStatus === "active" &&
-    !!user.subscriptionTier &&
-    user.subscriptionTier !== "free";
+  return hasLivePaidAccess(user, Date.now());
 };
 
 const hasActiveTrial = (user: UserDoc, now: Date): boolean => {
@@ -465,11 +470,16 @@ const getEffectiveAccountState = (
 };
 
 const isExpired = (user: UserDoc, now: Date): boolean => {
+  if (hasPaidEntitlement(user) || hasActiveTrial(user, now)) return false;
   if (asAccountStatus(user.accountStatus || "free") === "trial" &&
     user.trialEndsAt) {
     return now > user.trialEndsAt.toDate();
   }
-  if (user.subscriptionStatus === "expired") return true;
+  if (user.subscriptionStatus === "expired" ||
+      (user.subscriptionStatus === "active" &&
+       !!user.subscriptionEndsAt && user.subscriptionEndsAt.toDate() <= now)) {
+    return true;
+  }
   return false;
 };
 
@@ -570,6 +580,10 @@ export const finalizeDowngradeToFree = onCall(async (request) => {
   const userData = userSnap.data() as UserDoc;
   const now = new Date();
   const expired = isExpired(userData, now);
+  if (hasPaidEntitlement(userData) || hasActiveTrial(userData, now)) {
+    throw new HttpsError("failed-precondition",
+      "Premium access is still active");
+  }
   if (!userData.trialDowngradeRequired && !expired) {
     throw new HttpsError(
       "failed-precondition",
@@ -596,38 +610,58 @@ export const finalizeDowngradeToFree = onCall(async (request) => {
     }
   }
 
-  const bucket = admin.storage().bucket();
-  for (const doc of allReceipts) {
-    if (keep.has(doc.id)) continue;
-    const data = doc.data();
-    const paths = [
-      data.originalImagePath,
-      data.processedImagePath,
-      data.imagePath,
-      data.fileUrl,
-    ];
-    for (const p of paths) {
-      const resolved = resolveStoragePath(p, uid, bucket.name);
-      if (resolved) {
-        try {
-          await bucket.file(resolved).delete({ignoreNotFound: true});
-        } catch (e) {
-          logger.warn("Failed to delete storage file", {resolved, e});
+  // Serialize destructive downgrade with subscription grants. Both transactions
+  // read this private account record, so only one operation can proceed.
+  const subscriptionAccount = firestore
+    .collection("subscriptionAccounts").doc(uid);
+  await firestore.runTransaction(async (tx) => {
+    const [latest, lock] = await Promise.all([
+      tx.get(userRef), tx.get(subscriptionAccount),
+    ]);
+    const current = latest.data() as UserDoc;
+    if (hasPaidEntitlement(current) || hasActiveTrial(current, new Date()) ||
+        lock.get("downgradeInProgress") === true) {
+      throw new HttpsError("failed-precondition",
+        "Account state changed; refresh");
+    }
+    tx.set(subscriptionAccount, {downgradeInProgress: true}, {merge: true});
+  });
+  try {
+    const bucket = admin.storage().bucket();
+    for (const doc of allReceipts) {
+      if (keep.has(doc.id)) continue;
+      const data = doc.data();
+      const paths = [
+        data.originalImagePath,
+        data.processedImagePath,
+        data.imagePath,
+        data.fileUrl,
+      ];
+      for (const p of paths) {
+        const resolved = resolveStoragePath(p, uid, bucket.name);
+        if (resolved) {
+          try {
+            await bucket.file(resolved).delete({ignoreNotFound: true});
+          } catch (e) {
+            logger.warn("Failed to delete storage file", {resolved, e});
+          }
         }
       }
+      await doc.ref.delete();
     }
-    await doc.ref.delete();
-  }
 
-  await userRef.set(
-    {
-      accountStatus: "free",
-      trialDowngradeRequired: false,
-      subscriptionTier: "free",
-      subscriptionStatus: userData.subscriptionStatus ?? "none",
-    },
-    {merge: true}
-  );
+    await userRef.set(
+      {
+        accountStatus: "free",
+        trialDowngradeRequired: false,
+        subscriptionTier: "free",
+        subscriptionStatus: userData.subscriptionStatus ?? "none",
+      },
+      {merge: true}
+    );
+  } finally {
+    await subscriptionAccount.set({downgradeInProgress: false}, {merge: true});
+  }
 
   return {
     kept: Array.from(keep),

@@ -1,5 +1,8 @@
 // providers.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:receiptnest/data/services/subscription_backend.dart';
+import 'package:receiptnest/presentation/providers/subscription_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:receiptnest/data/repositories/firebase/firebase_account_repository.dart';
 import 'package:receiptnest/data/repositories/firebase/firebase_collection_repository.dart';
@@ -87,6 +90,28 @@ final Provider<SubscriptionService> subscriptionServiceProvider =
 final Provider<AccountRepository> accountRepositoryProvider =
     Provider<AccountRepository>((ref) {
   return FirebaseAccountRepository();
+});
+
+final subscriptionControllerProvider =
+    ChangeNotifierProvider<SubscriptionController>((ref) {
+  final controller = SubscriptionController(
+    service: ref.read(subscriptionServiceProvider),
+    backend: FirebaseSubscriptionBackend(),
+    currentUid: () {
+      final user = FirebaseAuth.instance.currentUser;
+      return user == null || user.isAnonymous ? null : user.uid;
+    },
+    onVerified: () {
+      ref.refresh(userProfileProvider);
+    },
+    isSubscriptionProduct: (id) =>
+        SubscriptionProductIds.tierForProduct(id) != null,
+  );
+  final auth = FirebaseAuth.instance
+      .authStateChanges()
+      .listen((_) => controller.accountChanged());
+  ref.onDispose(auth.cancel);
+  return controller;
 });
 
 final userProfileProvider = FutureProvider<AppUserProfile?>((ref) async {

@@ -27,7 +27,9 @@ class AccountPolicies {
 
   static AccountEligibility evaluate(AppUserProfile user, DateTime nowUtc) {
     final isPaid = user.subscriptionStatus == SubscriptionStatus.active &&
-        user.subscriptionTier.isPaid;
+        user.subscriptionTier.isPaid &&
+        (user.subscriptionEndsAt == null ||
+            nowUtc.isBefore(user.subscriptionEndsAt!));
 
     final trialEndsAt = user.trialEndsAt;
     final isActiveTrial = !isPaid &&
@@ -39,9 +41,8 @@ class AccountPolicies {
         trialEndsAt != null &&
         !nowUtc.isBefore(trialEndsAt);
 
-    final trialDaysRemaining = isActiveTrial
-        ? trialEndsAt.difference(nowUtc).inDays.clamp(0, 999)
-        : 0;
+    final trialDaysRemaining =
+        isActiveTrial ? trialEndsAt.difference(nowUtc).inDays.clamp(0, 999) : 0;
 
     final effectiveState = isPaid
         ? EffectiveAccountState.paid
@@ -67,13 +68,18 @@ class AccountPolicies {
     return evaluate(user, nowUtc).isPaid;
   }
 
-  static bool isSubscriptionExpired(AppUserProfile user) {
-    return user.subscriptionStatus == SubscriptionStatus.expired;
+  static bool isSubscriptionExpired(AppUserProfile user, [DateTime? nowUtc]) {
+    return user.subscriptionStatus == SubscriptionStatus.expired ||
+        (user.subscriptionStatus == SubscriptionStatus.active &&
+            user.subscriptionEndsAt != null &&
+            !(nowUtc ?? DateTime.now().toUtc())
+                .isBefore(user.subscriptionEndsAt!));
   }
 
   static bool isExpired(AppUserProfile user, DateTime nowUtc) {
     final eligibility = evaluate(user, nowUtc);
-    return eligibility.trialExpired || isSubscriptionExpired(user);
+    return !eligibility.isPremiumEligible &&
+        (eligibility.trialExpired || isSubscriptionExpired(user, nowUtc));
   }
 
   static bool downgradeRequired(
@@ -82,6 +88,7 @@ class AccountPolicies {
     DateTime nowUtc,
     AppConfig config,
   ) {
+    if (evaluate(user, nowUtc).isPremiumEligible) return false;
     if (user.trialDowngradeRequired) return true;
     if (!isExpired(user, nowUtc)) return false;
     return receiptCount > config.freeReceiptLimit;
