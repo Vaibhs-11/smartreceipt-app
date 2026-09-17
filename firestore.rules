@@ -16,7 +16,9 @@ service cloud.firestore {
     function isPremium(userId) {
       let user = userDoc(userId).data;
       return user.accountStatus == 'trial' ||
-          user.subscriptionStatus == 'active';
+          (user.subscriptionStatus == 'active' &&
+           (!('subscriptionEndsAt' in user) || user.subscriptionEndsAt == null ||
+            user.subscriptionEndsAt > request.time));
     }
 
     function collectionExists(userId, collectionId) {
@@ -70,6 +72,17 @@ service cloud.firestore {
     match /config/{document} {
       allow read: if isSignedIn();
       allow write: if false;
+    }
+
+    // Purchase tokens and ownership records are only accessible to the backend.
+    match /subscriptionAccounts/{document} {
+      allow read, write: if false;
+    }
+    match /subscriptionAccountTokens/{document} {
+      allow read, write: if false;
+    }
+    match /storeSubscriptions/{document} {
+      allow read, write: if false;
     }
 
     match /users/{userId} {

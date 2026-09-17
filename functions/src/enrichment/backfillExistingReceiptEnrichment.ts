@@ -16,6 +16,7 @@ const isEnrichmentInProgressOrDone = (
 
 export const enqueueEnrichmentForExistingReceipts = async (
   uid: string,
+  retryFailures = false,
 ): Promise<void> => {
   const receiptsSnapshot = await admin
     .firestore()
@@ -56,4 +57,7 @@ export const enqueueEnrichmentForExistingReceipts = async (
     skipped,
     failed,
   });
+  if (retryFailures && failed > 0) {
+    throw new Error("Receipt enrichment backfill requires retry");
+  }
 };

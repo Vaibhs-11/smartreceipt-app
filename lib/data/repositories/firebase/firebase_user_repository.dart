@@ -3,7 +3,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/domain/entities/app_user.dart';
-import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
 import 'package:receiptnest/domain/exceptions/trial_exception.dart';
 import 'package:receiptnest/domain/repositories/user_repository.dart';
 
@@ -80,38 +79,6 @@ class FirebaseUserRepository implements UserRepository {
       }
       rethrow;
     }
-  }
-
-  @override
-  Future<void> applySubscriptionEntitlement(
-    SubscriptionEntitlement entitlement, {
-    AppUserProfile? currentProfile,
-  }) async {
-    final uid = _uid();
-    if (uid == null) {
-      AppLogger.log(
-          'Skipping applySubscriptionEntitlement: user not logged in.');
-      return;
-    }
-
-    final isCurrentPaidActive = currentProfile != null &&
-        currentProfile.subscriptionStatus == SubscriptionStatus.active &&
-        currentProfile.subscriptionTier.isPaid;
-
-    if (entitlement.status == SubscriptionStatus.none && isCurrentPaidActive) {
-      return;
-    }
-
-    final HttpsCallable callable =
-        _functions.httpsCallable('syncSubscriptionEntitlement');
-    await callable.call<Map<String, dynamic>>(<String, Object?>{
-      'tier': entitlement.tier.asString,
-      'status': entitlement.status.asString,
-      'source':
-          (entitlement.source ?? currentProfile?.subscriptionSource)?.asString,
-      'updatedAtMillis': (entitlement.updatedAt ?? DateTime.now().toUtc())
-          .millisecondsSinceEpoch,
-    });
   }
 
   @override

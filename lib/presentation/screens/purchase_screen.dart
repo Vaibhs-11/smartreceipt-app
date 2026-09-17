@@ -1,10 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:receiptnest/domain/entities/subscription_entitlement.dart';
+import 'package:receiptnest/presentation/providers/app_config_provider.dart';
 import 'package:receiptnest/domain/services/subscription_service.dart';
 import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
 import 'package:receiptnest/presentation/providers/providers.dart';
@@ -30,37 +29,20 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   bool _loading = true;
   String? _message;
   List<ProductDetails> _products = <ProductDetails>[];
-  StreamSubscription<List<PurchaseDetails>>? _subscription;
 
   @override
   void initState() {
     super.initState();
-    final subscriptionService = ref.read(subscriptionServiceProvider);
-    _subscription = subscriptionService.purchaseStream.listen(
-      _handlePurchaseUpdates,
-      onError: (Object error) {
-        CrashlyticsLogger.recordNonFatal(
-          reason: 'BILLING_PURCHASE_STREAM_ERROR',
-          error: error,
-          context: {'operation': 'purchaseStream'},
-        );
-        if (!mounted) return;
-        setState(() {
-          _message = _billingUnavailableMessage;
-        });
-      },
-    );
     _loadProducts();
   }
 
   @override
-  void dispose() {
-    _subscription?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final controller = ref.watch(subscriptionControllerProvider);
+    final config = ref.watch(appConfigProvider).asData?.value;
+    _processing = controller.busy || controller.hasUnconfirmedPurchase;
+    final salesEnabled = config?.enablePaidTiers == true &&
+        config?.enableSubscriptionPurchases == true;
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -83,6 +65,9 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
               const Center(child: CircularProgressIndicator())
             else if (_products.isEmpty)
               const Text('Subscriptions are not available right now.')
+            else if (!salesEnabled)
+              const Text(
+                  'New subscriptions are currently unavailable. Existing access is unchanged.')
             else
               for (final product in _products)
                 _planTile(
@@ -123,12 +108,12 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            if (_message != null)
+            if (controller.message != null || _message != null)
               Text(
-                _message!,
+                controller.message ?? _message!,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
-            if (_canExitPurchase()) ...[
+            if (!controller.busy) ...[
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -203,7 +188,6 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
   }
 
   Future<void> _purchase(ProductDetails product) async {
-    final subscriptionService = ref.read(subscriptionServiceProvider);
     setState(() {
       _processing = true;
       _message = null;
@@ -216,7 +200,11 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
         }
         return;
       }
-      await subscriptionService.purchase(product);
+      final config = await ref.read(appConfigProvider.future);
+      if (!config.enablePaidTiers || !config.enableSubscriptionPurchases) {
+        throw StateError('New subscriptions unavailable');
+      }
+      await ref.read(subscriptionControllerProvider).purchase(product);
     } catch (e) {
       if (isNetworkException(e)) {
         if (mounted) {
@@ -236,83 +224,6 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
         _processing = false;
       });
     }
-  }
-
-  Future<void> _handlePurchaseUpdates(
-    List<PurchaseDetails> purchases,
-  ) async {
-    if (purchases.isEmpty) return;
-    for (final purchase in purchases) {
-      if (purchase.status == PurchaseStatus.error) {
-        await CrashlyticsLogger.recordNonFatal(
-          reason: 'BILLING_PURCHASE_STATUS_ERROR',
-          error: purchase.error ?? StateError('Unknown purchase error'),
-          context: {'productId': purchase.productID},
-        );
-        setState(() {
-          _message = _billingUnavailableMessage;
-          _processing = false;
-        });
-        continue;
-      }
-      if (purchase.status == PurchaseStatus.canceled) {
-        setState(() {
-          _message = _billingUnavailableMessage;
-          _processing = false;
-        });
-        continue;
-      }
-      if (purchase.status == PurchaseStatus.purchased ||
-          purchase.status == PurchaseStatus.restored) {
-        await _syncEntitlementAndExit();
-      }
-
-      if (purchase.pendingCompletePurchase) {
-        await InAppPurchase.instance.completePurchase(purchase);
-      }
-    }
-  }
-
-  Future<void> _syncEntitlementAndExit() async {
-    final subscriptionService = ref.read(subscriptionServiceProvider);
-    final userRepo = ref.read(userRepositoryProvider);
-    try {
-      final connectivity = ref.read(connectivityServiceProvider);
-      if (!await ensureInternetConnection(context, connectivity)) {
-        if (mounted) {
-          setState(() => _processing = false);
-        }
-        return;
-      }
-      final profile = await userRepo.getCurrentUserProfile();
-      if (profile != null) {
-        final entitlement = await subscriptionService.getCurrentEntitlement();
-        await userRepo.applySubscriptionEntitlement(
-          entitlement,
-          currentProfile: profile,
-        );
-      }
-      ref.refresh(userProfileProvider);
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } catch (e) {
-      if (isNetworkException(e)) {
-        if (mounted) {
-          await showNoInternetDialog(context);
-          setState(() => _processing = false);
-        }
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _message = _billingUnavailableMessage;
-        _processing = false;
-      });
-    }
-  }
-
-  bool _canExitPurchase() {
-    return !_processing && (_products.isEmpty || _message != null);
   }
 
   void _exitToHome() {
@@ -355,8 +266,8 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
       child: Text(
         label,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          decoration: TextDecoration.underline,
-        ),
+              decoration: TextDecoration.underline,
+            ),
       ),
     );
   }

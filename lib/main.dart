@@ -86,6 +86,8 @@ class _SmartReceiptAppState extends ConsumerState<SmartReceiptApp> {
   @override
   void initState() {
     super.initState();
+    // Listen independently of navigation; billing never gates free/trial startup.
+    ref.read(subscriptionControllerProvider);
     _configureNativeShareChannel();
     _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen((value) {
       if (value.isEmpty) return;

@@ -4,6 +4,7 @@ import {
   enqueueEnrichmentForExistingReceipts,
 } from "../enrichment/backfillExistingReceiptEnrichment";
 import {logEvent} from "../analytics/log_event";
+import {hasLivePaidAccess} from "./subscriptionPolicy";
 
 const TRIAL_DAYS = 7;
 const MILLIS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -51,6 +52,10 @@ export const startTrial = onCall(async (request) => {
     }
 
     const userData = (userSnap.data() ?? {}) as UserDoc;
+    if (hasLivePaidAccess(userSnap.data() ?? {}, nowDate.getTime())) {
+      throw new HttpsError("failed-precondition",
+        "Subscription is already active");
+    }
     const trialUsed = userData.trialUsed === true;
     const accountStatus = (userData.accountStatus ?? "free").toLowerCase();
 

@@ -1,7 +1,7 @@
 name: receiptnest
 description: A mobile-first receipt scanning & organisation app
 publish_to: "none"
-version: 1.6.7+36
+version: 1.6.8+37
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -19,6 +19,7 @@ dependencies:
   intl: ^0.20.2
   url_launcher: ^6.3.0
   in_app_purchase: ^3.3.0
+  in_app_purchase_storekit: ^0.4.7
 
   # State management & config
   flutter_riverpod: ^1.0.0

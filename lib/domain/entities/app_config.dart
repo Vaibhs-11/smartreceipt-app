@@ -5,11 +5,13 @@ class AppConfig {
     required this.freeReceiptLimit,
     required this.premiumReceiptLimit,
     required this.enablePaidTiers,
+    this.enableSubscriptionPurchases = false,
   });
 
   final int freeReceiptLimit;
   final int premiumReceiptLimit;
   final bool enablePaidTiers;
+  final bool enableSubscriptionPurchases;
 
   factory AppConfig.fromFirestore(Map<String, dynamic> data) {
     final freeLimitRaw = data['freeReceiptLimit'];
@@ -27,6 +29,7 @@ class AppConfig {
       freeReceiptLimit: freeLimitRaw.toInt(),
       premiumReceiptLimit: (data['premiumReceiptLimit'] as num?)?.toInt() ?? -1,
       enablePaidTiers: data['enablePaidTiers'] as bool? ?? true,
+      enableSubscriptionPurchases: data['enableSubscriptionPurchases'] == true,
     );
   }
 }
