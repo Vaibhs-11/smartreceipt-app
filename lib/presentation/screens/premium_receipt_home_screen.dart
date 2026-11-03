@@ -24,6 +24,7 @@ import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/presentation/widgets/collection_receipt_assignment_sheet.dart';
 import 'package:receiptnest/presentation/widgets/export_ready_sheet.dart';
+import 'package:receiptnest/presentation/widgets/share_receipt_demo_prompt_card.dart';
 import 'package:receiptnest/presentation/widgets/smart_prompt_card.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 
@@ -732,6 +733,10 @@ class _PremiumReceiptHomeScreenState
               return Column(
                 children: [
                   const SizedBox(height: 8),
+                  ShareReceiptDemoPromptCard(
+                    userId: ref.watch(currentUidProvider),
+                    hasSavedReceipt: receipts.isNotEmpty,
+                  ),
                   _buildSearchControls(filters),
                   _buildCategoryChipBar(),
                   _buildActiveFilters(filters),
