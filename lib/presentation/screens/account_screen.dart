@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:receiptnest/core/services/analytics_service.dart';
+import 'package:receiptnest/core/services/share_receipt_demo_preferences.dart';
 import 'package:receiptnest/core/utils/app_logger.dart';
 import 'package:receiptnest/data/services/auth/auth_service.dart';
 import 'package:receiptnest/domain/entities/app_config.dart';
@@ -15,6 +20,7 @@ import 'package:receiptnest/presentation/providers/providers.dart';
 import 'package:receiptnest/presentation/providers/receipt_search_filters_provider.dart';
 import 'package:receiptnest/presentation/routes/app_routes.dart';
 import 'package:receiptnest/presentation/screens/purchase_screen.dart';
+import 'package:receiptnest/presentation/screens/share_receipt_demo_screen.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 
@@ -63,6 +69,24 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         (_) => false,
       );
     });
+  }
+
+  Future<void> _openShareReceiptDemo() async {
+    unawaited(AnalyticsService.logShareReceiptDemoOpened(source: 'account'));
+    final completed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const ShareReceiptDemoScreen(),
+      ),
+    );
+    if (completed != true) return;
+
+    final userId = ref.read(currentUidProvider);
+    if (userId != null) {
+      await ShareReceiptDemoPreferences.markCompleted(userId);
+    }
+    unawaited(
+      AnalyticsService.logShareReceiptDemoCompleted(source: 'account'),
+    );
   }
 
   @override
@@ -570,6 +594,19 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.ios_share_outlined),
+                title: const Text('How to share a receipt'),
+                subtitle: const Text(
+                  'Save from Photos, Files or Mail',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _openShareReceiptDemo,
+              ),
+              const Divider(),
+            ],
             TextButton.icon(
               style: TextButton.styleFrom(
                 foregroundColor: Colors.red.shade700,

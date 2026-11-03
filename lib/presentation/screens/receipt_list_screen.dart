@@ -19,6 +19,7 @@ import 'package:receiptnest/presentation/screens/create_collection_screen.dart';
 import 'package:receiptnest/presentation/utils/connectivity_guard.dart';
 import 'package:receiptnest/presentation/utils/root_scaffold_messenger.dart';
 import 'package:receiptnest/presentation/widgets/export_ready_sheet.dart';
+import 'package:receiptnest/presentation/widgets/share_receipt_demo_prompt_card.dart';
 import 'package:receiptnest/presentation/widgets/smart_prompt_card.dart';
 import 'package:receiptnest/services/receipt_image_source_service.dart';
 import 'package:receiptnest/domain/models/categorised_item_view.dart';
@@ -256,6 +257,10 @@ class _ReceiptListScreenState extends ConsumerState<ReceiptListScreen> {
           return Column(
             children: [
               const SizedBox(height: 8),
+              ShareReceiptDemoPromptCard(
+                userId: ref.watch(currentUidProvider),
+                hasSavedReceipt: receipts.isNotEmpty,
+              ),
               _buildSearchControls(filters),
               _buildActiveFilters(filters),
               if (shouldShowTaxExportPrompt)

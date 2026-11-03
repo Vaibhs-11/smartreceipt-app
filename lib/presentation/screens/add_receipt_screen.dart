@@ -11,6 +11,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:receiptnest/core/constants/app_constants.dart';
+import 'package:receiptnest/core/services/analytics_service.dart';
+import 'package:receiptnest/core/services/share_receipt_demo_preferences.dart';
 import 'package:receiptnest/core/theme/app_colors.dart';
 import 'package:receiptnest/core/firebase/crashlytics_logger.dart';
 import 'package:receiptnest/core/utils/app_logger.dart';
@@ -830,6 +832,14 @@ class _AddReceiptScreenState extends ConsumerState<AddReceiptScreen> {
       if (!(_formKey.currentState?.validate() ?? false)) return;
 
       if (!await _saveCurrentReceipt()) return;
+
+      if (widget.isFromShare) {
+        final userId = FirebaseAuth.instance.currentUser?.uid;
+        if (userId != null) {
+          await ShareReceiptDemoPreferences.markShareUsed(userId);
+          unawaited(AnalyticsService.logReceiptSavedFromShare());
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();

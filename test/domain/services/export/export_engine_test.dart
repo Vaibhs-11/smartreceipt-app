@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:receiptnest/data/services/export/on_device_receipt_export_service.dart';
 import 'package:receiptnest/domain/entities/receipt.dart';
@@ -11,6 +12,8 @@ import 'package:receiptnest/domain/services/export/export_engine.dart';
 import 'package:receiptnest/domain/services/export/export_file_namer.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('OnDeviceExportEngine', () {
     late Directory tempRoot;
     late OnDeviceExportEngine engine;
@@ -88,19 +91,20 @@ void main() {
           ZipDecoder().decodeBytes(await File(result.zipPath).readAsBytes());
       final names = archive.files.map((file) => file.name).toList()..sort();
 
-      expect(names, contains('report.pdf'));
-      expect(names, contains('receipts.csv'));
+      const folder = 'april_trip_20260416_103000';
+      expect(names, contains('$folder/report.pdf'));
+      expect(names, contains('$folder/receipts.csv'));
       expect(
         names,
-        contains('images/2026-04-02_office_works_23.40_r1.jpg'),
+        contains('$folder/2026-04-02_office_works_23.40_r1.jpg'),
       );
       expect(
         names,
-        contains('images/2026-04-05_airline_199.99_r2.pdf'),
+        contains('$folder/2026-04-05_airline_199.99_r2.pdf'),
       );
     });
 
-    test('search export creates zip with images only', () async {
+    test('search export creates tax items csv and receipt files', () async {
       final result = await engine.generate(
         receipts: <Receipt>[
           _receipt(id: 'r1', merchant: 'Cafe', total: 8.5),
@@ -112,8 +116,15 @@ void main() {
           ZipDecoder().decodeBytes(await File(result.zipPath).readAsBytes());
       final names = archive.files.map((file) => file.name).toList();
 
-      expect(names, hasLength(1));
-      expect(names.single, 'images/2026-04-16_cafe_8.50_r1.jpg');
+      expect(names, hasLength(2));
+      expect(
+        names,
+        contains('tax_evidence_20260416_103000/Tax_Items.csv'),
+      );
+      expect(
+        names,
+        contains('tax_evidence_20260416_103000/2026-04-16_cafe_8.50_r1.jpg'),
+      );
     });
 
     test('filenames are human readable sortable and unique', () async {
@@ -131,8 +142,13 @@ void main() {
 
       final archive =
           ZipDecoder().decodeBytes(await File(result.zipPath).readAsBytes());
-      final imageName = archive.files.single.name;
-      expect(imageName, 'images/2026-01-09_my_store_pty_ltd_10.00_abc_123.jpg');
+      final imageName = archive.files
+          .map((file) => file.name)
+          .singleWhere((name) => name.endsWith('.jpg'));
+      expect(
+        imageName,
+        'search_20260416_103000/2026-01-09_my_store_pty_ltd_10.00_abc_123.jpg',
+      );
     });
 
     test('export respects receipts list passed from caller', () async {
@@ -146,7 +162,10 @@ void main() {
       final archive =
           ZipDecoder().decodeBytes(await File(result.zipPath).readAsBytes());
       final names = archive.files.map((file) => file.name).toList();
-      expect(names, contains('images/2026-04-16_subset_12.00_r2.pdf'));
+      expect(
+        names,
+        contains('subset_20260416_103000/2026-04-16_subset_12.00_r2.pdf'),
+      );
       expect(names.join(','), isNot(contains('r1')));
     });
 
@@ -164,9 +183,13 @@ void main() {
 
       final archive =
           ZipDecoder().decodeBytes(await File(result.zipPath).readAsBytes());
-      expect(archive.files.map((file) => file.name), <String>[
-        'images/2026-04-16_valid_7.50_r1.jpg',
-      ]);
+      expect(
+        archive.files.map((file) => file.name),
+        containsAll(<String>[
+          'partial_20260416_103000/Tax_Items.csv',
+          'partial_20260416_103000/2026-04-16_valid_7.50_r1.jpg',
+        ]),
+      );
     });
   });
 
@@ -196,6 +219,7 @@ void main() {
     final result = await service.exportAndShare(
       receipts: <Receipt>[_receipt(id: 'r1', merchant: 'Cafe')],
       context: const ExportContext.search(title: 'tax evidence'),
+      shareContext: null,
     );
 
     expect(shareLauncher.sharedPaths, <String>[result.zipPath]);
@@ -279,10 +303,11 @@ class _FakeShareLauncher implements ExportShareLauncher {
 
   @override
   Future<void> share({
-    required String path,
+    required String filePath,
     required String fileName,
+    required BuildContext? context,
   }) async {
-    sharedPaths.add(path);
+    sharedPaths.add(filePath);
     sharedFileNames.add(fileName);
   }
 }
